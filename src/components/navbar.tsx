@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -9,6 +9,18 @@ function NavbarContent() {
   const searchParams = useSearchParams();
   const projectDashboardMode = pathname.startsWith("/project");
   const homeTab = searchParams.get("tab") === "friends" ? "friends" : "projects";
+  const [userInitials, setUserInitials] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronAPI?.settings) {
+      window.electronAPI.settings.get().then((s) => {
+        const settings = s as unknown as Record<string, unknown>;
+        if (settings.displayName) {
+          const initials = (settings.displayName as string).split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
+          setUserInitials(initials);
+        }
+      }).catch(() => {});
+    }
+  }, []);
 
   if (projectDashboardMode) {
     return null;
@@ -46,7 +58,7 @@ function NavbarContent() {
         </div>
 
         <Link href="/settings" className="flex h-9 w-9 items-center justify-center rounded-full border border-black/[0.06] bg-white/72 text-[10px] font-semibold text-ink shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition hover:bg-white hover:text-black dark:border-white/[0.08] dark:bg-white/[0.08] dark:text-[var(--fg)] dark:shadow-none dark:hover:bg-white/[0.12]">
-          CM
+          {userInitials || "CB"}
         </Link>
       </div>
     </nav>

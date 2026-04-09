@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ProjectSidebar from "@/components/project-sidebar";
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
@@ -171,6 +171,607 @@ function ProgressRing({ progress, size = 130 }: { progress: number; size?: numbe
   );
 }
 
+/* ─── action items ─── */
+
+type ActionItem = {
+  id: string;
+  title: string;
+  description: string;
+  category: "setup" | "config" | "deploy" | "manual";
+  completed: boolean;
+  helpPrompt: string;
+  taskName?: string;
+};
+
+const categoryIcon: Record<ActionItem["category"], { bg: string; icon: string }> = {
+  setup: { bg: "bg-blue-500/15 text-blue-400", icon: "⚙" },
+  config: { bg: "bg-amber-500/15 text-amber-400", icon: "🔑" },
+  deploy: { bg: "bg-emerald-500/15 text-emerald-400", icon: "🚀" },
+  manual: { bg: "bg-purple-500/15 text-purple-400", icon: "📋" },
+};
+
+/* ─── markdown renderer for help responses ─── */
+
+function RenderMarkdown({ text }: { text: string }) {
+  const blocks = text.split(/(```[\s\S]*?```)/g);
+  return (
+    <div className="space-y-3 text-[13px] leading-[1.75] theme-fg">
+      {blocks.map((block, bi) => {
+        if (block.startsWith("```") && block.endsWith("```")) {
+          const inner = block.slice(3, -3);
+          const firstNl = inner.indexOf("\n");
+          const lang = firstNl > 0 ? inner.slice(0, firstNl).trim() : "";
+          const code = firstNl > 0 ? inner.slice(firstNl + 1) : inner;
+          return (
+            <div key={bi} className="overflow-hidden rounded-xl bg-[#0d1117] ring-1 ring-white/[0.06]">
+              {lang ? (
+                <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#161b22] px-4 py-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">{lang}</span>
+                  <button type="button" onClick={() => { try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[10px] font-medium text-white/30 transition hover:text-white/60">Copy</button>
+                </div>
+              ) : null}
+              <pre className="overflow-x-auto px-4 py-3 font-mono text-[12px] leading-[1.7] text-green-300/90 selection:bg-green-600/30"><code>{code}</code></pre>
+            </div>
+          );
+        }
+
+        // Split into paragraphs by double newlines
+        const paragraphs = block.split(/\n{2,}/);
+        return paragraphs.map((para, pi) => {
+          const trimmed = para.trim();
+          if (!trimmed) return null;
+
+          // Headings
+          const h3Match = trimmed.match(/^###\s+(.+)/);
+          if (h3Match) return <h4 key={`${bi}-${pi}`} className="text-[14px] font-bold theme-fg mt-1">{h3Match[1]}</h4>;
+          const h2Match = trimmed.match(/^##\s+(.+)/);
+          if (h2Match) return <h3 key={`${bi}-${pi}`} className="text-[15px] font-bold theme-fg mt-1">{h2Match[1]}</h3>;
+          const h1Match = trimmed.match(/^#\s+(.+)/);
+          if (h1Match) return <h2 key={`${bi}-${pi}`} className="text-[16px] font-bold theme-fg mt-1">{h1Match[1]}</h2>;
+
+          // Ordered / unordered list
+          const lines = trimmed.split("\n");
+          const isList = lines.every((l) => /^\s*[-*•]\s|^\s*\d+\.\s/.test(l) || !l.trim());
+          if (isList) {
+            return (
+              <ul key={`${bi}-${pi}`} className="space-y-1.5 pl-1">
+                {lines.filter((l) => l.trim()).map((l, li) => {
+                  const cleaned = l.replace(/^\s*[-*•]\s*/, "").replace(/^\s*\d+\.\s*/, "");
+                  return (
+                    <li key={li} className="flex items-start gap-2.5">
+                      <span className="mt-[9px] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-violet-400/60" />
+                      <span className="min-w-0"><InlineMarkdown text={cleaned} /></span>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          }
+
+          // Default paragraph
+          return <p key={`${bi}-${pi}`}><InlineMarkdown text={trimmed} /></p>;
+        });
+      })}
+    </div>
+  );
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  // Handle bold, inline code, and links
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return <strong key={i} className="font-semibold theme-fg">{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return <code key={i} className="rounded-md bg-black/[0.06] px-1.5 py-0.5 font-mono text-[12px] dark:bg-white/[0.08]">{part.slice(1, -1)}</code>;
+        }
+        const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return <span key={i} className="text-violet-400 underline decoration-violet-400/30">{linkMatch[1]}</span>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+function ActionItemsSection({ projectId }: { projectId: string }) {
+  const [items, setItems] = useState<ActionItem[]>([]);
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [helpLoading, setHelpLoading] = useState<string | null>(null);
+  const [helpResponses, setHelpResponses] = useState<Record<string, string>>({});
+  const [helpStreaming, setHelpStreaming] = useState<string | null>(null);
+  const [chatInputs, setChatInputs] = useState<Record<string, string>>({});
+  const [chatHistories, setChatHistories] = useState<Record<string, Array<{ role: "user" | "agent"; text: string }>>>({});
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const [confirmingDoneId, setConfirmingDoneId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const [newItemDesc, setNewItemDesc] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState<ActionItem["category"]>("manual");
+  const [newItemTask, setNewItemTask] = useState("");
+  const helpStreamRef = useRef("");
+  const scanStreamRef = useRef("");
+  const [isCheckingItems, setIsCheckingItems] = useState(false);
+
+  const handleCheckForItems = async () => {
+    if (!window.electronAPI?.project?.sendSoloMessage) return;
+    setIsCheckingItems(true);
+    scanStreamRef.current = "";
+
+    // Listen for streamed scan output
+    const stopScan = window.electronAPI.project.onAgentOutput((event) => {
+      if (event.scope !== "solo-chat") return;
+      scanStreamRef.current += event.chunk ?? "";
+    });
+
+    try {
+      await window.electronAPI.project.sendSoloMessage({
+        projectId,
+        prompt: `Scan this project and list action items the developer must complete manually — things an AI cannot do (e.g. creating accounts, adding API keys, configuring services, manual approvals). Return ONLY a JSON array of objects with these fields: title (string), description (string), category ("setup" | "config" | "deploy" | "manual"), helpPrompt (string — a question the developer can ask the AI for guidance), taskName (string — short group label). Return at most 8 items. Output ONLY the JSON array, no markdown fences.`,
+      });
+    } catch { /* */ }
+
+    stopScan();
+
+    // Parse the AI response into items
+    try {
+      const raw = scanStreamRef.current.trim();
+      // Extract JSON array even if wrapped in markdown fences
+      const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/)?.[0];
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch) as Array<{
+          title: string;
+          description: string;
+          category: ActionItem["category"];
+          helpPrompt: string;
+          taskName?: string;
+        }>;
+        const existingTitles = new Set(items.map((i) => i.title.toLowerCase()));
+        const newItems: ActionItem[] = parsed
+          .filter((p) => p.title && !existingTitles.has(p.title.toLowerCase()))
+          .map((p, i) => ({
+            id: `ai-scan-${Date.now()}-${i}`,
+            title: p.title,
+            description: p.description || "",
+            category: (["setup", "config", "deploy", "manual"] as const).includes(p.category) ? p.category : "manual",
+            completed: false,
+            helpPrompt: p.helpPrompt || `Help me with: ${p.title}`,
+            taskName: p.taskName,
+          }));
+        if (newItems.length > 0) {
+          setItems((cur) => [...cur, ...newItems]);
+        }
+      }
+    } catch { /* parsing failed — ignore */ }
+
+    setIsCheckingItems(false);
+  };
+
+  const visibleItems = items.filter((i) => !removedIds.has(i.id));
+  const completedCount = visibleItems.filter((i) => i.completed).length;
+  const totalCount = visibleItems.length;
+  const allDone = totalCount > 0 && completedCount === totalCount;
+
+  const toggleComplete = (id: string) => {
+    setItems((cur) => cur.map((i) => (i.id === id ? { ...i, completed: !i.completed } : i)));
+  };
+
+  const markDoneAndRemove = (id: string) => {
+    setItems((cur) => cur.map((i) => (i.id === id ? { ...i, completed: true } : i)));
+    setRemovedIds((cur) => new Set(cur).add(id));
+    if (expandedItem === id) setExpandedItem(null);
+    setConfirmingDoneId(null);
+  };
+
+  const handleAddItem = () => {
+    if (!newItemTitle.trim()) return;
+    const id = `ai-custom-${Date.now()}`;
+    const item: ActionItem = {
+      id,
+      title: newItemTitle.trim(),
+      description: newItemDesc.trim() || "Custom action item.",
+      category: newItemCategory,
+      completed: false,
+      helpPrompt: `Help me with: ${newItemTitle.trim()}. ${newItemDesc.trim()}`,
+      taskName: newItemTask.trim() || undefined,
+    };
+    setItems((cur) => [...cur, item]);
+    setNewItemTitle("");
+    setNewItemDesc("");
+    setNewItemCategory("manual");
+    setNewItemTask("");
+    setShowAddForm(false);
+  };
+
+  // Listen for streaming output when help is loading
+  useEffect(() => {
+    if (!helpStreaming || !window.electronAPI?.project) return;
+    const itemId = helpStreaming;
+    helpStreamRef.current = "";
+    const stop = window.electronAPI.project.onAgentOutput((event) => {
+      if (event.scope !== "solo-chat") return;
+      const chunk = event.chunk ?? "";
+      if (chunk) {
+        helpStreamRef.current += chunk;
+        setHelpResponses((prev) => ({ ...prev, [itemId]: helpStreamRef.current }));
+      }
+    });
+    return () => stop();
+  }, [helpStreaming]);
+
+  const handleAskForHelp = async (item: ActionItem) => {
+    setHelpLoading(item.id);
+    setHelpStreaming(item.id);
+    setExpandedItem(item.id);
+    setHelpResponses((prev) => ({ ...prev, [item.id]: "" }));
+    try {
+      if (window.electronAPI?.project?.sendSoloMessage) {
+        await window.electronAPI.project.sendSoloMessage({
+          projectId,
+          prompt: item.helpPrompt,
+        });
+      }
+    } catch { /* */ }
+    setHelpLoading(null);
+    setHelpStreaming(null);
+  };
+
+  const handleSendChat = async (item: ActionItem) => {
+    const text = (chatInputs[item.id] ?? "").trim();
+    if (!text) return;
+    setChatInputs((prev) => ({ ...prev, [item.id]: "" }));
+    setChatHistories((prev) => ({
+      ...prev,
+      [item.id]: [...(prev[item.id] ?? []), { role: "user", text }],
+    }));
+    setHelpLoading(item.id);
+    setHelpStreaming(item.id);
+    setHelpResponses((prev) => ({ ...prev, [item.id]: "" }));
+    try {
+      if (window.electronAPI?.project?.sendSoloMessage) {
+        await window.electronAPI.project.sendSoloMessage({
+          projectId,
+          prompt: text,
+        });
+      }
+    } catch { /* */ }
+    // Save streaming response to chat history
+    const finalResponse = helpStreamRef.current;
+    if (finalResponse) {
+      setChatHistories((prev) => ({
+        ...prev,
+        [item.id]: [...(prev[item.id] ?? []), { role: "agent", text: finalResponse }],
+      }));
+    }
+    setHelpLoading(null);
+    setHelpStreaming(null);
+  };
+
+  return (
+    <section>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-[16px] font-bold tracking-tight theme-fg">Action Items</h2>
+            <span className="rounded-full bg-black/[0.04] px-2.5 py-0.5 text-[10px] font-bold theme-muted dark:bg-white/[0.06]">
+              {completedCount}/{totalCount}
+            </span>
+          </div>
+          <p className="mt-1 text-[12px] theme-muted">Things the AI cannot do for you — API keys, manual config, and one-time setup steps.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {allDone ? (
+            <span className="rounded-full bg-emerald-500/15 px-3 py-1.5 text-[10px] font-bold text-emerald-400">
+              All done ✓
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleCheckForItems}
+            disabled={isCheckingItems}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2 text-[11px] font-semibold text-ink-muted transition hover:border-amber-500/30 hover:bg-amber-500/5 hover:text-amber-600 disabled:opacity-50 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[var(--muted)] dark:hover:border-amber-500/30 dark:hover:text-amber-400"
+          >
+            {isCheckingItems ? (
+              <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
+              </svg>
+            )}
+            {isCheckingItems ? "Scanning…" : "Check for items"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2 text-[11px] font-semibold text-ink-muted transition hover:border-violet-500/30 hover:bg-violet-500/5 hover:text-violet-500 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[var(--muted)] dark:hover:border-violet-500/30 dark:hover:text-violet-400"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+            </svg>
+            Add Item
+          </button>
+        </div>
+      </div>
+
+      {/* Add item form */}
+      {showAddForm ? (
+        <div className="mt-4 overflow-hidden rounded-2xl app-surface shadow-[var(--shadow-card)] ring-1 ring-violet-500/20">
+          <div className="border-b border-black/[0.04] bg-violet-500/[0.04] px-4 py-3 dark:border-white/[0.04]">
+            <p className="text-[12px] font-semibold theme-fg">New Action Item</p>
+            <p className="text-[10px] theme-muted mt-0.5">Add a step you need to complete manually — something the AI can&apos;t do.</p>
+          </div>
+          <div className="space-y-3 px-4 py-4">
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Title</label>
+              <input
+                value={newItemTitle}
+                onChange={(e) => setNewItemTitle(e.target.value)}
+                placeholder="e.g. Add Stripe API key"
+                className="w-full rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 text-[13px] theme-fg outline-none placeholder:theme-muted focus:border-violet-500/40 focus:ring-2 focus:ring-violet-500/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Description (optional)</label>
+              <input
+                value={newItemDesc}
+                onChange={(e) => setNewItemDesc(e.target.value)}
+                placeholder="Brief description of what needs to be done"
+                className="w-full rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 text-[13px] theme-fg outline-none placeholder:theme-muted focus:border-violet-500/40 focus:ring-2 focus:ring-violet-500/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+              />
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Related Task (optional)</label>
+                <input
+                  value={newItemTask}
+                  onChange={(e) => setNewItemTask(e.target.value)}
+                  placeholder="e.g. Payment Integration"
+                  className="w-full rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 text-[13px] theme-fg outline-none placeholder:theme-muted focus:border-violet-500/40 focus:ring-2 focus:ring-violet-500/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                />
+              </div>
+              <div className="w-[140px]">
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Category</label>
+                <select
+                  value={newItemCategory}
+                  onChange={(e) => setNewItemCategory(e.target.value as ActionItem["category"])}
+                  className="w-full rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 text-[13px] theme-fg outline-none focus:border-violet-500/40 focus:ring-2 focus:ring-violet-500/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                >
+                  <option value="config">Config</option>
+                  <option value="setup">Setup</option>
+                  <option value="deploy">Deploy</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setShowAddForm(false)} className="rounded-xl px-3 py-2 text-[11px] font-semibold theme-muted transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]">Cancel</button>
+              <button type="button" onClick={handleAddItem} disabled={!newItemTitle.trim()} className="rounded-xl bg-[#111214] px-4 py-2 text-[11px] font-semibold text-[#f4efe6] transition hover:bg-[#0b1220] disabled:opacity-40 dark:bg-white dark:text-[#111214] dark:hover:bg-white/90">Add Item</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Progress bar */}
+      {totalCount > 0 ? (
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[#a78bfa] to-[#34d399] transition-all duration-500"
+            style={{ width: `${Math.round((completedCount / totalCount) * 100)}%` }}
+          />
+        </div>
+      ) : null}
+
+      {/* Empty state */}
+      {totalCount === 0 && !showAddForm ? (
+        <div className="mt-6 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/[0.08] bg-black/[0.015] px-6 py-10 text-center dark:border-white/[0.08] dark:bg-white/[0.015]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-[20px]">🔍</div>
+          <p className="mt-3 text-[14px] font-semibold theme-fg">No action items yet</p>
+          <p className="mt-1 max-w-sm text-[12px] leading-relaxed theme-muted">
+            Click <strong>Check for items</strong> to scan your project for things that need manual setup — API keys, environment configuration, and more.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Items */}
+      <div className="mt-4 space-y-2">
+        {visibleItems.map((item) => {
+          const cat = categoryIcon[item.category];
+          const isExpanded = expandedItem === item.id;
+          const hasResponse = helpResponses[item.id] !== undefined && helpResponses[item.id] !== "";
+          const isStreaming = helpLoading === item.id;
+          const chatHistory = chatHistories[item.id] ?? [];
+          return (
+            <div
+              key={item.id}
+              className={`overflow-hidden rounded-2xl transition-all ${
+                item.completed
+                  ? "opacity-60"
+                  : "app-surface shadow-[var(--shadow-card)] ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
+              }`}
+            >
+              <div className="flex items-center gap-3 px-4 py-3.5">
+                {/* Checkbox */}
+                <button
+                  type="button"
+                  onClick={() => toggleComplete(item.id)}
+                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition ${
+                    item.completed
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : "border-black/[0.15] hover:border-black/[0.25] dark:border-white/[0.15] dark:hover:border-white/[0.25]"
+                  }`}
+                >
+                  {item.completed ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                      <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                    </svg>
+                  ) : null}
+                </button>
+
+                {/* Category icon */}
+                <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12px] ${cat.bg}`}>
+                  {cat.icon}
+                </span>
+
+                {/* Text */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-[13px] font-semibold ${item.completed ? "line-through theme-muted" : "theme-fg"}`}>
+                      {item.title}
+                    </p>
+                    {item.taskName ? (
+                      <span className="rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-violet-400">
+                        {item.taskName}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                {!item.completed ? (
+                  <div className="flex items-center gap-1.5">
+                    {!hasResponse && !isStreaming ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleAskForHelp(item)}
+                        disabled={isStreaming}
+                        className="rounded-lg bg-violet-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-violet-400 transition hover:bg-violet-500/20 disabled:opacity-50"
+                      >
+                        How do I do this?
+                      </button>
+                    ) : null}
+                    {confirmingDoneId === item.id ? (
+                      <div className="flex items-center gap-1.5 animate-in fade-in">
+                        <button
+                          type="button"
+                          onClick={() => markDoneAndRemove(item.id)}
+                          className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/30"
+                        >
+                          Confirm done
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingDoneId(null)}
+                          className="rounded-lg bg-black/[0.04] px-2.5 py-1.5 text-[10px] font-semibold theme-muted transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDoneId(item.id)}
+                        title="Mark done & remove"
+                        className="rounded-lg border border-black/[0.06] bg-black/[0.02] px-2.5 py-1.5 text-[10px] font-semibold theme-muted transition hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-emerald-400 dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-emerald-500/30"
+                      >
+                        Done
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setExpandedItem(isExpanded ? null : item.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg theme-muted transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3.5 w-3.5 transition ${isExpanded ? "rotate-180" : ""}`}>
+                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Expanded details + help + chat */}
+              {isExpanded && !item.completed ? (
+                <div className="border-t border-black/[0.04] bg-black/[0.015] px-4 py-4 dark:border-white/[0.04] dark:bg-white/[0.015]">
+                  <p className="text-[12px] leading-relaxed theme-muted">{item.description}</p>
+
+                  {/* Persisted chat history */}
+                  {chatHistory.length > 0 ? (
+                    <div className="mt-3 space-y-3">
+                      {chatHistory.map((msg, mi) => (
+                        <div key={mi} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : ""}`}>
+                          {msg.role === "agent" ? (
+                            <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-[9px] font-bold text-white">✦</span>
+                          ) : null}
+                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                            msg.role === "user"
+                              ? "bg-[#111214] text-[#f4efe6] dark:bg-white/[0.1] dark:text-[var(--fg)]"
+                              : "app-surface ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
+                          }`}>
+                            {msg.role === "agent" ? <RenderMarkdown text={msg.text} /> : (
+                              <p className="text-[13px] leading-[1.7]">{msg.text}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {/* Current streaming / completed help response */}
+                  {helpResponses[item.id] !== undefined ? (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-[9px] font-bold text-white">✦</span>
+                        <span className="text-[11px] font-semibold theme-muted">Coding Agent</span>
+                        {isStreaming ? <span className="animate-pulse text-[10px] text-violet-400">Thinking...</span> : null}
+                      </div>
+                      <div className="app-surface rounded-2xl px-4 py-3 ring-1 ring-black/[0.06] dark:ring-white/[0.08]">
+                        {helpResponses[item.id] ? (
+                          isStreaming ? (
+                            <div className="whitespace-pre-wrap text-[13px] leading-[1.7] theme-fg">{helpResponses[item.id]}</div>
+                          ) : (
+                            <RenderMarkdown text={helpResponses[item.id]} />
+                          )
+                        ) : isStreaming ? (
+                          <div className="flex items-center gap-1.5 py-2">
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400/60 [animation-delay:0ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400/60 [animation-delay:150ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400/60 [animation-delay:300ms]" />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Inline chat input */}
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={chatInputs[item.id] ?? ""}
+                      onChange={(e) => setChatInputs((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSendChat(item); } }}
+                      placeholder="Ask a follow-up or provide info..."
+                      disabled={isStreaming}
+                      className="min-w-0 flex-1 rounded-xl border border-black/[0.06] bg-white/80 px-3 py-2.5 text-[13px] theme-fg outline-none placeholder:theme-muted transition focus:border-violet-500/40 focus:ring-2 focus:ring-violet-500/10 disabled:opacity-50 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSendChat(item)}
+                      disabled={!(chatInputs[item.id] ?? "").trim() || isStreaming}
+                      className="flex h-9 items-center gap-1.5 rounded-xl bg-[#111214] px-3.5 text-[11px] font-semibold text-[#f4efe6] transition hover:bg-[#0b1220] disabled:opacity-40 dark:bg-white dark:text-[#111214] dark:hover:bg-white/90"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                        <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+                      </svg>
+                      Send
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /* ─── page ─── */
 
 export default function ProjectPage() {
@@ -181,9 +782,19 @@ export default function ProjectPage() {
   const suggestedTaskOrder = plan?.buildOrder?.flatMap((step) => step.taskIds) ?? [];
   const initialSubprojectOrder = [...new Set([...suggestedSubprojectOrder, ...(plan?.subprojects.map((sp) => sp.id) ?? [])])];
   const initialTaskOrder = [...new Set([...suggestedTaskOrder, ...(plan?.subprojects.flatMap((sp) => sp.tasks.map((task) => task.id)) ?? [])])];
-  const currentUserName = "Cameron";
+  const [displayName, setDisplayName] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronAPI?.settings) {
+      window.electronAPI.settings.get().then((s) => {
+        const settings = s as unknown as Record<string, unknown>;
+        if (settings.displayName) setDisplayName(settings.displayName as string);
+      }).catch(() => {});
+    }
+  }, []);
+  const currentUserName = displayName || "You";
+  const currentUserInitials = displayName ? displayName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") : "CB";
   const assignablePeople = [
-    { name: currentUserName, initials: "CM" },
+    { name: currentUserName, initials: currentUserInitials },
     { name: "Project Manager", initials: "✦" },
   ];
 
@@ -204,14 +815,397 @@ export default function ProjectPage() {
   const [selectedTaskId, setSelectedTaskId] = useState(plan?.subprojects[0]?.tasks[0]?.id ?? "");
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
   const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState(1);
+  const [showVersionConfirm, setShowVersionConfirm] = useState(false);
+  const [pushingToGithub, setPushingToGithub] = useState(false);
+  const [pushResult, setPushResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  /* File watcher / auto-sync state */
+  const [fileWatcherActive, setFileWatcherActive] = useState(false);
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const [lastAutoSync, setLastAutoSync] = useState<string | null>(null);
+  const [pushingToMain, setPushingToMain] = useState(false);
+  const [pushToMainResult, setPushToMainResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  /* P2P collaboration state */
+  const [p2pJoined, setP2pJoined] = useState(false);
+  const [p2pJoining, setP2pJoining] = useState(false);
+  const [p2pPeers, setP2pPeers] = useState<Array<{ id: string; name: string; initials: string; role: string; status: string }>>([]);
+  const [p2pError, setP2pError] = useState<string | null>(null);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteRemoteUrl, setInviteRemoteUrl] = useState<string | null>(null);
+  const [syncingWorkspace, setSyncingWorkspace] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; log?: string[] } | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [hasRemote, setHasRemote] = useState(false);
+  const syncInFlightRef = useRef(false);
+
+  // Check if project has a remote URL (enables auto-sync)
+  useEffect(() => {
+    if (!activeProject?.repoPath) { setHasRemote(false); return; }
+    window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath).then((url) => {
+      setHasRemote(Boolean(url));
+    });
+  }, [activeProject?.repoPath]);
+
+  // Silent background sync — doesn't show banners, just pulls + imports
+  const doSilentSync = async () => {
+    if (!activeProject?.id || !hasRemote || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    try {
+      const result = await window.electronAPI?.project?.syncWorkspace(activeProject.id);
+      if (result?.success) {
+        console.log("[auto-sync] Imported", result.subprojects, "subprojects,", result.tasks, "tasks");
+      }
+      setLastSyncTime(new Date());
+    } catch (err) {
+      console.warn("[auto-sync] Silent sync failed:", err);
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  };
+
+  // Auto-sync: every 30s + on window focus (only when NOT live P2P connected — P2P handles real-time)
+  useEffect(() => {
+    if (!activeProject?.id || !hasRemote || p2pJoined) return;
+
+    // Initial sync on mount
+    doSilentSync();
+
+    // Interval sync
+    const interval = setInterval(doSilentSync, 30_000);
+
+    // Sync on window focus
+    const handleFocus = () => { doSilentSync(); };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id, hasRemote, p2pJoined]);
+
+  const handleSyncWorkspace = async () => {
+    if (!activeProject?.id) return;
+    setSyncingWorkspace(true);
+    setSyncResult(null);
+    try {
+      const result = await window.electronAPI?.project?.syncWorkspace(activeProject.id);
+      if (!result) {
+        setSyncResult({ success: false, message: "No response from sync", log: [] });
+        return;
+      }
+      console.log("[syncWorkspace] Full log:", result.log);
+      if (result.success) {
+        setLastSyncTime(new Date());
+        setSyncResult({
+          success: true,
+          message: `Synced! Imported ${result.subprojects} subprojects, ${result.tasks} tasks.`,
+          log: result.log,
+        });
+      } else {
+        setSyncResult({
+          success: false,
+          message: "Sync completed but no plan was found. Check the log for details.",
+          log: result.log,
+        });
+      }
+    } catch (err) {
+      console.error("[syncWorkspace] Error:", err);
+      setSyncResult({ success: false, message: err instanceof Error ? err.message : "Sync failed", log: [] });
+    } finally {
+      setSyncingWorkspace(false);
+    }
+  };
+
+  const handlePushToGithub = async () => {
+    if (!activeProject?.repoPath) return;
+    setPushingToGithub(true);
+    setPushResult(null);
+    try {
+      // First check if a remote exists
+      const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
+      if (!remoteUrl) {
+        // Try ensureGithubRepo to create one
+        try {
+          await window.electronAPI?.project?.ensureGithubRepo(activeProject.id);
+        } catch {
+          setPushResult({ ok: false, message: "No Git remote found. Connect a GitHub repo first in Settings." });
+          return;
+        }
+      }
+      // Sync shared state: stage .codebuddy/, commit, push
+      await window.electronAPI?.repo?.syncSharedState({ repoPath: activeProject.repoPath });
+      setPushResult({ ok: true, message: "Pushed to GitHub! Teammates can now pull to sync." });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Push failed";
+      // If nothing to push, that's still fine
+      if (msg.includes("nothing to commit") || msg.includes("Everything up-to-date")) {
+        setPushResult({ ok: true, message: "Already up to date — nothing new to push." });
+      } else {
+        setPushResult({ ok: false, message: msg });
+      }
+    } finally {
+      setPushingToGithub(false);
+      setTimeout(() => setPushResult(null), 5000);
+    }
+  };
+
+  const handlePushToMain = async () => {
+    if (!activeProject?.repoPath) return;
+    setPushingToMain(true);
+    setPushToMainResult(null);
+    try {
+      const result = await window.electronAPI?.fileWatcher?.pushToMain({ repoPath: activeProject.repoPath });
+      if (result?.success) {
+        setPushToMainResult({ ok: true, message: result.message });
+      } else {
+        setPushToMainResult({ ok: false, message: result?.message || "Push to main failed." });
+      }
+    } catch (err) {
+      setPushToMainResult({ ok: false, message: err instanceof Error ? err.message : "Push to main failed." });
+    } finally {
+      setPushingToMain(false);
+      setTimeout(() => setPushToMainResult(null), 5000);
+    }
+  };
+
+  const handleToggleP2P = async () => {
+    if (p2pJoined) {
+      await window.electronAPI?.p2p?.leave({ projectId: activeProject!.id });
+      setP2pJoined(false);
+      setP2pPeers([]);
+      setP2pError(null);
+      return;
+    }
+    if (!activeProject?.repoPath) return;
+    setP2pJoining(true);
+    setP2pError(null);
+    try {
+      const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
+      if (!remoteUrl) {
+        setP2pError("Push to GitHub first to enable live collaboration");
+        return;
+      }
+      await window.electronAPI?.p2p?.join({
+        projectId: activeProject.id,
+        repoPath: activeProject.repoPath,
+        remoteUrl,
+        member: { id: "owner", name: currentUserName, initials: currentUserInitials, role: "Owner" },
+      });
+      setP2pJoined(true);
+    } catch (err) {
+      setP2pError(err instanceof Error ? err.message : "Failed to connect");
+    } finally {
+      setP2pJoining(false);
+    }
+  };
+
+  /* File watcher: auto-start when project is active, listen for sync events */
+  useEffect(() => {
+    if (!activeProject?.repoPath) return;
+    const api = window.electronAPI?.fileWatcher;
+    if (!api) return;
+
+    // Start file watcher on project load
+    api.start({ repoPath: activeProject.repoPath }).then((status) => {
+      setFileWatcherActive(status?.watching ?? false);
+    }).catch(() => {});
+
+    const unsubs: Array<(() => void) | undefined> = [];
+    unsubs.push(api.onSyncStart?.(() => {
+      setAutoSyncing(true);
+    }));
+    unsubs.push(api.onSyncComplete?.((data) => {
+      setAutoSyncing(false);
+      if (data.success && data.commitMessage) {
+        setLastAutoSync(new Date().toLocaleTimeString());
+      }
+    }));
+    unsubs.push(api.onPeerSync?.((data) => {
+      if (data.pullResult?.success) {
+        setLastAutoSync(`pulled from ${data.peerName} at ${new Date().toLocaleTimeString()}`);
+      }
+    }));
+    unsubs.push(api.onStatus?.((data) => {
+      setFileWatcherActive(data.watching);
+    }));
+
+    return () => {
+      unsubs.forEach(u => u?.());
+      // Don't stop watcher on unmount — it should keep running while the project is open
+    };
+  }, [activeProject?.repoPath]);
+
+  /* P2P event listeners — filter events by current project */
+  useEffect(() => {
+    const pid = activeProject?.id;
+    const unsubs: Array<(() => void) | undefined> = [];
+    unsubs.push(window.electronAPI?.p2p?.onPresence((event) => {
+      if (event.projectId && event.projectId !== pid) return; // not our project
+      setP2pPeers(event.peers);
+    }));
+    unsubs.push(window.electronAPI?.p2p?.onPeerJoined((event) => {
+      if (event.projectId && event.projectId !== pid) return;
+      window.electronAPI?.p2p?.peers({ projectId: pid }).then((list) => { if (list) setP2pPeers(list); });
+    }));
+    unsubs.push(window.electronAPI?.p2p?.onPeerLeft((event) => {
+      if (event.projectId && event.projectId !== pid) return;
+      window.electronAPI?.p2p?.peers({ projectId: pid }).then((list) => { if (list) setP2pPeers(list); });
+    }));
+    unsubs.push(window.electronAPI?.p2p?.onLeft((event) => {
+      if (event.projectId && event.projectId !== pid) return;
+      setP2pJoined(false);
+      setP2pPeers([]);
+    }));
+
+    // Listen for P2P state changes from peers — triggers a settings refetch
+    // so the dashboard/task board re-renders with the peer's updates
+    unsubs.push(window.electronAPI?.p2p?.onStateChanged?.((event) => {
+      if (event.projectId && event.projectId !== pid) return;
+      console.log(`[P2P-recv] State change from ${event.peerName}: ${event.category}/${event.id}`);
+
+      // If this is a plan update, log details and suppress echo broadcast
+      if (event.category === "plan" && event.data?.plan) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const incoming = event.data.plan as any;
+        const taskStatuses = incoming.subprojects?.map((sp: { title: string; tasks: { title: string; status: string }[] }) =>
+          `${sp.title}: ${sp.tasks.map((t: { title: string; status: string }) => `${t.title}=${t.status}`).join(", ")}`
+        );
+        console.log("[P2P-recv] Incoming plan tasks:", taskStatuses);
+
+        // Update echo-suppression refs using SUBPROJECTS-ONLY key
+        try {
+          const subKey = JSON.stringify(incoming.subprojects ?? []);
+          lastBroadcastRef.current = subKey;
+          lastSavedPlanRef.current = subKey;
+        } catch { /* ignore */ }
+      }
+    }));
+
+    // Check initial status for THIS project
+    if (pid) {
+      window.electronAPI?.p2p?.status({ projectId: pid }).then((s) => {
+        // When called with projectId, returns a single P2PStatus object
+        const status = s as import("@/lib/electron").P2PStatus;
+        if (status?.joined) {
+          setP2pJoined(true);
+          window.electronAPI?.p2p?.peers({ projectId: pid }).then((list) => { if (list) setP2pPeers(list); });
+        } else {
+          setP2pJoined(false);
+          setP2pPeers([]);
+        }
+      });
+    }
+
+    return () => { unsubs.forEach((u) => u?.()); };
+  }, [activeProject?.id]);
+
+  const lastAppliedPlanRef = useRef<string>("");
 
   useEffect(() => {
+    // Skip the full reset if plan content hasn't actually changed (prevents settings:changed echo loops)
+    const planKey = JSON.stringify(plan?.subprojects ?? []) + "|" + (activeProject?.id ?? "");
+    if (planKey === lastAppliedPlanRef.current) return;
+    lastAppliedPlanRef.current = planKey;
+
     setSubprojects(plan?.subprojects ?? []);
     setSubprojectOrder(initialSubprojectOrder);
     setTaskOrder(initialTaskOrder);
     setSelectedSubprojectId(plan?.subprojects[0]?.id ?? "");
     setSelectedTaskId(plan?.subprojects[0]?.tasks[0]?.id ?? "");
+    planLoadedRef.current = false; // reset on plan change from settings
+    // Mark as loaded after a tick so the debounced save doesn't fire on initial load
+    requestAnimationFrame(() => { 
+      planLoadedRef.current = true;
+      console.log("[planLoaded] Set to true after rAF. Subprojects:", plan?.subprojects?.length || 0);
+    });
   }, [plan, activeProject?.id]);
+
+  // Debounced auto-save: persist plan changes to settings + .codebuddy/plan.json + git push
+  // Also broadcast instantly via P2P when live-connected
+  const planLoadedRef = useRef(false);
+  const savePlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastBroadcastRef = useRef<string>("");
+  const lastSavedPlanRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!activeProject?.id || !planLoadedRef.current || subprojects.length === 0) {
+      if (activeProject?.id && subprojects.length > 0) {
+        console.log("[broadcast-check] SKIPPED — planLoaded:", planLoadedRef.current, "subprojects:", subprojects.length, "p2p:", p2pJoined);
+      }
+      return;
+    }
+
+    const currentPlan = plan ? { ...plan, subprojects } : { buildOrder: [], subprojects };
+    // Use subprojects-only key for comparison — the full plan JSON can differ
+    // in key order after reassembly, causing false mismatches and echo loops.
+    const subKey = JSON.stringify(subprojects);
+
+    // Skip save if plan content hasn't actually changed (breaks settings:changed → save → settings:changed cascade)
+    if (subKey === lastSavedPlanRef.current) {
+      return;
+    }
+
+    // P2P broadcast: instant (no debounce) — send to all connected peers immediately
+    if (p2pJoined) {
+      // Only broadcast if plan actually changed (avoid echo loops from incoming P2P updates)
+      if (subKey !== lastBroadcastRef.current) {
+        lastBroadcastRef.current = subKey;
+        const taskStatuses = currentPlan.subprojects?.map((sp: ProjectSubproject) =>
+          `${sp.title}: ${sp.tasks.map((t: ProjectTask) => `${t.title}=${t.status}`).join(", ")}`
+        );
+        console.log("[P2P] Broadcasting plan to peers. Tasks:", taskStatuses);
+        window.electronAPI?.p2p?.broadcastStateChange({
+          projectId: activeProject.id,
+          category: "plan",
+          id: activeProject.id,
+          data: { plan: currentPlan },
+        });
+      }
+    }
+
+    // Debounced save: write to settings + always push to git (offline peers need it)
+    if (savePlanTimerRef.current) clearTimeout(savePlanTimerRef.current);
+    savePlanTimerRef.current = setTimeout(async () => {
+      try {
+        lastSavedPlanRef.current = subKey;
+        await window.electronAPI?.project?.savePlan({
+          projectId: activeProject.id,
+          plan: currentPlan,
+          skipGitPush: false,
+        });
+        console.log("[auto-save] Plan saved + pushed to git");
+      } catch (err) {
+        console.warn("[auto-save] Failed:", err);
+      }
+    }, 2000);
+
+    return () => {
+      if (savePlanTimerRef.current) clearTimeout(savePlanTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subprojects, activeProject?.id, p2pJoined]);
+
+  // Auto-import synced plan from .codebuddy/plan.json if the project has no plan yet
+  useEffect(() => {
+    if (!activeProject?.id || plan) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await window.electronAPI?.project?.importSyncedPlan(activeProject.id);
+        if (result?.imported && !cancelled) {
+          console.log("[workspace] Auto-imported synced plan:", result.subprojects, "subprojects");
+          // The IPC handler sends settings:changed which will trigger a re-render
+        }
+      } catch (err) {
+        console.warn("[workspace] Plan auto-import failed:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeProject?.id, plan]);
 
   const workspaceTitle = activeProject?.name ?? "Project workspace";
   const workspaceSubtitle = activeProject?.description ?? "Open a real project to see its dashboard.";
@@ -319,6 +1313,7 @@ export default function ProjectPage() {
   };
 
   const handleChangeTaskStatus = (taskId: string, newStatus: BuildTaskStatus) => {
+    console.log("[task-change] Status:", taskId, "→", newStatus, "planLoaded:", planLoadedRef.current, "p2p:", p2pJoined);
     setSubprojects((cur) =>
       cur.map((sp) => ({
         ...sp,
@@ -327,6 +1322,25 @@ export default function ProjectPage() {
         ),
       }))
     );
+
+    // Send a dedicated task-status P2P message for fast, reliable sync
+    if (p2pJoined && activeProject?.id) {
+      const sp = subprojects.find((s) => s.tasks.some((t) => t.id === taskId));
+      const task = sp?.tasks.find((t) => t.id === taskId);
+      window.electronAPI?.p2p?.broadcastStateChange({
+        projectId: activeProject.id,
+        category: "tasks",
+        id: taskId,
+        data: {
+          taskId,
+          title: task?.title ?? "",
+          previousStatus: task?.status ?? "",
+          status: newStatus,
+          subprojectTitle: sp?.title ?? "",
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
   };
 
   const handleAssignTask = (taskId: string, owner: string) => {
@@ -396,15 +1410,321 @@ export default function ProjectPage() {
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] theme-muted">
               Build workspace
             </p>
-            <h1 className="display-font mt-2 text-[2.4rem] font-semibold leading-[0.96] tracking-tight theme-fg sm:text-[3rem]">
-              {workspaceTitle}
-            </h1>
+            <div className="mt-2 flex items-center gap-3">
+              <h1 className="display-font text-[2.4rem] font-semibold leading-[0.96] tracking-tight theme-fg sm:text-[3rem]">
+                {workspaceTitle}
+              </h1>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500/15 to-blue-500/15 px-3 py-1 text-[11px] font-bold text-violet-400 ring-1 ring-violet-500/20">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                  <path fillRule="evenodd" d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" clipRule="evenodd" />
+                </svg>
+                v{currentVersion}
+              </span>
+              {showVersionConfirm ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentVersion((v) => v + 1);
+                      setShowVersionConfirm(false);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold text-violet-400 transition hover:bg-violet-500/25"
+                  >
+                    Create v{currentVersion + 1}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowVersionConfirm(false)}
+                    className="rounded-full px-2 py-1 text-[10px] font-semibold theme-muted transition hover:text-red-400"
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowVersionConfirm(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-black/[0.1] px-2.5 py-1 text-[10px] font-semibold theme-muted transition hover:border-violet-500/30 hover:text-violet-400 dark:border-white/[0.1] dark:hover:border-violet-500/30"
+                  title="Fork the project into a new version"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                  </svg>
+                  New version
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handlePushToGithub()}
+                disabled={pushingToGithub || !activeProject?.repoPath}
+                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-emerald-500/15 to-teal-500/15 px-3 py-1 text-[10px] font-semibold text-emerald-500 ring-1 ring-emerald-500/20 transition hover:from-emerald-500/25 hover:to-teal-500/25 disabled:opacity-50 dark:text-emerald-400"
+                title="Stage, commit, and push workspace + shared state to GitHub"
+              >
+                {pushingToGithub ? (
+                  <>
+                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Pushing…
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                      <path d="M10 2a.75.75 0 01.75.75v5.59l1.95-2.1a.75.75 0 111.1 1.02l-3.25 3.5a.75.75 0 01-1.1 0L6.2 7.26a.75.75 0 011.1-1.02l1.95 2.1V2.75A.75.75 0 0110 2z" />
+                      <path d="M5.273 4.5a1.25 1.25 0 00-1.205.918l-1.523 5.52c-.006.02-.01.041-.015.062H6a1 1 0 01.894.553l.448.894a1 1 0 00.894.553h3.438a1 1 0 00.86-.49l.606-1.02A1 1 0 0114 11h3.47a1.318 1.318 0 00-.015-.062l-1.523-5.52a1.25 1.25 0 00-1.205-.918h-.977a.75.75 0 010-1.5h.977a2.75 2.75 0 012.651 2.019l1.523 5.52c.066.239.099.485.099.732V15a2 2 0 01-2 2H3a2 2 0 01-2-2v-3.73c0-.246.033-.492.099-.73l1.523-5.521A2.75 2.75 0 015.273 3h.977a.75.75 0 010 1.5h-.977z" />
+                    </svg>
+                    Push to GitHub
+                  </>
+                )}
+              </button>
+              {pushResult && (
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${pushResult.ok ? "bg-emerald-500/15 text-emerald-500 dark:text-emerald-400" : "bg-red-500/15 text-red-500 dark:text-red-400"}`}>
+                  {pushResult.message}
+                </span>
+              )}
+              {/* Push to Main button */}
+              <button
+                type="button"
+                onClick={() => void handlePushToMain()}
+                disabled={pushingToMain || !activeProject?.repoPath}
+                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500/15 to-indigo-500/15 px-3 py-1 text-[10px] font-semibold text-blue-500 ring-1 ring-blue-500/20 transition hover:from-blue-500/25 hover:to-indigo-500/25 disabled:opacity-50 dark:text-blue-400"
+                title="Merge codebuddy-build → main and push to GitHub"
+              >
+                {pushingToMain ? (
+                  <>
+                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Merging…
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                      <path fillRule="evenodd" d="M5.22 14.78a.75.75 0 001.06 0l7.22-7.22v5.69a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75h-7.5a.75.75 0 000 1.5h5.69l-7.22 7.22a.75.75 0 000 1.06z" clipRule="evenodd" />
+                    </svg>
+                    Push to Main
+                  </>
+                )}
+              </button>
+              {pushToMainResult && (
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${pushToMainResult.ok ? "bg-blue-500/15 text-blue-500 dark:text-blue-400" : "bg-red-500/15 text-red-500 dark:text-red-400"}`}>
+                  {pushToMainResult.message}
+                </span>
+              )}
+            </div>
+            {/* Auto-sync status bar */}
+            {fileWatcherActive && (
+              <div className="mt-2 flex items-center gap-2 text-[10px] theme-muted">
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${autoSyncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+                <span>
+                  {autoSyncing ? "Syncing changes to codebuddy-build…" : "Auto-sync active"}
+                  {lastAutoSync && !autoSyncing ? ` · Last sync: ${lastAutoSync}` : ""}
+                </span>
+              </div>
+            )}
             <p className="mt-3 text-[14px] leading-relaxed theme-soft">
               {subprojects.length} subprojects · {allTasks.length} tasks
             </p>
             <p className="mt-2 max-w-2xl text-[13px] leading-relaxed theme-muted">
               {workspaceSubtitle}
             </p>
+
+            {/* ─── P2P Live Collaboration Bar ─── */}
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleToggleP2P()}
+                disabled={p2pJoining || !activeProject?.repoPath}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                  p2pJoined
+                    ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25 hover:bg-red-500/10 hover:text-red-400 hover:ring-red-500/20 dark:text-emerald-400"
+                    : "bg-gradient-to-r from-cyan-500/15 to-blue-500/15 text-cyan-600 ring-1 ring-cyan-500/20 hover:from-cyan-500/25 hover:to-blue-500/25 dark:text-cyan-400"
+                }`}
+                title={p2pJoined ? "Disconnect from live collaboration" : "Connect to teammates in real-time (P2P)"}
+              >
+                {p2pJoining ? (
+                  <>
+                    <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Connecting…
+                  </>
+                ) : p2pJoined ? (
+                  <>
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                    </span>
+                    Live
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                      <path d="M12.232 4.232a2.5 2.5 0 013.536 3.536l-1.225 1.224a.75.75 0 001.061 1.06l1.224-1.224a4 4 0 00-5.656-5.656l-3 3a4 4 0 00.225 5.865.75.75 0 00.977-1.138 2.5 2.5 0 01-.142-3.667l3-3z" />
+                      <path d="M11.603 7.963a.75.75 0 00-.977 1.138 2.5 2.5 0 01.142 3.667l-3 3a2.5 2.5 0 01-3.536-3.536l1.225-1.224a.75.75 0 00-1.061-1.06l-1.224 1.224a4 4 0 105.656 5.656l3-3a4 4 0 00-.225-5.865z" />
+                    </svg>
+                    Go Live
+                  </>
+                )}
+              </button>
+
+              {/* Online peers */}
+              {p2pJoined && (
+                <div className="flex items-center gap-1.5">
+                  {p2pPeers.length > 0 ? (
+                    <>
+                      <div className="flex -space-x-1.5">
+                        {p2pPeers.slice(0, 5).map((peer) => (
+                          <div
+                            key={peer.id}
+                            className="relative flex h-6 w-6 items-center justify-center rounded-full bg-cyan-100 text-[9px] font-bold text-cyan-700 ring-2 ring-white dark:bg-cyan-500/20 dark:text-cyan-300 dark:ring-black/50"
+                            title={`${peer.name} (${peer.status})`}
+                          >
+                            {peer.initials}
+                            <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-white dark:ring-black/50 ${peer.status === "online" ? "bg-emerald-500" : "bg-amber-400"}`} />
+                          </div>
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-medium theme-muted">
+                        {p2pPeers.length} peer{p2pPeers.length !== 1 ? "s" : ""} online
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] theme-muted">Waiting for teammates…</span>
+                  )}
+                </div>
+              )}
+
+              {p2pError && (
+                <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-[10px] font-medium text-red-500 dark:text-red-400">
+                  {p2pError}
+                </span>
+              )}
+
+              {/* Invite Friend button */}
+              {p2pJoined && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!activeProject?.repoPath) return;
+                    try {
+                      const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
+                      if (!remoteUrl) { setP2pError("Push to GitHub first to invite friends"); return; }
+                      const result = await window.electronAPI?.p2p?.generateInvite({ remoteUrl, projectName: activeProject.name });
+                      if (result?.code) {
+                        setInviteCode(result.code);
+                        setInviteCopied(false);
+                        setInviteRemoteUrl(remoteUrl);
+                      }
+                    } catch { setP2pError("Could not generate invite code"); }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-600 ring-1 ring-violet-500/20 transition hover:bg-violet-500/15 dark:text-violet-400"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M11 5a3 3 0 11-6 0 3 3 0 016 0zM2.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 018 18a9.953 9.953 0 01-5.385-1.572zM16.25 5.75a.75.75 0 00-1.5 0v2h-2a.75.75 0 000 1.5h2v2a.75.75 0 001.5 0v-2h2a.75.75 0 000-1.5h-2v-2z" /></svg>
+                  Invite Friend
+                </button>
+              )}
+
+              {/* Sync Workspace button — visible when project has a remote */}
+              {hasRemote && (
+                <button
+                  type="button"
+                  onClick={() => void handleSyncWorkspace()}
+                  disabled={syncingWorkspace}
+                  className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-600 ring-1 ring-cyan-500/20 transition hover:bg-cyan-500/15 disabled:opacity-50 dark:text-cyan-400"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3 w-3 ${syncingWorkspace ? "animate-spin" : ""}`}><path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.134l.195.194a7 7 0 0011.709-3.14.75.75 0 00-1.44-.424zM4.688 8.576a5.5 5.5 0 019.201-2.466l.312.311H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.537a.75.75 0 00-1.5 0v2.134l-.195-.194A7 7 0 002.75 8.615a.75.75 0 001.44.424z" clipRule="evenodd" /></svg>
+                  {syncingWorkspace ? "Syncing..." : "Sync"}
+                </button>
+              )}
+
+              {/* Auto-sync indicator */}
+              {hasRemote && !syncingWorkspace && (
+                <span className={`text-[10px] ${p2pJoined ? "text-emerald-400/60" : "text-white/30 dark:text-white/25"}`}>
+                  {p2pJoined ? "● live" : lastSyncTime ? `synced ${lastSyncTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                </span>
+              )}
+            </div>
+
+            {/* Invite code popup */}
+            {inviteCode && (
+              <div className="mt-3 space-y-3 rounded-xl border border-violet-400/20 bg-violet-500/5 px-4 py-3">
+                {/* Close button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => { setInviteCode(null); setInviteRemoteUrl(null); }}
+                    className="rounded-lg bg-white/5 px-2 py-1 text-[11px] text-white/40 hover:bg-white/10 hover:text-white/60"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Step 1: Give friend access on GitHub */}
+                {(() => {
+                  const ghMatch = inviteRemoteUrl?.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+                  if (!ghMatch) return null;
+                  const collabUrl = `https://github.com/${ghMatch[1]}/${ghMatch[2]}/settings/access`;
+                  return (
+                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/5 px-3 py-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">Step 1 — Give your friend access</p>
+                      <p className="mt-1.5 text-[12px] leading-relaxed text-emerald-200/80 dark:text-emerald-200/80">
+                        Your friend needs collaborator access on GitHub before they can join.
+                      </p>
+                      <ol className="mt-2 ml-4 list-decimal space-y-1 text-[11.5px] leading-relaxed text-emerald-200/70 dark:text-emerald-200/70">
+                        <li>Click the button below to open your repo&apos;s GitHub settings</li>
+                        <li>Click <span className="font-semibold text-emerald-300/90">&ldquo;Add people&rdquo;</span> (green button)</li>
+                        <li>Type your friend&apos;s GitHub username and send the invite</li>
+                        <li>Wait for your friend to accept the GitHub email invite</li>
+                      </ol>
+                      <button
+                        type="button"
+                        onClick={() => window.electronAPI?.system?.openExternal?.(collabUrl)}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-4 py-2 text-[12px] font-semibold text-emerald-300 transition hover:bg-emerald-500/30"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5zm7.25-.75a.75.75 0 01.75-.75h3.5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0V6.31l-5.47 5.47a.75.75 0 01-1.06-1.06l5.47-5.47H12.25a.75.75 0 01-.75-.75z" clipRule="evenodd" /></svg>
+                        Add collaborator on GitHub
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                {/* Step 2: Send the invite code */}
+                <div className="rounded-lg border border-violet-400/15 bg-violet-500/5 px-3 py-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-400/60">Step 2 — Send them this invite code</p>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-violet-200/70 dark:text-violet-200/70">
+                    Once your friend has GitHub access, send them this code to paste in CodeBuddy.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <p className="flex-1 min-w-0 truncate rounded-lg bg-black/20 px-3 py-2 font-mono text-[12px] text-violet-300 dark:text-violet-300">{inviteCode}</p>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(inviteCode);
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 2000);
+                      }}
+                      className="shrink-0 rounded-lg bg-violet-500/20 px-4 py-2 text-[12px] font-semibold text-violet-300 transition hover:bg-violet-500/30"
+                    >
+                      {inviteCopied ? "Copied!" : "Copy code"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sync result banner */}
+            {syncResult && (
+              <div className={`mt-3 rounded-xl border px-4 py-3 ${syncResult.success ? "border-emerald-400/20 bg-emerald-500/5" : "border-red-400/20 bg-red-500/5"}`}>
+                <div className="flex items-center justify-between">
+                  <p className={`text-[12px] font-medium ${syncResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                    {syncResult.message}
+                  </p>
+                  <button onClick={() => setSyncResult(null)} className="text-[11px] text-white/40 hover:text-white/60">✕</button>
+                </div>
+                {syncResult.log && syncResult.log.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[11px] text-white/40 hover:text-white/60">Show sync log ({syncResult.log.length} entries)</summary>
+                    <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-white/50 dark:text-white/50">
+                      {syncResult.log.join("\n")}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link href="/project/chat" className="btn-primary flex items-center gap-2 px-5 py-2.5 text-[13px]">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -412,10 +1732,21 @@ export default function ProjectPage() {
                 </svg>
                 Talk to Project Manager
               </Link>
+              <Link href="/project/preview" className="inline-flex items-center gap-2 rounded-2xl border border-black/[0.06] bg-white/80 px-5 py-2.5 text-[13px] font-semibold text-emerald-600 transition hover:border-emerald-500/30 hover:bg-emerald-500/5 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-emerald-400 dark:hover:border-emerald-500/30">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                </svg>
+                Run App
+              </Link>
             </div>
           </div>
           <ProgressRing progress={overallProgress} />
         </header>
+
+        {/* ═══════════════════ ACTION ITEMS ═══════════════════ */}
+        {activeProject && (
+          <ActionItemsSection projectId={activeProject.id} />
+        )}
 
         {/* ═══════════════════ SUBPROJECT CARDS ═══════════════════ */}
         <section>
@@ -725,6 +2056,9 @@ export default function ProjectPage() {
             )}
           </div>
         </section>
+
+        {/* ═══════════════════ VERSION CONTROL ═══════════════════ */}
+        {/* Removed — now lives compact in hero header */}
       </div>
 
       {/* ═══════════════════ ADD SUBPROJECT MODAL ═══════════════════ */}

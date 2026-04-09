@@ -96,7 +96,7 @@ function createProcessService({ sendEvent }) {
     const child = spawn(command, {
       cwd: resolvedCwd,
       shell: true,
-      env: { ...process.env, ...(options.env ?? {}) },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...(options.env ?? {}) },
     });
 
     return runChild(child, {
@@ -119,7 +119,7 @@ function createProcessService({ sendEvent }) {
     const child = spawn(file, args, {
       cwd: resolvedCwd,
       shell: false,
-      env: { ...process.env, ...(options.env ?? {}) },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...(options.env ?? {}) },
       windowsHide: true,
     });
 

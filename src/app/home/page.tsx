@@ -222,11 +222,21 @@ function HomePageContent() {
   const [projectNotice, setProjectNotice] = useState<string | null>(null);
   const [projectPendingDelete, setProjectPendingDelete] = useState<ManagedProject | null>(null);
   const [projectDeletingId, setProjectDeletingId] = useState<string | null>(null);
-  const [deleteMode, setDeleteMode] = useState<ProjectDeleteMode>("codebuddy-only");
+  const [deleteMode, setDeleteMode] = useState<ProjectDeleteMode>("local-only");
+  const [pendingGithubAuth, setPendingGithubAuth] = useState<{ projectId: string; deleteLocalFiles: boolean } | null>(null);
+  const [grantingScope, setGrantingScope] = useState(false);
   const [canUseDesktopProjects, setCanUseDesktopProjects] = useState(false);
   const [canPickProjectLocation, setCanPickProjectLocation] = useState(false);
   const [defaultProjectRoot, setDefaultProjectRoot] = useState("");
   const [commonPaths, setCommonPaths] = useState<CommonPaths | null>(null);
+  const [showJoinInvite, setShowJoinInvite] = useState(false);
+  const [joinInviteCode, setJoinInviteCode] = useState("");
+  const [joinInviteLoading, setJoinInviteLoading] = useState(false);
+  const [joinInviteError, setJoinInviteError] = useState<string | null>(null);
+  const [joinInviteStep, setJoinInviteStep] = useState<"paste" | "setup">("paste");
+  const [joinInviteProjectName, setJoinInviteProjectName] = useState("");
+  const [joinInviteRemoteUrl, setJoinInviteRemoteUrl] = useState("");
+  const [joinInviteFolder, setJoinInviteFolder] = useState("");
 
   const selectedFriend = codingFriends.find((friend) => friend.id === selectedFriendId) ?? codingFriends[0] ?? null;
 
@@ -313,7 +323,7 @@ function HomePageContent() {
     setProjectError(null);
     setProjectNotice(null);
     setProjectPendingDelete(project);
-    setDeleteMode("codebuddy-only");
+    setDeleteMode("local-only");
   };
 
   const handleConfirmDeleteProject = async () => {
@@ -321,12 +331,25 @@ function HomePageContent() {
       return;
     }
 
+    const deleteLocalFiles = deleteMode === "local-only" || deleteMode === "local-and-github";
+    const deleteGithubRepo = deleteMode === "github-only" || deleteMode === "local-and-github";
+
+    // Native confirm prompt for destructive actions
+    if (deleteLocalFiles || deleteGithubRepo) {
+      const targets = [
+        deleteLocalFiles ? "local files" : null,
+        deleteGithubRepo ? "GitHub repo" : null,
+      ].filter(Boolean).join(" and ");
+      const ok = window.confirm(
+        `This will permanently delete the ${targets} for "${projectPendingDelete.name}". This cannot be undone.\n\nContinue?`,
+      );
+      if (!ok) return;
+    }
+
     try {
       setProjectDeletingId(projectPendingDelete.id);
       setProjectError(null);
       setProjectNotice(null);
-      const deleteLocalFiles = deleteMode === "local-only" || deleteMode === "local-and-github";
-      const deleteGithubRepo = deleteMode === "github-only" || deleteMode === "local-and-github";
 
       if (projectPendingDelete.isDesktopProject && window.electronAPI?.project?.delete) {
         const result = await window.electronAPI.project.delete({
@@ -342,22 +365,42 @@ function HomePageContent() {
           result.deletedGithubRepo ? "GitHub repo" : null,
         ].filter(Boolean);
 
-        setProjectNotice(
-          deleteTargets.length > 0
-            ? `${projectPendingDelete.name} was removed from CodeBuddy and deleted from ${deleteTargets.join(" and ")}.`
-            : `${projectPendingDelete.name} was removed from CodeBuddy. The project folder and GitHub repo are still there.`,
-        );
+        const baseNotice = deleteTargets.length > 0
+          ? `${projectPendingDelete.name} was removed from CodeBuddy and deleted from ${deleteTargets.join(" and ")}.`
+          : `${projectPendingDelete.name} was removed from CodeBuddy.`;
+
+        if (result.githubWarning && deleteGithubRepo && !result.deletedGithubRepo) {
+          setPendingGithubAuth({ projectId: projectPendingDelete.id, deleteLocalFiles });
+          setProjectNotice(baseNotice);
+        } else {
+          setProjectNotice(baseNotice);
+        }
       } else {
         setProjects((current) => current.filter((project) => project.id !== projectPendingDelete.id));
         setProjectNotice(`${projectPendingDelete.name} was removed from CodeBuddy.`);
       }
       setProjectPendingDelete(null);
-      setDeleteMode("codebuddy-only");
+      setDeleteMode("local-only");
     } catch (error) {
       const message = getFriendlyProjectError(error) || "Unable to delete the project.";
       setProjectError(message);
     } finally {
       setProjectDeletingId(null);
+    }
+  };
+
+  const handleGrantDeleteScope = async () => {
+    if (!window.electronAPI?.project?.grantDeleteScope) return;
+    try {
+      setGrantingScope(true);
+      setProjectError(null);
+      await window.electronAPI.project.grantDeleteScope();
+      setPendingGithubAuth(null);
+      setProjectNotice("GitHub delete permission granted. You can now delete GitHub repos from CodeBuddy.");
+    } catch {
+      setProjectError("Unable to complete GitHub authentication. Try again or run the command manually in a terminal.");
+    } finally {
+      setGrantingScope(false);
     }
   };
 
@@ -397,7 +440,9 @@ function HomePageContent() {
         setShowCreator(false);
 
         if (draftCreateGithubRepo && !createdProject.githubRepoUrl) {
-          setProjectNotice(createdProject.githubRepoWarning || "Project created locally. GitHub can be connected later from the project workspace.");
+          setProjectNotice(createdProject.githubRepoWarning || "Project created locally. GitHub repo was not created — it may already exist on your account or the CLI couldn't connect.");
+        } else if (createdProject.githubRepoUrl) {
+          setProjectNotice(`Project created with GitHub repo.`);
         }
 
         router.push("/project");
@@ -425,6 +470,83 @@ function HomePageContent() {
     setDraftDescription("");
     setShowCreator(false);
   };
+
+  const handleDecodeInvite = async () => {
+    if (!joinInviteCode.trim() || !window.electronAPI?.p2p) return;
+    setJoinInviteError(null);
+    try {
+      const decoded = await window.electronAPI.p2p.decodeInvite({ code: joinInviteCode.trim() });
+      setJoinInviteProjectName(decoded.projectName);
+      setJoinInviteRemoteUrl(decoded.remoteUrl);
+      // Default folder to project root + project name
+      const settings = await window.electronAPI.settings?.get() as unknown as Record<string, unknown> | undefined;
+      const defaults = settings?.projectDefaults as Record<string, unknown> | undefined;
+      const root = (defaults?.rootDirectory as string) || "";
+      const safeName = decoded.projectName.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+      setJoinInviteFolder(root ? `${root}${root.endsWith("\\") || root.endsWith("/") ? "" : "\\"}${safeName}` : safeName);
+      setJoinInviteStep("setup");
+    } catch (err) {
+      setJoinInviteError(err instanceof Error ? err.message : "Invalid invite code");
+    }
+  };
+
+  const handlePickJoinFolder = async () => {
+    const picked = await window.electronAPI?.system?.openDirectory();
+    if (picked) setJoinInviteFolder(picked);
+  };
+
+  const handleJoinInvite = async () => {
+    if (!joinInviteCode.trim() || !window.electronAPI?.p2p) return;
+    setJoinInviteLoading(true);
+    setJoinInviteError(null);
+    try {
+      const result = await window.electronAPI.p2p.acceptInvite({
+        code: joinInviteCode.trim(),
+        memberName: displayName || undefined,
+        targetDirectory: joinInviteFolder || undefined,
+      });
+      // Refresh project list
+      const desktopProjects = await window.electronAPI.project?.list();
+      if (desktopProjects) setProjects(desktopProjects.map(mapDesktopProject));
+      setShowJoinInvite(false);
+      setJoinInviteCode("");
+      setJoinInviteStep("paste");
+      setJoinInviteProjectName("");
+      setJoinInviteRemoteUrl("");
+      setJoinInviteFolder("");
+      // Navigate to the new project
+      if (result?.project) router.push("/project");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to join project";
+      if (msg.includes("not found") || msg.includes("Could not read from remote") || msg.includes("Authentication failed") || msg.includes("403")) {
+        // Extract GitHub repo URL for collaborator guidance
+        const ghMatch = joinInviteRemoteUrl?.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+        const collabLink = ghMatch ? `https://github.com/${ghMatch[1]}/${ghMatch[2]}/settings/access` : null;
+        setJoinInviteError(
+          `Could not access this repository. If it's a private repo, the owner needs to add you as a collaborator on GitHub first.` +
+          (collabLink ? `\n\nAsk them to go to: ${collabLink} → "Add people" → enter your GitHub username.` : "") +
+          `\n\nOnce you accept the GitHub invite, try again.`
+        );
+      } else {
+        setJoinInviteError(msg);
+      }
+    } finally {
+      setJoinInviteLoading(false);
+    }
+  };
+
+  // Pull display name from settings for invite acceptance
+  const [displayName, setDisplayName] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronAPI?.settings) {
+      window.electronAPI.settings.get().then((s) => {
+        const settings = s as unknown as Record<string, unknown>;
+        if (settings.displayName) {
+          setDisplayName(settings.displayName as string);
+        }
+      }).catch(() => {});
+    }
+  }, []);
 
   const handleCreateFriend = () => {
     if (!draftFriendName.trim()) return;
@@ -498,18 +620,54 @@ function HomePageContent() {
               ? "Pick a project to continue, or start something brand new."
               : "Keep your coding circle close. Add friends, check in, and message people you build with."}
           </p>
-          <button
-            type="button"
-            onClick={() => activeTab === "projects" ? openProjectCreator() : setShowFriendCreator(true)}
-            className="btn-primary mt-5 px-5 py-2.5 text-[13px]"
-          >
-            {activeTab === "projects" ? "New project" : "Add coding friend"}
-          </button>
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => activeTab === "projects" ? openProjectCreator() : setShowFriendCreator(true)}
+              className="btn-primary px-5 py-2.5 text-[13px]"
+            >
+              {activeTab === "projects" ? "New project" : "Add coding friend"}
+            </button>
+            {activeTab === "projects" && canUseDesktopProjects && (
+              <button
+                type="button"
+                onClick={() => setShowJoinInvite(true)}
+                className="inline-flex items-center gap-1.5 rounded-2xl border border-violet-500/20 bg-violet-500/5 px-5 py-2.5 text-[13px] font-semibold text-violet-600 transition hover:bg-violet-500/10 dark:text-violet-400"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5z" clipRule="evenodd" /><path fillRule="evenodd" d="M6.194 12.753a.75.75 0 001.06.053L16.5 4.44v2.81a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.553l-9.056 8.194a.75.75 0 00-.053 1.06z" clipRule="evenodd" /></svg>
+                Join with invite
+              </button>
+            )}
+          </div>
         </header>
 
         {projectError ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
             {projectError}
+          </div>
+        ) : null}
+
+        {pendingGithubAuth ? (
+          <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className="flex-1">
+              <p className="font-semibold">GitHub needs permission to delete repos</p>
+              <p className="mt-0.5 text-[12px] opacity-80">A window will open to complete GitHub authentication. This only needs to happen once.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleGrantDeleteScope()}
+              disabled={grantingScope}
+              className="shrink-0 rounded-full bg-amber-600 px-4 py-2 text-[12px] font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+            >
+              {grantingScope ? "Waiting for auth..." : "Grant Permission"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingGithubAuth(null)}
+              className="shrink-0 text-[12px] font-medium opacity-60 transition hover:opacity-100"
+            >
+              Dismiss
+            </button>
           </div>
         ) : null}
 
@@ -919,7 +1077,7 @@ function HomePageContent() {
                   className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
                 />
                 <p className="text-[11px] theme-muted">
-                  CodeBuddy always creates a new project folder automatically inside the location you choose.
+                  CodeBuddy creates a subfolder using the project name inside this location. You can also type a path that doesn&apos;t exist yet — it will be created for you.
                 </p>
                   </>
                 )}
@@ -1026,6 +1184,165 @@ function HomePageContent() {
         </div>
       )}
 
+      {/* ─── JOIN VIA INVITE MODAL ─── */}
+      {showJoinInvite && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => { setShowJoinInvite(false); setJoinInviteError(null); setJoinInviteStep("paste"); }}
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+          />
+          <div className="app-surface-strong relative w-full max-w-md overflow-hidden rounded-[1.75rem] shadow-2xl">
+            <div className="flex h-24 items-center justify-center bg-gradient-to-br from-violet-600 to-indigo-600">
+              <span className="display-font text-[2.5rem] font-bold text-white/20">Join</span>
+            </div>
+            <div className="p-6">
+              {joinInviteError && (
+                <div className="mb-4 whitespace-pre-line rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+                  {joinInviteError}
+                </div>
+              )}
+
+              {/* Step 1: Paste invite code */}
+              {joinInviteStep === "paste" && (
+                <>
+                  <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+                    Join a friend&apos;s project
+                  </h3>
+                  <p className="mt-1.5 text-[13px] theme-muted">
+                    Paste the invite code your friend shared with you.
+                  </p>
+                  <div className="mt-5 grid gap-3">
+                    <textarea
+                      value={joinInviteCode}
+                      onChange={(e) => setJoinInviteCode(e.target.value)}
+                      placeholder="Paste invite code here..."
+                      rows={3}
+                      className="app-input resize-none rounded-xl px-4 py-3 font-mono text-[13px] outline-none transition focus:ring-2 focus:ring-violet-500/20"
+                    />
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => { setShowJoinInvite(false); setJoinInviteError(null); setJoinInviteStep("paste"); }}
+                        className="btn-ghost px-4 py-2.5 text-[13px]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDecodeInvite()}
+                        disabled={!joinInviteCode.trim()}
+                        className="btn-primary px-5 py-2.5 text-[13px]"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Step 2: Choose local folder */}
+              {joinInviteStep === "setup" && (
+                <>
+                  <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+                    Set up &ldquo;{joinInviteProjectName}&rdquo;
+                  </h3>
+                  <p className="mt-1.5 text-[13px] theme-muted">
+                    Choose where to clone the project on your computer.
+                  </p>
+
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-wider theme-muted">
+                        Project
+                      </label>
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 dark:border-white/10">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 theme-muted"><path d="M3.505 2.365A41.369 41.369 0 019 2c1.863 0 3.697.124 5.495.365 1.247.167 2.18 1.108 2.435 2.268a4.45 4.45 0 00-.577-.069 43.141 43.141 0 00-4.706 0C9.229 4.696 7.5 6.727 7.5 8.998v2.24c0 1.413.67 2.735 1.76 3.562l-2.98 2.98A.75.75 0 015 17.25v-3.443c-.501-.048-1-.106-1.495-.172C2.033 13.438 1 12.162 1 10.72V5.28c0-1.441 1.033-2.717 2.505-2.914z" /><path d="M14 6c-.762 0-1.52.02-2.271.062C10.157 6.148 9 7.472 9 8.998v2.24c0 1.519 1.147 2.839 2.71 2.935.214.013.428.024.642.034.2.009.385.09.518.224l2.35 2.35a.75.75 0 001.28-.531v-2.07c1.453-.195 2.5-1.463 2.5-2.942V8.998c0-1.526-1.157-2.85-2.729-2.936A41.645 41.645 0 0014 6z" /></svg>
+                        <span className="text-[13px] font-medium theme-fg">{joinInviteProjectName}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-wider theme-muted">
+                        Save to
+                      </label>
+                      {commonPaths && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {[
+                            { label: "Desktop", path: commonPaths.desktop },
+                            { label: "Documents", path: commonPaths.documents },
+                            { label: "Downloads", path: commonPaths.downloads },
+                            { label: "Home", path: commonPaths.home },
+                          ].map((loc) => {
+                            const safeName = joinInviteProjectName.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+                            const full = `${loc.path}${loc.path.endsWith("\\") || loc.path.endsWith("/") ? "" : "\\"}${safeName}`;
+                            const isActive = joinInviteFolder === full;
+                            return (
+                              <button
+                                key={loc.label}
+                                type="button"
+                                onClick={() => setJoinInviteFolder(full)}
+                                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isActive ? "bg-violet-600 text-white" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                              >
+                                {loc.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={joinInviteFolder}
+                          onChange={(e) => setJoinInviteFolder(e.target.value)}
+                          placeholder="C:\Users\you\Projects\my-project"
+                          className="app-input min-w-0 flex-1 rounded-xl px-4 py-3 font-mono text-[12px] outline-none transition focus:ring-2 focus:ring-violet-500/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handlePickJoinFolder()}
+                          className="btn-ghost shrink-0 rounded-xl px-3 py-3 text-[13px]"
+                          title="Browse..."
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M3.75 3A1.75 1.75 0 002 4.75v3.26a3.235 3.235 0 011.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0016.25 5h-4.836a.25.25 0 01-.177-.073L9.823 3.513A1.75 1.75 0 008.586 3H3.75zM3.75 9A1.75 1.75 0 002 10.75v4.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-4.5A1.75 1.75 0 0016.25 9H3.75z" /></svg>
+                        </button>
+                      </div>
+                      {joinInviteFolder.trim() && (
+                        <p className="mt-1.5 truncate font-mono text-[11px] text-violet-400/80 dark:text-violet-300/60">
+                          {joinInviteFolder}
+                        </p>
+                      )}
+                      <p className="mt-1 text-[11px] theme-muted">
+                        The repo will be cloned into this folder. A new folder will be created if it doesn&apos;t exist.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setJoinInviteStep("paste"); setJoinInviteError(null); }}
+                      className="btn-ghost px-4 py-2.5 text-[13px]"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleJoinInvite()}
+                      disabled={joinInviteLoading || !joinInviteFolder.trim()}
+                      className="btn-primary px-5 py-2.5 text-[13px]"
+                    >
+                      {joinInviteLoading ? "Cloning & joining..." : "Clone & join"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {projectPendingDelete ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <button
@@ -1101,7 +1418,7 @@ function HomePageContent() {
                   type="button"
                   onClick={() => {
                     setProjectPendingDelete(null);
-                    setDeleteMode("codebuddy-only");
+                    setDeleteMode("local-only");
                   }}
                   disabled={projectDeletingId === projectPendingDelete.id}
                   className="btn-ghost px-4 py-2.5 text-[13px]"

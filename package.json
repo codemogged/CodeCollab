@@ -10,36 +10,66 @@
     "dev:electron": "concurrently --kill-others \"next dev --turbopack --port 3000\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "next build",
     "build:electron": "next build && electron-builder",
+    "deploy": "next build && electron-builder && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$dest='C:\\Users\\cameron\\Desktop\\CodeBuddy Install'; Remove-Item \\\"$dest\\*\\\" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item 'dist-electron\\win-unpacked\\*' \\\"$dest\\\\\\\" -Recurse -Force; Copy-Item 'FRESH-START.bat' \\\"$dest\\\\\\\" -Force; Copy-Item 'UPDATE.ps1' \\\"$dest\\\\\\\" -Force; Copy-Item 'debug-start.bat' \\\"$dest\\\\DEBUG-START.bat\\\" -Force; Write-Output 'Deploy complete ␦ CodeBuddy Install folder updated'\"",
+    "build:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1",
+    "postinstall": "electron-builder install-app-deps",
     "start": "next start",
     "lint": "eslint ."
   },
   "build": {
     "appId": "com.codebuddy.app",
     "productName": "CodeBuddy",
+    "copyright": "Copyright © 2026 CodeBuddy Contributors",
     "files": [
       "electron/**/*",
       "out/**/*"
     ],
     "directories": {
-      "output": "dist-electron"
+      "output": "dist-electron",
+      "buildResources": "build"
     },
+    "extraResources": [
+      { "from": "build/icon.png", "to": "icon.png" }
+    ],
     "win": {
       "target": "nsis",
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CodeBuddy",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "installerSidebar": null,
+      "license": null
+    },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "category": "Development"
     }
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "hyperswarm": "^4.17.0",
     "monaco-editor": "^0.55.1",
     "next": "^16.2.1",
     "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react-dom": "19.0.0",
+    "yjs": "^13.6.30"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

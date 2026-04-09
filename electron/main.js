@@ -1,7 +1,25 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, session } = require("electron");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+
+// ── Diagnostic file logger ──
+const logFile = path.join(app.getPath("userData"), "codebuddy-debug.log");
+const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+function writeLog(level, args) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] [${level}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a, null, 0)).join(" ")}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+}
+console.log = (...args) => { originalConsoleLog(...args); writeLog("LOG", args); };
+console.warn = (...args) => { originalConsoleWarn(...args); writeLog("WARN", args); };
+console.error = (...args) => { originalConsoleError(...args); writeLog("ERR", args); };
+console.log(`[startup] Log file: ${logFile}`);
+console.log(`[startup] App version: ${app.getVersion()}, platform: ${process.platform}, arch: ${process.arch}`);
+console.log(`[startup] Time: ${new Date().toISOString()}`);
+
 const { registerIpcHandlers } = require("./ipc/register-handlers");
 const { createProcessService } = require("./services/process-service");
 const { createRepoService } = require("./services/repo-service");
@@ -9,6 +27,9 @@ const { createSettingsService } = require("./services/settings-service");
 const { createToolingService } = require("./services/tooling-service");
 const { createActivityService } = require("./services/activity-service");
 const { createProjectService } = require("./services/project-service");
+const { createSharedStateService } = require("./services/shared-state-service");
+const { createP2PService } = require("./services/p2p-service");
+const { createFileWatcherService } = require("./services/file-watcher-service");
 
 // Keep a global reference so the window isn't garbage-collected
 let mainWindow = null;
@@ -16,11 +37,19 @@ let staticServer = null;
 let staticServerUrl = null;
 
 const isDev = !app.isPackaged;
+
+// Prevent Chromium from caching old JS bundles after updates
+if (!isDev) {
+  app.commandLine.appendSwitch("disable-http-cache");
+}
 const processService = createProcessService({ sendEvent: () => undefined });
 const settingsService = createSettingsService({ app });
 const toolingService = createToolingService({ processService, settingsService });
 const activityService = createActivityService();
-const projectService = createProjectService({ app, settingsService });
+const sharedStateService = createSharedStateService();
+const p2pService = createP2PService({ sharedStateService, sendEvent: () => undefined });
+const fileWatcherService = createFileWatcherService({ repoService: null, processService, p2pService, sendEvent: () => undefined });
+const projectService = createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService });
 let repoService = null;
 
 function getContentType(filePath) {
@@ -111,12 +140,50 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "CodeBuddy",
+    title: "CodeBuddy [build copilot-fix-v3]",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
       nodeIntegration: false,   // security: no require() in renderer
+      webviewTag: true,         // allow <webview> tags for preview iframe
     },
+  });
+
+  // Keep preview guests sandboxed and block any attempt to open external windows.
+  mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
+
+  mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
+    webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  });
+
+  // Strip X-Frame-Options and CSP frame-ancestors from localhost responses
+  // so the preview iframe can display the user's local dev server.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const url = details.url || "";
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(url);
+    if (isLocalhost && details.responseHeaders) {
+      const headers = { ...details.responseHeaders };
+      // Remove frame-blocking headers (case-insensitive keys)
+      for (const key of Object.keys(headers)) {
+        const lower = key.toLowerCase();
+        if (lower === "x-frame-options") {
+          delete headers[key];
+        } else if (lower === "content-security-policy") {
+          // Remove frame-ancestors directive from CSP
+          headers[key] = headers[key].map((v) =>
+            v.replace(/frame-ancestors[^;]*(;|$)/gi, "").trim()
+          ).filter(Boolean);
+          if (headers[key].length === 0) delete headers[key];
+        }
+      }
+      callback({ responseHeaders: headers });
+    } else {
+      callback({});
+    }
   });
 
   // In dev, load the Next.js dev server; in prod, serve the exported app over localhost.
@@ -124,6 +191,11 @@ async function createWindow() {
     mainWindow.loadURL("http://localhost:3000");
     mainWindow.webContents.openDevTools();
   } else {
+    // Clear Chromium's HTTP/code cache so updated JS bundles always load
+    try {
+      await mainWindow.webContents.session.clearCache();
+      await mainWindow.webContents.session.clearCodeCaches({});
+    } catch (_) { /* ignore if not supported */ }
     const appUrl = await ensureStaticServer();
     await mainWindow.loadURL(appUrl);
   }
@@ -151,6 +223,9 @@ async function bootstrapDesktopServices() {
       toolingService,
       activityService,
       projectService,
+      sharedStateService,
+      p2pService,
+      fileWatcherService,
     });
   } catch (handlerError) {
     console.error("[Main] Critical: registerIpcHandlers threw:", handlerError);
@@ -164,6 +239,11 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  // Clean up file watcher
+  fileWatcherService.stopWatching().catch(() => {});
+  // Clean up P2P connections
+  p2pService.leaveProject().catch(() => {});
+
   if (staticServer) {
     staticServer.close();
     staticServer = null;

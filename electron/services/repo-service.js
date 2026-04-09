@@ -1,4 +1,5 @@
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
@@ -18,6 +19,7 @@ async function runGit(gitCommand, args, cwd) {
   const { stdout } = await execFileAsync(gitCommand, args, {
     cwd,
     windowsHide: true,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
   });
 
   return stdout.trim();
@@ -76,6 +78,46 @@ async function createRepoService({ settingsService } = {}) {
     return settings.cliTools?.git || getCommandName("git");
   }
 
+  /** Clean up stuck git state (index.lock, rebase, merge) so subsequent git commands succeed. */
+  function cleanupGitState(repoPath) {
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+    const { execSync } = require("child_process");
+
+    // Remove stale index.lock
+    const indexLock = path.join(repoPath, ".git", "index.lock");
+    try {
+      if (fsSync.existsSync(indexLock)) {
+        fsSync.unlinkSync(indexLock);
+        console.log("[repo-service] Removed stale .git/index.lock");
+      }
+    } catch (e) { console.log("[repo-service] Could not remove index.lock:", e.message); }
+
+    // Abort stuck rebase
+    const rebaseMerge = path.join(repoPath, ".git", "rebase-merge");
+    const rebaseApply = path.join(repoPath, ".git", "rebase-apply");
+    if (fsSync.existsSync(rebaseMerge) || fsSync.existsSync(rebaseApply)) {
+      try {
+        execSync("git rebase --abort", { cwd: repoPath, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 15000 });
+        console.log("[repo-service] Aborted stuck rebase.");
+      } catch {
+        try {
+          if (fsSync.existsSync(rebaseMerge)) fsSync.rmSync(rebaseMerge, { recursive: true, force: true });
+          if (fsSync.existsSync(rebaseApply)) fsSync.rmSync(rebaseApply, { recursive: true, force: true });
+          console.log("[repo-service] Force-removed rebase directories.");
+        } catch (e2) { console.log("[repo-service] Could not remove rebase dirs:", e2.message); }
+      }
+    }
+
+    // Abort stuck merge
+    const mergeHead = path.join(repoPath, ".git", "MERGE_HEAD");
+    if (fsSync.existsSync(mergeHead)) {
+      try {
+        execSync("git merge --abort", { cwd: repoPath, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 15000 });
+        console.log("[repo-service] Aborted stuck merge.");
+      } catch { /* ignore */ }
+    }
+  }
+
   async function ensureRepository(repoPath) {
     const resolvedPath = normalizeRepoPath(repoPath);
     const gitCommand = await getGitCommand();
@@ -104,6 +146,30 @@ async function createRepoService({ settingsService } = {}) {
       }
     }
 
+    // If git reports detached HEAD or a rebase state, clean it up automatically
+    // so the user never sees "HEAD" or broken state in the UI.
+    if (branch === "HEAD" || branch.includes("rebase")) {
+      cleanupGitState(resolvedPath);
+      // Try switching back to codebuddy-build (the working branch)
+      try {
+        await runGit(gitCommand, ["checkout", "codebuddy-build"], resolvedPath);
+        branch = "codebuddy-build";
+        console.log("[repo-service] inspectRepository: recovered from detached HEAD → codebuddy-build");
+      } catch {
+        // If codebuddy-build switch fails, try force checkout
+        try {
+          await runGit(gitCommand, ["checkout", "-f", "codebuddy-build"], resolvedPath);
+          branch = "codebuddy-build";
+          console.log("[repo-service] inspectRepository: force-recovered to codebuddy-build");
+        } catch {
+          // Last resort: re-read whatever branch we ended up on
+          try {
+            branch = await runGit(gitCommand, ["rev-parse", "--abbrev-ref", "HEAD"], resolvedPath);
+          } catch { branch = "main"; }
+        }
+      }
+    }
+
     const [statusOutput, branchesOutput] = await Promise.all([
       runGit(gitCommand, ["status", "--porcelain"], resolvedPath),
       runGit(gitCommand, ["branch", "--format", "%(refname:short)"], resolvedPath),
@@ -119,7 +185,9 @@ async function createRepoService({ settingsService } = {}) {
     return {
       repoPath: resolvedPath,
       branch,
-      branches: branchesOutput ? branchesOutput.split(/\r?\n/).filter(Boolean) : [],
+      branches: branchesOutput
+        ? branchesOutput.split(/\r?\n/).filter(b => b && !b.startsWith("("))
+        : [],
       changedFiles: parseStatusPorcelain(statusOutput),
       recentCommits: logOutput
         ? logOutput.split(/\r?\n/).filter(Boolean).map((line) => {
@@ -137,7 +205,11 @@ async function createRepoService({ settingsService } = {}) {
     const resolvedPath = path.resolve(targetPath);
     const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 
+    // Hide build-artifact / dependency directories that aren't source code
+    const hiddenNames = new Set(["node_modules", ".next", "__pycache__", ".venv", "venv", "dist", ".cache"]);
+
     return entries
+      .filter((entry) => !hiddenNames.has(entry.name))
       .sort((left, right) => Number(right.isDirectory()) - Number(left.isDirectory()) || left.name.localeCompare(right.name))
       .map((entry) => ({
         name: entry.name,
@@ -236,10 +308,59 @@ async function createRepoService({ settingsService } = {}) {
       throw new Error("A branch name is required.");
     }
 
-    if (create) {
-      await runGit(gitCommand, ["switch", "-c", branchName.trim()], resolvedRepoPath);
-    } else {
-      await runGit(gitCommand, ["switch", branchName.trim()], resolvedRepoPath);
+    // Clean up any stuck git state (stale rebase, merge, index.lock) before doing anything
+    cleanupGitState(resolvedRepoPath);
+
+    // Fetch latest from remote before switching (so we have up-to-date branch data)
+    if (!create) {
+      try {
+        await runGit(gitCommand, ["fetch", "origin", branchName.trim()], resolvedRepoPath);
+      } catch { /* remote branch may not exist or no network — continue anyway */ }
+    }
+
+    // Stage and stash any uncommitted / untracked changes before switching
+    let didStash = false;
+    try {
+      await runGit(gitCommand, ["add", "-A"], resolvedRepoPath);
+      const stashOut = await runGit(gitCommand, ["stash"], resolvedRepoPath);
+      didStash = !stashOut.includes("No local changes");
+    } catch { /* ignore — stash is best-effort */ }
+
+    try {
+      if (create) {
+        await runGit(gitCommand, ["switch", "-c", branchName.trim()], resolvedRepoPath);
+      } else {
+        await runGit(gitCommand, ["switch", branchName.trim()], resolvedRepoPath);
+      }
+    } catch (switchErr) {
+      // If switch fails (e.g. residual rebase), try force-checkout as fallback
+      try {
+        cleanupGitState(resolvedRepoPath);
+        await runGit(gitCommand, ["checkout", "-f", branchName.trim()], resolvedRepoPath);
+      } catch {
+        // Pop stash back on the original branch if switch failed
+        if (didStash) {
+          try { await runGit(gitCommand, ["stash", "pop"], resolvedRepoPath); } catch { /* ignore */ }
+        }
+        throw switchErr;
+      }
+    }
+
+    // Pop stash on the new branch (may fail if conflicts — that's OK, user sees clean branch state)
+    if (didStash) {
+      try {
+        await runGit(gitCommand, ["stash", "pop"], resolvedRepoPath);
+      } catch {
+        // Drop the stash — the user is viewing a different branch, stashed changes don't belong here
+        try { await runGit(gitCommand, ["stash", "drop"], resolvedRepoPath); } catch { /* ignore */ }
+      }
+    }
+
+    // Fast-forward merge with the fetched remote to ensure local branch is up-to-date
+    if (!create) {
+      try {
+        await runGit(gitCommand, ["merge", "--ff-only", `origin/${branchName.trim()}`], resolvedRepoPath);
+      } catch { /* may not have remote tracking or already up-to-date — that's fine */ }
     }
 
     return inspectRepository(resolvedRepoPath);
@@ -274,6 +395,90 @@ async function createRepoService({ settingsService } = {}) {
     };
   }
 
+  async function getRemoteUrl(repoPath) {
+    const resolvedPath = await ensureRepository(repoPath);
+    const gitCommand = await getGitCommand();
+    try {
+      const url = await runGit(gitCommand, ["remote", "get-url", "origin"], resolvedPath);
+      return url || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function pushToRemote(repoPath, { remote = "origin", branch } = {}) {
+    const resolvedPath = await ensureRepository(repoPath);
+    const gitCommand = await getGitCommand();
+
+    if (!branch) {
+      try {
+        branch = await runGit(gitCommand, ["rev-parse", "--abbrev-ref", "HEAD"], resolvedPath);
+      } catch {
+        branch = "main";
+      }
+    }
+
+    // Set upstream if this is the first push
+    try {
+      await runGit(gitCommand, ["push", "-u", remote, branch], resolvedPath);
+    } catch (err) {
+      // Retry without -u in case upstream already exists
+      try {
+        await runGit(gitCommand, ["push", remote, branch], resolvedPath);
+      } catch (retryErr) {
+        throw new Error(retryErr.message || "git push failed");
+      }
+    }
+
+    return inspectRepository(resolvedPath);
+  }
+
+  async function pullFromRemote(repoPath, { remote = "origin", branch } = {}) {
+    const resolvedPath = await ensureRepository(repoPath);
+    const gitCommand = await getGitCommand();
+
+    if (!branch) {
+      try {
+        branch = await runGit(gitCommand, ["rev-parse", "--abbrev-ref", "HEAD"], resolvedPath);
+      } catch {
+        branch = "main";
+      }
+    }
+
+    await runGit(gitCommand, ["pull", "--rebase", remote, branch], resolvedPath);
+    return inspectRepository(resolvedPath);
+  }
+
+  async function syncSharedState(repoPath, commitMessage) {
+    const resolvedPath = await ensureRepository(repoPath);
+    const gitCommand = await getGitCommand();
+    const codeBuddyDir = path.join(resolvedPath, ".codebuddy");
+
+    // Check if .codebuddy exists
+    try {
+      await fs.stat(codeBuddyDir);
+    } catch {
+      throw new Error(".codebuddy directory not found. Initialize shared workspace first.");
+    }
+
+    // Stage everything in .codebuddy/
+    await runGit(gitCommand, ["add", ".codebuddy"], resolvedPath);
+
+    // Check if there are staged changes
+    const status = await runGit(gitCommand, ["status", "--porcelain", ".codebuddy"], resolvedPath);
+    if (!status.trim()) {
+      // Nothing to commit — just push
+      return pushToRemote(resolvedPath);
+    }
+
+    // Commit
+    const msg = commitMessage || `chore(codebuddy): sync shared workspace state`;
+    await runGit(gitCommand, ["commit", "-m", msg], resolvedPath);
+
+    // Push
+    return pushToRemote(resolvedPath);
+  }
+
   return {
     inspectRepository,
     listDirectory,
@@ -285,6 +490,10 @@ async function createRepoService({ settingsService } = {}) {
     commit,
     checkoutBranch,
     getCommitDetails,
+    getRemoteUrl,
+    pushToRemote,
+    pullFromRemote,
+    syncSharedState,
   };
 }
 

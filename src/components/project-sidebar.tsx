@@ -34,12 +34,11 @@ const navItems = [
     ),
   },
   {
-    href: "/project/messages",
-    label: "Messages",
+    href: "/project/code",
+    label: "Freestyle",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-        <path d="M3.25 4A2.25 2.25 0 001 6.25v6.5A2.25 2.25 0 003.25 15h1.19a.75.75 0 01.53.22l1.81 1.81a.75.75 0 001.28-.53V15h1.69a2.25 2.25 0 002.25-2.25v-6.5A2.25 2.25 0 009.75 4h-6.5z" />
-        <path d="M10 7.25A2.25 2.25 0 0112.25 5h4.5A2.25 2.25 0 0119 7.25v5.5A2.25 2.25 0 0116.75 15H15.5v1.5a.75.75 0 01-1.28.53l-1.81-1.81a.75.75 0 00-.53-.22h-.63A2.25 2.25 0 019 12.75v-5.5A2.25 2.25 0 0111.25 5H10v2.25z" />
+        <path fillRule="evenodd" d="M6.28 5.22a.75.75 0 010 1.06L2.56 10l3.72 3.72a.75.75 0 01-1.06 1.06L.97 10.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0zm7.44 0a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L17.44 10l-3.72-3.72a.75.75 0 010-1.06zM11.377 2.011a.75.75 0 01.612.867l-2.5 14.5a.75.75 0 01-1.478-.255l2.5-14.5a.75.75 0 01.866-.612z" clipRule="evenodd" />
       </svg>
     ),
   },
@@ -49,6 +48,16 @@ const navItems = [
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
         <path d="M3.75 3A1.75 1.75 0 002 4.75v3.26a3.235 3.235 0 011.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0016.25 5h-4.836a.25.25 0 01-.177-.073L9.823 3.513A1.75 1.75 0 008.586 3H3.75zM3.75 9A1.75 1.75 0 002 10.75v4.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-4.5A1.75 1.75 0 0016.25 9H3.75z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/project/artifacts",
+    label: "Downloads",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+        <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+        <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
       </svg>
     ),
   },
@@ -71,6 +80,15 @@ const navItems = [
     ),
   },
   {
+    href: "/project/docs",
+    label: "Documentation",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+        <path d="M10.75 16.82A7.462 7.462 0 0115 15.5c.71 0 1.396.098 2.046.282A.75.75 0 0018 15.06v-11a.75.75 0 00-.546-.721A9.006 9.006 0 0015 3a8.999 8.999 0 00-4.25 1.065v12.755zM9.25 4.065A8.999 8.999 0 005 3c-.85 0-1.673.118-2.454.339A.75.75 0 002 4.06v11a.75.75 0 00.954.721A7.506 7.506 0 015 15.5c1.579 0 3.042.487 4.25 1.32V4.065z" />
+      </svg>
+    ),
+  },
+  {
     href: "/project/settings",
     label: "Project settings",
     icon: (
@@ -86,6 +104,16 @@ function ProjectSidebarContent({ defaultCollapsed = false }: { defaultCollapsed?
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [displayName, setDisplayName] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronAPI?.settings) {
+      window.electronAPI.settings.get().then((s) => {
+        const settings = s as unknown as Record<string, unknown>;
+        if (settings.displayName) setDisplayName(settings.displayName as string);
+      }).catch(() => {});
+    }
+  }, []);
+  const userInitials = displayName ? displayName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") : "";
   const [showScrollIndicator, setShowScrollIndicator] = useState(false);
   const matchedMockIdea = activeProject
     ? ideas.find((idea) => idea.name.toLowerCase() === activeProject.name.toLowerCase()) ?? null
@@ -335,10 +363,10 @@ function ProjectSidebarContent({ defaultCollapsed = false }: { defaultCollapsed?
 
         <div className={`border-t border-black/[0.06] py-4 dark:border-white/[0.08] ${collapsed ? "flex justify-center px-2" : "px-4"}`}>
           <Link href="/settings" className={`flex items-center rounded-xl transition hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${collapsed ? "justify-center px-2 py-2" : "gap-3 px-2 py-2"}`}>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-[11px] font-bold text-cream dark:bg-white dark:text-[#141414]">CM</div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-[11px] font-bold text-cream dark:bg-white dark:text-[#141414]">{userInitials || "CB"}</div>
             {!collapsed && (
               <div>
-                <p className="text-[12px] font-semibold text-ink dark:text-[var(--fg)]">Cameron</p>
+                <p className="text-[12px] font-semibold text-ink dark:text-[var(--fg)]">{displayName || "User"}</p>
                 <p className="text-[10px] text-ink-muted/60 dark:text-[var(--muted)]">Owner</p>
               </div>
             )}

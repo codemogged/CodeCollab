@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChatBubble } from "@/components";
@@ -271,19 +272,19 @@ function renderChatMessageBody(text: string, tone: "user" | "assistant") {
         : level === 2
           ? "text-[16px] font-semibold"
           : "text-[15px] font-semibold";
-      return <p key={key} className={`${headingClass} ${tone === "user" ? "text-white/98" : "theme-fg"}`}>{renderInlineChatFormatting(title)}</p>;
+      return <p key={key} className={`${headingClass} break-words ${tone === "user" ? "text-white/98" : "theme-fg"}`}>{renderInlineChatFormatting(title)}</p>;
     }
 
     if (lines.every((line) => /^[-*]\s+/.test(line))) {
       return (
-        <ul key={key} className={`ml-5 list-disc space-y-1 ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
+        <ul key={key} className={`ml-5 list-disc space-y-1 break-words text-[15px] leading-[1.7] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
           {lines.map((line, lineIndex) => <li key={`${key}-${lineIndex}`}>{renderInlineChatFormatting(line.replace(/^[-*]\s+/, ""))}</li>)}
         </ul>
       );
     }
 
     return (
-      <p key={key} className={`whitespace-pre-wrap text-[15px] leading-[1.72] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
+      <p key={key} className={`whitespace-pre-wrap break-words text-[15px] leading-[1.72] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
         {renderInlineChatFormatting(block)}
       </p>
     );
@@ -292,6 +293,19 @@ function renderChatMessageBody(text: string, tone: "user" | "assistant") {
 
 function buildWorkingLabel(frame: number, base = "Working") {
   return `${base}${".".repeat((frame % 3) + 1)}`;
+}
+
+function getTaskStatusPresentation(status?: string) {
+  switch (status) {
+    case "done":
+      return { label: "Done", className: "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-500/14 dark:text-emerald-200" };
+    case "review":
+      return { label: "In review", className: "bg-amber-500/12 text-amber-700 dark:bg-amber-500/14 dark:text-amber-200" };
+    case "building":
+      return { label: "Building", className: "bg-sky-500/12 text-sky-700 dark:bg-sky-500/14 dark:text-sky-200" };
+    default:
+      return { label: "Planned", className: "bg-stone-500/12 text-stone-700 dark:bg-stone-500/14 dark:text-stone-200" };
+  }
 }
 
 type ModelCatalogEntry = {
@@ -311,6 +325,8 @@ const quickPromptMeta: Record<QuickPromptType, { label: string; shortLabel: stri
   documentation: { label: "Create documentation", shortLabel: "Docs" },
 };
 
+const chatActionButtonClass = "app-control-rail rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] app-control-idle";
+
 const copilotModelCatalog: ModelCatalogEntry[] = [
   { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
   { id: "claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
@@ -329,8 +345,54 @@ const copilotModelCatalog: ModelCatalogEntry[] = [
   { id: "o3", label: "o3", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
 ];
 
-function getModelCatalogEntry(modelId: string) {
-  return copilotModelCatalog.find((entry) => entry.id === modelId) ?? copilotModelCatalog.find((entry) => entry.id === "gpt-5.4") ?? copilotModelCatalog[0];
+const claudeModelCatalog: ModelCatalogEntry[] = [
+  { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+  { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+  { id: "claude-opus-4-6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+  { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+];
+
+const allModelsCatalog: ModelCatalogEntry[] = [
+  ...claudeModelCatalog.map((entry) => ({ ...entry, group: entry.group as "featured" | "other" })),
+  ...copilotModelCatalog.map((entry) => ({ ...entry, group: entry.group as "featured" | "other" })),
+];
+
+function getActiveModelCatalog(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }): ModelCatalogEntry[] {
+  const hasCopilot = !!featureFlags?.githubCopilotCli;
+  const hasClaude = !!featureFlags?.claudeCode;
+  if (hasClaude && hasCopilot) return allModelsCatalog;
+  if (hasClaude) return claudeModelCatalog;
+  return copilotModelCatalog;
+}
+
+function getDefaultModelId(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }): string {
+  const hasCopilot = !!featureFlags?.githubCopilotCli;
+  const hasClaude = !!featureFlags?.claudeCode;
+  if (hasClaude && !hasCopilot) return "sonnet";
+  return "gpt-5.2";
+}
+
+function getModelRecommendation(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }, isTaskChat: boolean): { modelId: string; label: string; reason: string } {
+  const hasCopilot = !!featureFlags?.githubCopilotCli;
+  const hasClaude = !!featureFlags?.claudeCode;
+
+  if (isTaskChat) {
+    // Task implementation — prefer Claude Sonnet for coding, or GPT-5.4 for Copilot-only
+    if (hasClaude) return { modelId: "sonnet", label: "Claude Sonnet (Latest)", reason: "Best for implementation tasks" };
+    return { modelId: "gpt-5.4", label: "GPT-5.4", reason: "Best for implementation tasks" };
+  }
+
+  // PM chat / planning — prefer Claude Opus for planning depth, or GPT-5.4 on Copilot
+  if (hasClaude && hasCopilot) return { modelId: "claude-opus-4.6", label: "Claude Opus 4.6", reason: "Best for planning & architecture" };
+  if (hasClaude) return { modelId: "opus", label: "Claude Opus (Latest)", reason: "Best for planning & architecture" };
+  return { modelId: "claude-opus-4.6", label: "Claude Opus 4.6", reason: "Best for planning & architecture" };
+}
+
+function getModelCatalogEntry(modelId: string, catalog?: ModelCatalogEntry[]) {
+  const source = catalog ?? copilotModelCatalog;
+  return source.find((entry) => entry.id === modelId) ?? source[0];
 }
 
 function estimateTokens(text: string) {
@@ -400,6 +462,40 @@ function findTaskInProjectPlan(plan: RealProjectChatProps["activeProject"]["dash
   }
 
   return null;
+}
+
+function findNextIncompleteTask(project: RealProjectChatProps["activeProject"], currentTaskId?: string | null) {
+  const orderedTasks = (project.dashboard.plan?.subprojects ?? []).flatMap((subproject) =>
+    (subproject.tasks ?? []).map((task) => ({ subproject, task })),
+  );
+
+  if (orderedTasks.length === 0) {
+    return null;
+  }
+
+  const currentIndex = currentTaskId
+    ? orderedTasks.findIndex((entry) => entry.task.id === currentTaskId)
+    : -1;
+
+  const nextAfterCurrent = orderedTasks
+    .slice(currentIndex >= 0 ? currentIndex + 1 : 0)
+    .find((entry) => entry.task.status !== "done");
+
+  if (nextAfterCurrent) {
+    return nextAfterCurrent;
+  }
+
+  return orderedTasks.find((entry) => entry.task.status !== "done" && entry.task.id !== currentTaskId) ?? null;
+}
+
+function shouldAutoStartTaskThread(project: RealProjectChatProps["activeProject"], taskId: string) {
+  const taskContext = findTaskInProjectPlan(project.dashboard.plan, taskId);
+  if (!taskContext?.task.startingPrompt?.trim()) {
+    return false;
+  }
+
+  const existingThread = project.dashboard.taskThreads.find((thread) => thread.taskId === taskId);
+  return (existingThread?.messages?.length ?? 0) === 0;
 }
 
 function buildRealProjectManagerMarkdown(project: RealProjectChatProps["activeProject"]) {
@@ -1212,6 +1308,7 @@ function ProjectChatPageContent() {
   const [copilotPrompt, setCopilotPrompt] = useState<string | null>(null);
   const [copilotOutput, setCopilotOutput] = useState("");
   const [copilotExitCode, setCopilotExitCode] = useState<number | null>(null);
+  const [displayName, setDisplayName] = useState("");
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const promptMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1312,6 +1409,9 @@ function ProjectChatPageContent() {
         setDesktopRepoPath(settings.recentRepositories[0] ?? settings.workspaceRoots[0] ?? null);
         setSelectedModel(settings.projectDefaults?.copilotModel ?? "gpt-5.2");
         setCopilotReady(Boolean(toolStatuses.find((tool) => tool.id === "githubCopilotCli")?.available));
+        if ((settings as unknown as Record<string, unknown>).displayName) {
+          setDisplayName((settings as unknown as Record<string, unknown>).displayName as string);
+        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -1751,15 +1851,15 @@ function ProjectChatPageContent() {
                               ? `${quickPromptMeta[activeQuickPrompt].label} prompt loaded`
                               : hasDesktopApi
                                 ? copilotReady
-                                  ? "Send runs through GitHub Copilot CLI"
-                                  : "Install GitHub CLI to enable Copilot"
+                                  ? "Send runs through AI CLI"
+                                  : "Install an AI CLI to enable prompts"
                                 : "Type or use tools"}
                           </p>
                           <select
                             value={selectedModel}
                             onChange={(event) => setSelectedModel(event.target.value)}
                             className="h-8 rounded-full bg-black/[0.04] px-3 text-[11px] font-semibold theme-fg outline-none transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-                            title="Copilot model"
+                            title="Model"
                           >
                             {copilotModelCatalog.map((model) => (
                               <option key={model.id} value={model.id}>{model.label}</option>
@@ -1875,6 +1975,7 @@ type RealProjectChatProps = {
     description: string;
     repoPath: string;
     stage?: string;
+    imported?: boolean;
     dashboard: {
       systemPromptMarkdown: string;
       initialPrompt: string;
@@ -1943,6 +2044,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   const searchParams = useSearchParams();
   const taskParam = searchParams.get("task") || searchParams.get("ask");
   const threadParam = searchParams.get("thread");
+  const autoStartParam = searchParams.get("autostart");
   const isTaskQuestionMode = Boolean(searchParams.get("ask"));
   const taskContext = taskParam ? findTaskInProjectPlan(activeProject.dashboard.plan, taskParam) : null;
   const activeTaskThread = taskContext
@@ -1952,13 +2054,17 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     : null;
 
   const [prompt, setPrompt] = useState("");
-  const [selectedModel, setSelectedModel] = useState("gpt-5.2");
+  const [displayName, setDisplayName] = useState("");
+  const [featureFlags, setFeatureFlags] = useState<{ githubCopilotCli?: boolean; claudeCode?: boolean }>({ githubCopilotCli: true });
+  const modelCatalog = getActiveModelCatalog(featureFlags);
+  const [selectedModel, setSelectedModel] = useState(() => getDefaultModelId(featureFlags));
   const [attachedFiles, setAttachedFiles] = useState<ComposerAttachment[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ComposerAttachment[]>([]);
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [pendingCheckpointId, setPendingCheckpointId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const isGeneratingViaAwaitRef = useRef(false); // true when handleGeneratePlan is actively awaiting
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [agentLiveStatus, setAgentLiveStatus] = useState("Idle");
@@ -1978,12 +2084,39 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   const [selectedBuildResponse, setSelectedBuildResponse] = useState<Message | undefined>(undefined);
   const [pendingPreviewLaunch, setPendingPreviewLaunch] = useState(false);
   const [previewProcessId, setPreviewProcessId] = useState<string | null>(null);
+  const previewProcessIdRef = useRef<string | null>(null);
+  const previewPortRef = useRef<number>(0);
+  const previewReadyRef = useRef(false);
+  const [previewReady, setPreviewReady] = useState(false);
+  const setPreviewReadyState = (value: boolean) => {
+    previewReadyRef.current = value;
+    setPreviewReady(value);
+  };
   const [previewServerStatus, setPreviewServerStatus] = useState("Idle");
   const [previewServerOutput, setPreviewServerOutput] = useState("");
+  const [previewExited, setPreviewExited] = useState(false);
   const [detectedPreviewUrl, setDetectedPreviewUrl] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<"web" | "terminal">("web");
+  const previewModeRef = useRef<"web" | "terminal">("web");
+  const setPreviewModeState = (value: "web" | "terminal") => {
+    previewModeRef.current = value;
+    setPreviewMode(value);
+  };
   const [showRightPane, setShowRightPane] = useState(false);
-  const [rightPaneMode, setRightPaneMode] = useState<"preview" | "details">("preview");
+  const [rightPaneMode, setRightPaneMode] = useState<"preview" | "details" | "terminal">("preview");
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [rightPaneResponseText, setRightPaneResponseText] = useState("");
+  const [terminalOutput, setTerminalOutput] = useState("");
+  const [terminalCommand, setTerminalCommand] = useState("");
+  const [terminalProcessId, setTerminalProcessId] = useState<string | null>(null);
+  const terminalProcessIdRef = useRef<string | null>(null);
+  const terminalOutputRef = useRef<HTMLPreElement | null>(null);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const [splitRatio, setSplitRatio] = useState(46);
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const [isAutoPrompting, setIsAutoPrompting] = useState(false);
+  const [autoAdvanceTasks, setAutoAdvanceTasks] = useState(false);
+  const [taskAutomationNotice, setTaskAutomationNotice] = useState<null | { tone: "info" | "success"; message: string }>(null);
   const [cancelledRun, setCancelledRun] = useState<null | {
     messageId: string;
     prompt: string;
@@ -1993,16 +2126,40 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     replaceFromMessageId?: string | null;
   }>(null);
   const conversationRef = useRef<HTMLDivElement | null>(null);
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const thinkingOutputRef = useRef<HTMLPreElement | null>(null);
+  const [thinkingPanelExpanded, setThinkingPanelExpanded] = useState(true);
+  const [interruptPrompt, setInterruptPrompt] = useState("");
+  const previousTaskStateRef = useRef<{ taskId: string | null; status: string | null }>({ taskId: null, status: null });
+  const pendingAutoAdvanceTaskIdRef = useRef<string | null>(null);
+  const handledAutoStartTaskIdRef = useRef<string | null>(null);
+  const localAgentCompletedTaskIdRef = useRef<string | null>(null);
   const taskMenuRef = useRef<HTMLDivElement | null>(null);
+  const taskMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const taskMenuPanelRef = useRef<HTMLDivElement | null>(null);
+  const [taskMenuLayout, setTaskMenuLayout] = useState<null | { top: number; left: number; width: number; maxHeight: number }>(null);
   const [showTaskMenu, setShowTaskMenu] = useState(false);
+  const [customContextMarkdown, setCustomContextMarkdown] = useState<string | null>(null);
+
+  // ── P2P Peer Activity State ─────────────────────────────────
+  const [peerStreams, setPeerStreams] = useState<Record<string, { peerName: string; conversationId: string; scope: string; tokens: string; updatedAt: number; taskId?: string | null; taskName?: string | null; sessionId?: string | null; sessionTitle?: string | null }>>({});
+  const [peerMessages, setPeerMessages] = useState<Array<{ id: string; peerName: string; conversationId: string; scope: string; text: string; time: string }>>([]);
+  const peerStreamTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // ── Track which task/scope the local agent is generating for ──
+  const [generatingForMeta, setGeneratingForMeta] = useState<{ taskId?: string; taskName?: string; scope?: string } | null>(null);
+  // ── Track active agent on a DIFFERENT task/scope (for banner display) ──
+  const [otherAgentMeta, setOtherAgentMeta] = useState<{ taskId?: string; taskName?: string; scope?: string } | null>(null);
+
   const conversation = taskContext ? (activeTaskThread?.messages ?? []) : activeProject.dashboard.conversation;
   const hasPlan = Boolean(activeProject.dashboard.plan);
   const assistantName = taskContext
     ? activeTaskThread?.agentName || taskContext.subproject.agentName || "Task Agent"
     : "Project Manager";
-  const contextMarkdown = taskContext
+  const baseContextMarkdown = taskContext
     ? activeTaskThread?.contextMarkdown || buildTaskPreviewMarkdown(activeProject, taskContext, activeTaskThread)
     : activeProject.dashboard.projectManagerContextMarkdown || buildRealProjectManagerMarkdown(activeProject);
+  const contextMarkdown = customContextMarkdown ?? baseContextMarkdown;
   const contextPath = taskContext
     ? activeTaskThread?.contextFilePath || `.codebuddy/agents/tasks/${taskContext.task.id}.md`
     : activeProject.dashboard.projectManagerContextPath || ".codebuddy/agents/project-manager.md";
@@ -2023,13 +2180,29 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     return sourceIndex >= 0 ? filteredConversation.slice(0, sourceIndex) : filteredConversation;
   })();
   const visibleConversation: RealProjectConversationMessage[] = pendingPrompt
-    ? [...visibleConversationBase, { id: "pending-user-message", from: "Cameron", text: pendingPrompt, time: "Now", isMine: true, attachments: pendingAttachments.map((file) => file.path || file.label) }]
+    ? [...visibleConversationBase, { id: "pending-user-message", from: displayName || "You", text: pendingPrompt, time: "Now", isMine: true, attachments: pendingAttachments.map((file) => file.path || file.label) }]
     : visibleConversationBase;
   const hasConversation = visibleConversation.length > 0;
   const hasSavedConversation = visibleConversationBase.length > 0;
+  const peerIsActive = Object.keys(peerStreams).length > 0;
+  const chatLocked = isGenerating || peerIsActive || Boolean(otherAgentMeta);
   const canUseStartingPrompt = Boolean(taskContext?.task.startingPrompt?.trim()) && !hasSavedConversation && !pendingPrompt;
   const taskMenuSections = activeProject.dashboard.plan?.subprojects ?? [];
   const currentHeaderTitle = taskContext ? taskContext.task.title : `Project Manager for ${activeProject.name}`;
+  const currentHeaderEyebrow = taskContext ? `${taskContext.subproject.title} task chat` : "Project manager chat";
+  const currentHeaderDescription = taskContext
+    ? taskContext.task.note
+    : activeProject.imported
+      ? "Analyze what already exists, tighten the roadmap, and move directly from planning into execution."
+      : "Define the product, break it into tasks, and keep preview and implementation attached to the conversation.";
+  const currentHeaderStatus = taskContext
+    ? getTaskStatusPresentation(taskContext.task.status)
+    : { label: activeProject.imported ? "Imported repo" : "Planning", className: "bg-black/[0.05] text-ink/70 dark:bg-white/[0.08] dark:text-white/72" };
+  const taskAutomationMessage = taskContext
+    ? taskAutomationNotice?.message ?? (taskContext.task.status === "done"
+      ? "This task is already marked done. Use a verification or polish prompt if you want another pass."
+      : "Generate a context-aware next-step prompt instead of writing the task kickoff manually.")
+    : "";
   const liveOutputTitle = isGenerating ? buildWorkingLabel(liveStatusFrame) : "Live output";
   const liveOutputFooter = isGenerating
     ? `${assistantName} is actively responding ${"•".repeat((liveStatusFrame % 3) + 1)}`
@@ -2040,9 +2213,11 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         : "The model transcript will stay visible here while it works.";
   const liveOutputBody = agentLiveOutput || previewServerOutput || (isGenerating ? "Preparing context..." : "No live output yet.");
 
+  // Reset conversation-level state when switching tasks or threads
   useEffect(() => {
     setPrompt("");
     setAttachedFiles([]);
+    setPendingPrompt(null);
     setPendingAttachments([]);
     setPendingModelId(null);
     setPendingCheckpointId(null);
@@ -2053,21 +2228,32 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setAgentLiveOutput("");
     setAgentLiveStatus("Idle");
     setShowTaskMenu(false);
+    setTaskAutomationNotice(null);
     setSelectedBuildArtifact(null);
     setSelectedBuildMessageId(null);
     setSelectedBuildPrompt(undefined);
     setSelectedBuildResponse(undefined);
+    setRightPaneResponseText("");
+    setInlineEditId(null);
+    setInlineEditText("");
+    // Clear stale P2P peer state when switching projects/tasks
+    setPeerStreams({});
+    setPeerMessages([]);
+  }, [activeProject.id, taskParam, threadParam]);
+
+  // Reset preview server state only when switching projects (preview is project-level)
+  useEffect(() => {
     setPendingPreviewLaunch(false);
+    setPreviewReadyState(false);
+    previewProcessIdRef.current = null;
     setPreviewProcessId(null);
     setPreviewServerStatus("Idle");
     setPreviewServerOutput("");
     setDetectedPreviewUrl(null);
     setShowRightPane(false);
     setRightPaneMode("preview");
-    setRightPaneResponseText("");
-    setInlineEditId(null);
-    setInlineEditText("");
-  }, [activeProject.id, taskParam, threadParam]);
+    setPreviewFullscreen(false);
+  }, [activeProject.id]);
 
   useEffect(() => {
     if (!isGenerating) {
@@ -2082,14 +2268,25 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     return () => window.clearInterval(timer);
   }, [isGenerating]);
 
+  // Escape key exits fullscreen preview
+  useEffect(() => {
+    if (!previewFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewFullscreen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewFullscreen]);
+
   useEffect(() => {
     if (!showTaskMenu) {
+      setTaskMenuLayout(null);
       return;
     }
 
     const handlePointerDown = (event: MouseEvent | globalThis.MouseEvent) => {
       const target = event.target as Node;
-      if (taskMenuRef.current?.contains(target)) {
+      if (taskMenuRef.current?.contains(target) || taskMenuPanelRef.current?.contains(target)) {
         return;
       }
 
@@ -2101,6 +2298,87 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   }, [showTaskMenu]);
 
   useEffect(() => {
+    if (!showTaskMenu) {
+      return;
+    }
+
+    const updateTaskMenuLayout = () => {
+      const button = taskMenuButtonRef.current;
+      if (!button) {
+        return;
+      }
+
+      const rect = button.getBoundingClientRect();
+      const viewportPadding = 20;
+      const width = Math.min(620, Math.max(320, window.innerWidth - viewportPadding * 2));
+      const left = Math.min(
+        window.innerWidth - width - viewportPadding,
+        Math.max(viewportPadding, rect.left),
+      );
+      const top = rect.bottom + 14;
+      const maxHeight = Math.max(240, window.innerHeight - top - viewportPadding);
+
+      setTaskMenuLayout({ top, left, width, maxHeight });
+    };
+
+    updateTaskMenuLayout();
+    window.addEventListener("resize", updateTaskMenuLayout);
+    window.addEventListener("scroll", updateTaskMenuLayout, true);
+
+    return () => {
+      window.removeEventListener("resize", updateTaskMenuLayout);
+      window.removeEventListener("scroll", updateTaskMenuLayout, true);
+    };
+  }, [showRightPane, showTaskMenu, splitRatio]);
+
+  useEffect(() => {
+    if (!showRightPane && isDraggingSplit) {
+      setIsDraggingSplit(false);
+    }
+  }, [isDraggingSplit, showRightPane]);
+
+  useEffect(() => {
+    if (!isDraggingSplit) {
+      return;
+    }
+
+    const handleMouseMove = (event: globalThis.MouseEvent) => {
+      const container = splitContainerRef.current;
+      if (!container) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) {
+        return;
+      }
+
+      const nextRatio = ((rect.right - event.clientX) / rect.width) * 100;
+      const clampedRatio = Math.min(72, Math.max(28, nextRatio));
+
+      setSplitRatio((current) => (Math.abs(current - clampedRatio) < 0.2 ? current : clampedRatio));
+    };
+
+    const stopDragging = () => {
+      setIsDraggingSplit(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopDragging);
+    window.addEventListener("blur", stopDragging);
+
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopDragging);
+      window.removeEventListener("blur", stopDragging);
+    };
+  }, [isDraggingSplit]);
+
+  useEffect(() => {
     if (!window.electronAPI?.project) {
       return;
     }
@@ -2110,14 +2388,13 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         return false;
       }
 
-      if (taskContext) {
-        if (event.taskId && event.taskId !== taskContext.task.id) {
-          return false;
-        }
+      // If the event belongs to a specific task, only accept it when we're viewing that task
+      if (event.taskId && (!taskContext || event.taskId !== taskContext.task.id)) {
+        return false;
+      }
 
-        if (event.threadId && activeTaskThread?.id && event.threadId !== activeTaskThread.id) {
-          return false;
-        }
+      if (taskContext && event.threadId && activeTaskThread?.id && event.threadId !== activeTaskThread.id) {
+        return false;
       }
 
       return true;
@@ -2139,7 +2416,15 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       setAgentLiveStatus(event.stream === "stderr" ? "Agent reported an issue" : "Working...");
-      setAgentLiveOutput((current) => `${current}${event.chunk || ""}`.slice(-12000));
+      setAgentLiveOutput((current) => {
+        const next = `${current}${event.chunk || ""}`.slice(-12000);
+        requestAnimationFrame(() => {
+          if (thinkingOutputRef.current) {
+            thinkingOutputRef.current.scrollTop = thinkingOutputRef.current.scrollHeight;
+          }
+        });
+        return next;
+      });
     });
 
     const stopCompleted = window.electronAPI.project.onAgentCompleted((event) => {
@@ -2147,7 +2432,39 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         return;
       }
 
+      // Mark that the LOCAL agent completed this task (not a peer).
+      // This prevents auto-advance from firing on P2P task status changes.
+      if (taskContext?.task?.id) {
+        localAgentCompletedTaskIdRef.current = taskContext.task.id;
+      }
+
       setAgentLiveStatus(event.message || "Agent finished.");
+
+      // Always clear pendingPrompt immediately so the saved conversation message
+      // (which arrives via settings:changed before the IPC resolves) doesn't
+      // duplicate alongside the still-visible pending-user-message.
+      setPendingPrompt(null);
+      setPendingAttachments([]);
+      setPendingModelId(null);
+      setPendingCheckpointId(null);
+      setReplacementSourceMessageId(null);
+
+      // When reconnected to an in-progress generation (no handleGeneratePlan await),
+      // the event listener must reset isGenerating since there's no finally block.
+      if (!isGeneratingViaAwaitRef.current) {
+        setTimeout(() => {
+          setIsGenerating(false);
+          setAgentLiveOutput("");
+          setAgentLiveStatus("Idle");
+        }, 1500);
+      } else {
+        // Even when the await will handle final cleanup, dismiss the live
+        // output panel quickly so it doesn't linger alongside the saved response.
+        setTimeout(() => {
+          setAgentLiveOutput("");
+          setAgentLiveStatus("Idle");
+        }, 300);
+      }
     });
 
     const stopError = window.electronAPI.project.onAgentError((event) => {
@@ -2157,6 +2474,18 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
       setAgentLiveStatus("Agent failed");
       setAgentLiveOutput((current) => `${current}${event.message ? `${event.message}\n` : ""}`.slice(-12000));
+      setPendingPrompt(null);
+      setPendingAttachments([]);
+      setPendingModelId(null);
+      setPendingCheckpointId(null);
+      setReplacementSourceMessageId(null);
+      if (!isGeneratingViaAwaitRef.current) {
+        setTimeout(() => {
+          setIsGenerating(false);
+          setAgentLiveOutput("");
+          setAgentLiveStatus("Idle");
+        }, 2000);
+      }
     });
 
     const stopCancelled = window.electronAPI.project.onAgentCancelled((event) => {
@@ -2165,6 +2494,18 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       setAgentLiveStatus(event.message || "Stopped.");
+      setPendingPrompt(null);
+      setPendingAttachments([]);
+      setPendingModelId(null);
+      setPendingCheckpointId(null);
+      setReplacementSourceMessageId(null);
+      if (!isGeneratingViaAwaitRef.current) {
+        setTimeout(() => {
+          setIsGenerating(false);
+          setAgentLiveOutput("");
+          setAgentLiveStatus("Idle");
+        }, 1000);
+      }
     });
 
     return () => {
@@ -2176,86 +2517,429 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     };
   }, [activeProject.id, activeTaskThread?.id, taskContext]);
 
+  // ── Reconnect to active generation on mount ─────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const req = await window.electronAPI?.project?.getActiveRequest?.();
+        if (cancelled || !req?.active) {
+          setOtherAgentMeta(null);
+          return;
+        }
+        // Only reconnect if the active request belongs to this project
+        if (req.projectId && req.projectId !== activeProject.id) return;
+        // If the active request belongs to a different task, show a banner instead of reconnecting
+        if (req.taskId && (!taskContext || req.taskId !== taskContext.task.id)) {
+          const reqTaskName = req.taskName || (() => {
+            for (const sub of activeProject.dashboard.plan?.subprojects ?? []) {
+              const t = (sub.tasks ?? []).find((t: { id: string; title: string }) => t.id === req.taskId);
+              if (t) return t.title;
+            }
+            return req.taskId;
+          })();
+          setOtherAgentMeta({ taskId: req.taskId, taskName: reqTaskName, scope: req.scope });
+          return;
+        }
+        // If a PM-scoped request is active but we're viewing a task, show banner
+        if (!req.taskId && req.scope === "project-manager" && taskContext) {
+          setOtherAgentMeta({ scope: "project-manager" });
+          return;
+        }
+        setOtherAgentMeta(null);
+        setIsGenerating(true);
+        setGeneratingForMeta({ taskId: req.taskId, taskName: req.taskName, scope: req.scope });
+        setAgentLiveStatus("Working...");
+        // Restore accumulated output from main process
+        if (req.output) {
+          setAgentLiveOutput(req.output);
+        }
+        // Restore the user's prompt so it shows above the thinking panel
+        if (req.promptText) {
+          setPendingPrompt(req.promptText);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeProject.id, taskContext?.task?.id]);
+
+  // ── Safety watchdog: detect stuck isGenerating state ─────────
+  useEffect(() => {
+    if (!isGenerating) return;
+    const interval = setInterval(async () => {
+      try {
+        const req = await window.electronAPI?.project?.getActiveRequest?.();
+        if (!req?.active && !isGeneratingViaAwaitRef.current) {
+          console.warn("[watchdog] isGenerating=true but no active request — resetting.");
+          setIsGenerating(false);
+          setAgentLiveOutput("");
+          setAgentLiveStatus("Idle");
+          setOtherAgentMeta(null);
+          setPendingPrompt(null);
+          setPendingAttachments([]);
+          setPendingModelId(null);
+        }
+      } catch { /* ignore */ }
+    }, 15000); // check every 15 seconds
+    return () => clearInterval(interval);
+  }, [isGenerating]);
+
+  // ── P2P Peer Activity Listeners ─────────────────────────────
+  useEffect(() => {
+    if (!window.electronAPI?.p2p) {
+      return;
+    }
+
+    const stopChatToken = window.electronAPI.p2p.onChatToken((event: { projectId?: string; peerId?: string; peerName?: string; conversationId?: string; token?: string; scope?: string; taskId?: string; taskName?: string; sessionId?: string; sessionTitle?: string }) => {
+      if (event.projectId && event.projectId !== activeProject.id) return;
+      const peerId = event.peerId || "unknown";
+      const peerName = event.peerName || "Peer";
+      const conversationId = event.conversationId || "unknown";
+      const scope = event.scope || "unknown";
+      const token = event.token || "";
+
+      setPeerStreams((prev) => {
+        const existing = prev[peerId];
+        return {
+          ...prev,
+          [peerId]: {
+            peerName,
+            conversationId,
+            scope,
+            tokens: ((existing?.tokens || "") + token).slice(-4000),
+            updatedAt: Date.now(),
+            taskId: event.taskId || existing?.taskId || null,
+            taskName: event.taskName || existing?.taskName || null,
+            sessionId: event.sessionId || existing?.sessionId || null,
+            sessionTitle: event.sessionTitle || existing?.sessionTitle || null,
+          },
+        };
+      });
+
+      // Safety timeout: clear stale peer streams after 30 seconds of no tokens.
+      // The stream is properly cleared when a chat-message (completion) signal arrives.
+      if (peerStreamTimeoutsRef.current[peerId]) {
+        clearTimeout(peerStreamTimeoutsRef.current[peerId]);
+      }
+      peerStreamTimeoutsRef.current[peerId] = setTimeout(() => {
+        setPeerStreams((prev) => {
+          const next = { ...prev };
+          delete next[peerId];
+          return next;
+        });
+        delete peerStreamTimeoutsRef.current[peerId];
+      }, 30000);
+    });
+
+    const stopChatMessage = window.electronAPI.p2p.onChatMessage((event: { projectId?: string; peerId?: string; peerName?: string; conversationId?: string; message?: { text?: string }; scope?: string }) => {
+      if (event.projectId && event.projectId !== activeProject.id) return;
+      const peerId = event.peerId || "unknown";
+      const peerName = event.peerName || "Peer";
+
+      // Clear the stream for this peer since the message is complete
+      setPeerStreams((prev) => {
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
+
+      // Add to peer messages log (keep last 20)
+      if (event.message?.text) {
+        setPeerMessages((prev) => [
+          {
+            id: `peer-msg-${Date.now()}-${peerId}`,
+            peerName,
+            conversationId: event.conversationId || "unknown",
+            scope: event.scope || "unknown",
+            text: event.message?.text || "",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+          ...prev,
+        ].slice(0, 20));
+      }
+    });
+
+    const stopPeerLeft = window.electronAPI.p2p.onPeerLeft((event: { projectId?: string; peerId?: string }) => {
+      if (event.projectId && event.projectId !== activeProject.id) return;
+      const peerId = event.peerId || "unknown";
+      // Don't immediately clear active streams on peerLeft — the peer may reconnect
+      // or the heartbeat may have just been delayed. The 5-minute token timeout
+      // will clean up stale streams instead.
+      setPeerStreams((prev) => {
+        if (!prev[peerId]) return prev; // nothing to do
+        // Only clear if the stream hasn't received a token in >30 seconds
+        const stream = prev[peerId];
+        if (Date.now() - stream.updatedAt > 30000) {
+          const next = { ...prev };
+          delete next[peerId];
+          return next;
+        }
+        return prev;
+      });
+    });
+
+    // Restore accumulated peer streams from main process (for reconnect after navigation)
+    (async () => {
+      try {
+        const streams = await window.electronAPI?.p2p?.getActivePeerStreams?.({ projectId: activeProject.id });
+        if (streams && Object.keys(streams).length > 0) {
+          setPeerStreams((prev) => {
+            const merged = { ...prev };
+            for (const [peerId, acc] of Object.entries(streams) as [string, { peerName: string; conversationId: string; scope: string; tokens: string; updatedAt: number; taskId?: string | null; taskName?: string | null; sessionId?: string | null; sessionTitle?: string | null }][]) {
+              // Only restore if not already receiving live tokens
+              if (!merged[peerId]) {
+                merged[peerId] = { ...acc };
+              }
+            }
+            return merged;
+          });
+        }
+      } catch { /* ignore */ }
+    })();
+
+    return () => {
+      stopChatToken();
+      stopChatMessage();
+      stopPeerLeft();
+      // Clear all stream timeouts
+      for (const timeout of Object.values(peerStreamTimeoutsRef.current)) {
+        clearTimeout(timeout);
+      }
+      peerStreamTimeoutsRef.current = {};
+    };
+  }, []);
+
   useEffect(() => {
     if (!window.electronAPI?.process) {
       return;
     }
 
     const isPreviewCommand = (command?: string, cwd?: string) => {
-      return Boolean(cwd === activeProject.repoPath && command && /run dev|vite|next dev/i.test(command));
+      // Case-insensitive cwd comparison for Windows path normalization
+      const cwdMatch = typeof cwd === "string" && typeof activeProject.repoPath === "string"
+        && cwd.toLowerCase().replace(/[\\/]+$/g, "") === activeProject.repoPath.toLowerCase().replace(/[\\/]+$/g, "");
+      return Boolean(cwdMatch && command && /npm|node|python|flask|cargo|vite|next|concurrently|react-scripts|webpack|parcel|rollup|esbuild|turbo|pnpm|yarn|bun|pip|uvicorn|gunicorn|rails|bundle|cargo|go\s+run/i.test(command));
     };
+
+    const isOurProcess = (processId?: string) =>
+      processId != null && processId === previewProcessIdRef.current;
 
     const stopStarted = window.electronAPI.process.onStarted((event) => {
       if (!isPreviewCommand(event.command, event.cwd)) {
         return;
       }
 
+      // Use the ref so all subsequent event handlers see the processId immediately
+      previewProcessIdRef.current = event.processId;
       setPreviewProcessId(event.processId);
       setPendingPreviewLaunch(false);
-      setPreviewServerStatus("Starting preview server...");
+
+      if (previewModeRef.current === "terminal") {
+        setPreviewServerStatus("Running...");
+        setPreviewReadyState(true);
+      } else {
+        setPreviewServerStatus("Server starting — waiting for localhost URL...");
+      }
     });
 
+    // Health-check: poll a URL until it actually responds before marking "ready"
+    let healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
+    let keywordFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let detectedRealUrl: string | null = null;
+    const markPreviewReady = (url: string) => {
+      setPreviewReadyState(true);
+      setDetectedPreviewUrl(url);
+      setPreviewServerStatus("Preview server ready");
+    };
+    const waitForServerReady = (url: string) => {
+      if (previewReadyRef.current) return; // already ready — don't re-trigger
+
+      // If a real URL was detected, cancel any pending fallback
+      if (keywordFallbackTimer) {
+        clearTimeout(keywordFallbackTimer);
+        keywordFallbackTimer = null;
+      }
+
+      detectedRealUrl = url;
+      let attempts = 0;
+      const maxAttempts = 30; // ~30 seconds
+
+      const check = () => {
+        if (previewReadyRef.current) return; // became ready from another path
+        attempts++;
+        fetch(url, { mode: "no-cors" })
+          .then(() => {
+            if (!previewReadyRef.current) markPreviewReady(url);
+          })
+          .catch(() => {
+            if (attempts < maxAttempts && !previewReadyRef.current) {
+              healthCheckTimer = setTimeout(check, 1000);
+            } else if (!previewReadyRef.current) {
+              markPreviewReady(url);
+            }
+          });
+      };
+      check();
+    };
+
+    // Probe a list of candidate ports to find the running server
+    const probePortsForServer = async () => {
+      if (previewReadyRef.current || detectedRealUrl) return;
+      const agentPort = previewPortRef.current;
+      // Build candidate list: agent-predicted port first, then common defaults
+      const commonPorts = [3000, 3001, 5173, 5174, 8080, 8000, 4200, 4000, 8888, 1234];
+      const candidates = agentPort && agentPort > 0
+        ? [agentPort, ...commonPorts.filter((p) => p !== agentPort)]
+        : commonPorts;
+
+      for (const port of candidates) {
+        if (previewReadyRef.current || detectedRealUrl) return;
+        try {
+          await fetch(`http://localhost:${port}`, { mode: "no-cors" });
+          // If fetch succeeds (no connection refused), this port is live
+          if (!previewReadyRef.current && !detectedRealUrl) {
+            waitForServerReady(`http://localhost:${port}`);
+          }
+          return;
+        } catch {
+          // Connection refused — try next port
+        }
+      }
+      // None responded — fall back to agent port if available, or 3000
+      const lastResort = agentPort && agentPort > 0 ? agentPort : 3000;
+      if (!previewReadyRef.current && !detectedRealUrl) {
+        waitForServerReady(`http://localhost:${lastResort}`);
+      }
+    };
+
     const stopOutput = window.electronAPI.process.onOutput((event) => {
-      if (event.processId !== previewProcessId) {
+      if (!isOurProcess(event.processId)) {
         return;
       }
 
       const nextChunk = event.chunk || "";
       setPreviewServerOutput((current) => `${current}${nextChunk}`.slice(-12000));
-      const urlMatch = nextChunk.match(/https?:\/\/localhost:\d+/);
+
+      // Once the preview is marked ready, stop looking for URLs — don't re-trigger
+      if (previewReadyRef.current) return;
+
+      // Terminal mode: no URL detection needed — output is the preview
+      if (previewModeRef.current === "terminal") return;
+
+      // Detect localhost URL in output — always takes priority over keyword fallback
+      const urlMatch = nextChunk.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+/);
       if (urlMatch) {
-        setDetectedPreviewUrl(urlMatch[0]);
-        setPreviewServerStatus("Preview server ready");
-      } else if (/ready|compiled|started/i.test(nextChunk)) {
-        setPreviewServerStatus("Preview server ready");
-        setDetectedPreviewUrl((current) => current || "http://localhost:3000");
-      } else {
-        setPreviewServerStatus("Starting preview server...");
+        // Cancel any pending fallback — we have the real URL now
+        if (healthCheckTimer) { clearTimeout(healthCheckTimer); healthCheckTimer = null; }
+        setPreviewServerStatus("Server found — waiting for it to be ready...");
+        waitForServerReady(urlMatch[0]);
+      } else if (!detectedRealUrl && /ready|compiled|successfully|listening|started|available/i.test(nextChunk)) {
+        // Keyword hint detected but no URL yet — delay the fallback to give the server
+        // a chance to print the actual URL in the next output chunk
+        if (!keywordFallbackTimer) {
+          setPreviewServerStatus("Server appears ready — looking for URL...");
+          keywordFallbackTimer = setTimeout(() => {
+            keywordFallbackTimer = null;
+            if (!detectedRealUrl && !previewReadyRef.current) {
+              // No URL found in output — probe ports to find the server
+              setPreviewServerStatus("Scanning ports to find the server...");
+              void probePortsForServer();
+            }
+          }, 3000);
+        }
       }
     });
 
     const stopCompleted = window.electronAPI.process.onCompleted((event) => {
-      if (event.processId !== previewProcessId) {
+      if (!isOurProcess(event.processId)) {
         return;
       }
 
+      // Terminal mode: process completion IS the expected outcome
+      if (previewModeRef.current === "terminal") {
+        previewProcessIdRef.current = null;
+        setPreviewProcessId(null);
+        setPendingPreviewLaunch(false);
+        setPreviewServerStatus(
+          event.exitCode === 0 || event.exitCode === null
+            ? "Completed successfully"
+            : `Exited with code ${event.exitCode}`
+        );
+        // Keep previewReady true so the terminal output stays visible
+        return;
+      }
+
+      // If the webview is already showing, keep it visible — the page is
+      // already loaded in the webview and doesn't need the server to stay
+      // alive (or the server exited cleanly after handoff).
+      const wasReady = previewReadyRef.current;
+
+      previewProcessIdRef.current = null;
       setPreviewProcessId(null);
       setPendingPreviewLaunch(false);
-      setPreviewServerStatus(event.exitCode === 0 ? "Preview server exited" : `Preview server exited (${event.exitCode ?? "?"})`);
+
+      if (wasReady) {
+        // Keep detectedPreviewUrl and previewServerStatus so the webview stays
+        setPreviewServerStatus("Server exited — preview may still work");
+      } else {
+        setPreviewExited(true);
+        setPreviewReadyState(false);
+        setPreviewServerStatus(
+          event.exitCode === 0 || event.exitCode === null
+            ? "Server exited"
+            : `Server exited with code ${event.exitCode}`
+        );
+      }
     });
 
     const stopError = window.electronAPI.process.onError((event) => {
-      if (event.processId !== previewProcessId) {
+      if (!isOurProcess(event.processId)) {
         return;
       }
 
+      const wasReady = previewReadyRef.current;
+
+      previewProcessIdRef.current = null;
       setPreviewProcessId(null);
       setPendingPreviewLaunch(false);
-      setPreviewServerStatus(event.message || "Preview server failed");
-      setPreviewServerOutput((current) => `${current}${event.message ? `${event.message}\n` : ""}`.slice(-12000));
+
+      if (!wasReady) {
+        setPreviewExited(true);
+        setPreviewReadyState(false);
+        setPreviewServerStatus(event.message || "Server failed to start");
+      }
+      setPreviewServerOutput((current) =>
+        `${current}${event.message ? `ERROR: ${event.message}\n` : ""}`.slice(-12000)
+      );
     });
 
     const stopCancelled = window.electronAPI.process.onCancelled((event) => {
-      if (event.processId !== previewProcessId) {
+      if (!isOurProcess(event.processId)) {
         return;
       }
 
+      setPreviewReadyState(false);
+      previewProcessIdRef.current = null;
       setPreviewProcessId(null);
       setPendingPreviewLaunch(false);
-      setPreviewServerStatus("Preview server stopped");
+      setPreviewServerStatus("Server stopped");
     });
 
     const stopTimeout = window.electronAPI.process.onTimeout((event) => {
-      if (event.processId !== previewProcessId) {
+      if (!isOurProcess(event.processId)) {
         return;
       }
 
+      setPreviewReadyState(false);
+      previewProcessIdRef.current = null;
       setPreviewProcessId(null);
       setPendingPreviewLaunch(false);
-      setPreviewServerStatus(`Preview startup timed out after ${event.timeoutMs ?? 0}ms`);
+      setPreviewServerStatus(`Server startup timed out`);
     });
 
     return () => {
+      if (healthCheckTimer) clearTimeout(healthCheckTimer);
+      if (keywordFallbackTimer) clearTimeout(keywordFallbackTimer);
       stopStarted();
       stopOutput();
       stopCompleted();
@@ -2263,12 +2947,104 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       stopCancelled();
       stopTimeout();
     };
-  }, [activeProject.repoPath, previewProcessId]);
+  }, [activeProject.repoPath]);
+
+  // --- Built-in terminal event listeners ---
+  useEffect(() => {
+    if (!window.electronAPI?.process) return;
+
+    const isTerminalProcess = (processId?: string) =>
+      processId != null && processId === terminalProcessIdRef.current;
+
+    const tStarted = window.electronAPI.process.onStarted((event) => {
+      if (event.cwd !== activeProject.repoPath || isTerminalProcess(event.processId)) return;
+      // Capture terminal processes that are not the preview server
+      if (event.processId === previewProcessIdRef.current) return;
+      if (!terminalProcessIdRef.current) {
+        terminalProcessIdRef.current = event.processId;
+        setTerminalProcessId(event.processId);
+      }
+    });
+
+    const tOutput = window.electronAPI.process.onOutput((event) => {
+      if (!isTerminalProcess(event.processId)) return;
+      const chunk = event.chunk || "";
+      setTerminalOutput((prev) => `${prev}${chunk}`.slice(-30000));
+      requestAnimationFrame(() => {
+        if (terminalOutputRef.current) {
+          terminalOutputRef.current.scrollTop = terminalOutputRef.current.scrollHeight;
+        }
+      });
+    });
+
+    const tCompleted = window.electronAPI.process.onCompleted((event) => {
+      if (!isTerminalProcess(event.processId)) return;
+      const suffix = event.exitCode === 0 || event.exitCode == null
+        ? "\n[Process exited]\n"
+        : `\n[Process exited with code ${event.exitCode}]\n`;
+      setTerminalOutput((prev) => `${prev}${suffix}`.slice(-30000));
+      terminalProcessIdRef.current = null;
+      setTerminalProcessId(null);
+    });
+
+    const tError = window.electronAPI.process.onError((event) => {
+      if (!isTerminalProcess(event.processId)) return;
+      setTerminalOutput((prev) => `${prev}\nERROR: ${event.message || "Unknown error"}\n`.slice(-30000));
+      terminalProcessIdRef.current = null;
+      setTerminalProcessId(null);
+    });
+
+    return () => {
+      tStarted();
+      tOutput();
+      tCompleted();
+      tError();
+    };
+  }, [activeProject.repoPath]);
+
+  const handleRunTerminalCommand = async () => {
+    const cmd = terminalCommand.trim();
+    if (!cmd || !window.electronAPI?.process) return;
+
+    setTerminalOutput((prev) => `${prev}$ ${cmd}\n`);
+    setTerminalCommand("");
+
+    try {
+      terminalProcessIdRef.current = null;
+      setTerminalProcessId(null);
+
+      const result = await window.electronAPI.process.run({
+        command: cmd,
+        cwd: activeProject.repoPath,
+        options: { env: { FORCE_COLOR: "0" } },
+      });
+
+      // If output wasn't captured by the event listener (fast commands)
+      if (result?.stdout && !terminalProcessIdRef.current) {
+        setTerminalOutput((prev) => `${prev}${result.stdout}`.slice(-30000));
+      }
+      if (result?.stderr) {
+        setTerminalOutput((prev) => `${prev}${result.stderr}`.slice(-30000));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Command failed";
+      setTerminalOutput((prev) => `${prev}ERROR: ${message}\n`.slice(-30000));
+    }
+  };
+
+  const handleStopTerminalProcess = () => {
+    if (terminalProcessIdRef.current && window.electronAPI?.process?.cancel) {
+      window.electronAPI.process.cancel(terminalProcessIdRef.current);
+      terminalProcessIdRef.current = null;
+      setTerminalProcessId(null);
+      setTerminalOutput((prev) => `${prev}\n[Process cancelled]\n`.slice(-30000));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadCopilotModel() {
+    async function loadModelAndFlags() {
       if (!window.electronAPI?.settings) {
         return;
       }
@@ -2276,21 +3052,42 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       try {
         const settings = await window.electronAPI.settings.get();
         if (!cancelled) {
-          setSelectedModel(settings.projectDefaults?.copilotModel ?? "gpt-5.2");
+          const flags = settings.featureFlags ?? { githubCopilotCli: true };
+          setFeatureFlags(flags);
+          const defaultModel = getDefaultModelId(flags);
+          setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
+          if ((settings as unknown as Record<string, unknown>).displayName) {
+            setDisplayName((settings as unknown as Record<string, unknown>).displayName as string);
+          }
         }
       } catch {
         if (!cancelled) {
-          setSelectedModel("gpt-5.2");
+          setSelectedModel(getDefaultModelId(featureFlags));
         }
       }
     }
 
-    void loadCopilotModel();
+    void loadModelAndFlags();
+
+    const stopListening = window.electronAPI?.settings?.onChanged((settings) => {
+      if (!cancelled) {
+        const flags = settings.featureFlags ?? { githubCopilotCli: true };
+        setFeatureFlags(flags);
+        if (!pendingModelId) {
+          const defaultModel = getDefaultModelId(flags);
+          setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
+        }
+        if ((settings as unknown as Record<string, unknown>).displayName) {
+          setDisplayName((settings as unknown as Record<string, unknown>).displayName as string);
+        }
+      }
+    });
 
     return () => {
       cancelled = true;
+      stopListening?.();
     };
-  }, []);
+  }, [pendingModelId]);
 
   useEffect(() => {
     if (!conversationRef.current) {
@@ -2299,6 +3096,36 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
     conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
   }, [visibleConversation.length, isGenerating, taskParam, threadParam]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const savedPreference = window.localStorage.getItem("codebuddy.task-auto-advance");
+    if (savedPreference === "true") {
+      setAutoAdvanceTasks(true);
+    } else if (savedPreference === "false") {
+      setAutoAdvanceTasks(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem("codebuddy.task-auto-advance", autoAdvanceTasks ? "true" : "false");
+  }, [autoAdvanceTasks]);
+
+  const scrollComposerToBottom = (behavior: ScrollBehavior = "smooth") => {
+    window.requestAnimationFrame(() => {
+      conversationRef.current?.scrollTo({ top: conversationRef.current.scrollHeight, behavior });
+      window.requestAnimationFrame(() => {
+        composerDockRef.current?.scrollIntoView({ block: "end", behavior });
+      });
+    });
+  };
 
   const handleAttachFiles = (nextFiles: File[]) => {
     const unsupported = nextFiles.filter((f) => /\.(exe|dll|bin|iso|dmg|zip|tar|gz|7z|rar|mp4|mov|avi|mkv|mp3|wav)$/i.test(f.name));
@@ -2340,10 +3167,17 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   };
 
   const handleOpenUsagePage = async () => {
-    await window.electronAPI?.system?.openExternal?.("https://github.com/settings/billing/budgets?utm_source=vscode");
+    // Determine billing page based on active model's provider
+    const isClaudeModel = claudeModelCatalog.some((m) => m.id === selectedModel);
+    // Also check feature flags: if only Claude Code is enabled, always go to Anthropic
+    const claudeOnly = !!featureFlags?.claudeCode && !featureFlags?.githubCopilotCli;
+    const url = (isClaudeModel || claudeOnly)
+      ? "https://console.anthropic.com/settings/billing"
+      : "https://github.com/settings/billing/budgets?utm_source=vscode";
+    await window.electronAPI?.system?.openExternal?.(url);
   };
 
-  const handleNavigateConversation = (nextTaskId?: string) => {
+  const handleNavigateConversation = (nextTaskId?: string, options?: { autoStart?: boolean }) => {
     const params = new URLSearchParams(searchParams.toString());
 
     if (nextTaskId) {
@@ -2355,125 +3189,197 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       } else {
         params.delete("thread");
       }
+
+      if (options?.autoStart) {
+        params.set("autostart", "1");
+      } else {
+        params.delete("autostart");
+      }
     } else {
       params.delete("task");
       params.delete("ask");
       params.delete("thread");
+      params.delete("autostart");
     }
 
     setShowTaskMenu(false);
     router.push(params.toString() ? `${pathname}?${params.toString()}` : pathname);
   };
 
-  const ensureLocalPreviewServer = async (artifact: BuildArtifact) => {
-    const previewUrl = getLocalPreviewUrl(artifact.id);
-
-    if (!previewUrl.startsWith("http://localhost") || !window.electronAPI?.process) {
-      return;
-    }
-
-    if (previewProcessId || pendingPreviewLaunch) {
-      return;
-    }
-
-    const command = window.electronAPI.platform === "win32"
-      ? '"C:\\Program Files\\nodejs\\npm.cmd" run dev'
-      : "npm run dev";
-
-    try {
-      setPendingPreviewLaunch(true);
-      setPreviewServerStatus("Starting preview server...");
-      setPreviewServerOutput("");
-      void window.electronAPI.process.run({
-        command,
-        cwd: activeProject.repoPath,
-        options: {
-          env: {
-            BROWSER: "none",
-          },
-        },
-      }).catch((error) => {
-        const message = error instanceof Error ? error.message : "Unable to start preview server.";
-        setPendingPreviewLaunch(false);
-        setPreviewProcessId(null);
-        setPreviewServerStatus(message);
-        setPreviewServerOutput((current) => `${current}${message}\n`.slice(-12000));
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to start preview server.";
-      setPendingPreviewLaunch(false);
-      setPreviewProcessId(null);
-      setPreviewServerStatus(message);
-      setPreviewServerOutput((current) => `${current}${message}\n`.slice(-12000));
-    }
+  const ensureLocalPreviewServer = async (_artifact: BuildArtifact) => {
+    if (previewProcessId || pendingPreviewLaunch) return;
+    // Delegate to handleRunApp which uses the agent-backed approach
+    void handleRunApp();
   };
 
   const handleRunApp = async () => {
-    if (!window.electronAPI?.process || previewProcessId || pendingPreviewLaunch) {
-      return;
-    }
+    if (pendingPreviewLaunch || previewProcessIdRef.current) return;
+
+    setPendingPreviewLaunch(true);
+    setPreviewReadyState(false);
+    setPreviewExited(false);
+    setPreviewServerStatus("Analyzing project...");
+    setPreviewServerOutput(""); 
+    setDetectedPreviewUrl(null);
+    setShowRightPane(true);
+    setRightPaneMode("preview");
 
     try {
-      setPendingPreviewLaunch(true);
-      setPreviewServerStatus("Detecting how to run your app...");
-      setPreviewServerOutput("");
-      setDetectedPreviewUrl(null);
+      let launchCommand: string | null = null;
+      let expectedPort: number | null = null;
 
-      let command = "";
-      const isWin = window.electronAPI.platform === "win32";
-      const npmCmd = isWin ? '"C:\\Program Files\\nodejs\\npm.cmd"' : "npm";
-
-      try {
-        const pkgJson = await window.electronAPI.repo.readFileContent(`${activeProject.repoPath}${isWin ? "\\" : "/"}package.json`);
-        const pkg = JSON.parse(pkgJson.content);
-        const scripts = pkg.scripts ?? {};
-        if (scripts.dev) command = `${npmCmd} run dev`;
-        else if (scripts.start) command = `${npmCmd} start`;
-        else if (scripts.serve) command = `${npmCmd} run serve`;
-      } catch { /* no package.json - try other detection */ }
-
-      if (!command) {
+      // Phase 1: agent-backed analysis (fast — no tool use, just text analysis)
+      if (window.electronAPI?.project?.launchDevServer) {
         try {
-          await window.electronAPI.repo.readFileContent(`${activeProject.repoPath}${isWin ? "\\" : "/"}requirements.txt`);
-          command = "python -m flask run";
-        } catch { /* not Python */ }
-      }
-      if (!command) {
-        try {
-          await window.electronAPI.repo.readFileContent(`${activeProject.repoPath}${isWin ? "\\" : "/"}Cargo.toml`);
-          command = "cargo run";
-        } catch { /* not Rust */ }
-      }
-      if (!command) {
-        command = `${npmCmd} run dev`;
+          setPreviewServerStatus("Copilot is determining the best way to start your app...");
+          const result = await window.electronAPI.project.launchDevServer({
+            projectId: activeProject.id,
+            model: selectedModel,
+          });
+          if (result?.launchCommand) {
+            launchCommand = result.launchCommand;
+          }
+          if (result?.expectedPort) {
+            expectedPort = result.expectedPort;
+          }
+          if (result?.previewMode === "terminal" || result?.previewMode === "web") {
+            setPreviewModeState(result.previewMode);
+          }
+        } catch {
+          // Agent failed — we'll use the fallback below
+        }
       }
 
-      setPreviewServerStatus("Starting preview server...");
-      void window.electronAPI.process.run({
-        command,
+      // Fallback: simple heuristic
+      if (!launchCommand) {
+        const isWin = window.electronAPI?.platform === "win32";
+        const npm = isWin ? "npm.cmd" : "npm";
+        launchCommand = `${npm} install && ${npm} run dev`;
+
+        try {
+          const sep = isWin ? "\\" : "/";
+          const pkgJson = await window.electronAPI?.repo?.readFileContent(`${activeProject.repoPath}${sep}package.json`);
+          if (pkgJson?.content) {
+            const pkg = JSON.parse(pkgJson.content);
+            const scripts = pkg.scripts ?? {};
+            const isDesktopShellScript = (scriptValue: unknown) =>
+              typeof scriptValue === "string"
+              && /\b(electron(?:mon)?|tauri|cargo\s+tauri|wails|neutralino|nw(?:js)?|cordova|capacitor)\b/i.test(scriptValue);
+            const isLikelyPreviewScript = (scriptName: string, scriptValue: unknown) =>
+              typeof scriptValue === "string"
+              && !isDesktopShellScript(scriptValue)
+              && !/\b(concurrently|wait-on)\b/i.test(scriptValue)
+              && (
+                scriptName === "react-start"
+                || scriptName === "serve"
+                || /(^|:)(web|client|frontend|renderer)(:|$)/.test(scriptName)
+                || /\b(react-scripts\s+start|vite(?:\s|$)|next\s+dev|webpack\s+serve|parcel(?:\s|$)|astro\s+dev|nuxt(?:\s+dev)?|svelte-kit\s+dev|serve(?:\s|$)|http-server|live-server)\b/i.test(scriptValue)
+              );
+            const preferredScriptNames = [
+              "preview:web",
+              "web:dev",
+              "web:start",
+              "web",
+              "client:dev",
+              "client:start",
+              "client",
+              "frontend:dev",
+              "frontend:start",
+              "frontend",
+              "renderer:dev",
+              "renderer:start",
+              "renderer",
+              "react-start",
+              "serve",
+            ];
+            let selectedScript = preferredScriptNames.find((name) => isLikelyPreviewScript(name, scripts[name])) ?? null;
+
+            if (!selectedScript) {
+              for (const wrapperName of ["preview", "dev", "start"]) {
+                const wrapper = typeof scripts[wrapperName] === "string" ? scripts[wrapperName] : "";
+                const nestedScriptNames = Array.from(wrapper.matchAll(/\bnpm(?:\.cmd)?\s+run\s+([a-z0-9:_-]+)/ig), (match) => match[1]);
+                const nestedCandidate = nestedScriptNames.find((name) => isLikelyPreviewScript(name, scripts[name]));
+                if (nestedCandidate) {
+                  selectedScript = nestedCandidate;
+                  break;
+                }
+              }
+            }
+
+            const startCmd = selectedScript
+              ? `${npm} run ${selectedScript}`
+              : scripts.dev && !isDesktopShellScript(scripts.dev) && !/\b(concurrently|wait-on)\b/i.test(scripts.dev)
+                ? `${npm} run dev`
+                : scripts.start && !isDesktopShellScript(scripts.start) && !/\b(concurrently|wait-on)\b/i.test(scripts.start)
+                  ? `${npm} start`
+                  : scripts.serve && !isDesktopShellScript(scripts.serve)
+                    ? `${npm} run serve`
+                    : `${npm} run dev`;
+            launchCommand = `${npm} install && ${startCmd}`;
+          }
+        } catch { /* no package.json or parse error */ }
+      }
+
+      // Phase 2: launch the dev server process
+      if (!window.electronAPI?.process) {
+        throw new Error("Process API not available");
+      }
+
+      // Store the agent-predicted port for fallback URL detection
+      // We do NOT override the project's port — the project knows its own port best
+      previewPortRef.current = expectedPort || 0;
+
+      setPreviewServerStatus(expectedPort
+        ? `Installing deps & starting server (expected port ${expectedPort})...`
+        : "Installing deps & starting server...");
+      setPreviewServerOutput(`> ${launchCommand}\n`);
+
+      // Fire the process — this is a long-running server so do NOT await
+      window.electronAPI.process.run({
+        command: launchCommand,
         cwd: activeProject.repoPath,
-        options: { env: { BROWSER: "none" } },
-      }).catch((error) => {
-        const message = error instanceof Error ? error.message : "Unable to start preview server.";
-        setPendingPreviewLaunch(false);
+        options: {
+          env: {
+            BROWSER: "none",          // CRA: don't open a browser
+            OPEN_BROWSER: "false",     // Vite / some CRA forks
+            FORCE_COLOR: "0",          // Disable ANSI color codes in output
+          },
+        },
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Server process failed";
+        previewProcessIdRef.current = null;
         setPreviewProcessId(null);
+        setPendingPreviewLaunch(false);
+        setPreviewExited(true);
         setPreviewServerStatus(message);
+        setPreviewServerOutput((current) => `${current}ERROR: ${message}\n`.slice(-12000));
       });
-    } catch {
-      setPendingPreviewLaunch(false);
+
+      // The process:started event listener sets previewProcessIdRef + state
+      // The process:output listener watches for localhost URLs
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to start the app";
+      previewProcessIdRef.current = null;
       setPreviewProcessId(null);
-      setPreviewServerStatus("Unable to start preview server.");
+      setPendingPreviewLaunch(false);
+      setPreviewExited(true);
+      setPreviewServerStatus(message);
+      setPreviewServerOutput((current) => `${current}ERROR: ${message}\n`.slice(-12000));
     }
   };
 
   const handleStopPreviewServer = async () => {
-    if (previewProcessId && window.electronAPI?.process?.cancel) {
+    const pid = previewProcessIdRef.current;
+    if (pid && window.electronAPI?.process?.cancel) {
       try {
-        await window.electronAPI.process.cancel(previewProcessId);
+        await window.electronAPI.process.cancel(pid);
       } catch { /* ignore */ }
     }
+    setPreviewReadyState(false);
+    previewProcessIdRef.current = null;
     setPreviewProcessId(null);
     setPendingPreviewLaunch(false);
+    setPreviewExited(false);
     setPreviewServerStatus("Idle");
     setDetectedPreviewUrl(null);
   };
@@ -2515,6 +3421,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   const handleCloseRightPane = () => {
     setShowRightPane(false);
     setRightPaneResponseText("");
+    setPreviewFullscreen(false);
   };
 
   const handleShowPreviewPane = () => {
@@ -2528,7 +3435,68 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     }
 
     setGenerationError(null);
+    setTaskAutomationNotice(null);
     setPrompt(taskContext.task.startingPrompt);
+    scrollComposerToBottom();
+  };
+
+  const handleGenerateTaskPrompt = async () => {
+    if (!taskContext || !window.electronAPI?.project?.generateTaskPrompt) {
+      return;
+    }
+
+    if (autoAdvanceTasks && taskContext.task.status === "done") {
+      const nextTask = findNextIncompleteTask(activeProject, taskContext.task.id);
+      if (nextTask) {
+        handleNavigateConversation(nextTask.task.id, {
+          autoStart: shouldAutoStartTaskThread(activeProject, nextTask.task.id),
+        });
+        return;
+      }
+    }
+
+    try {
+      setIsAutoPrompting(true);
+      setGenerationError(null);
+      setTaskAutomationNotice(null);
+
+      const result = await window.electronAPI.project.generateTaskPrompt({
+        projectId: activeProject.id,
+        taskId: taskContext.task.id,
+        threadId: activeTaskThread?.id,
+        model: selectedModel,
+      });
+
+      // Flow-in-Auto: if the task is now done, auto-advance to next task
+      if (autoAdvanceTasks && result.taskStatus === "done") {
+        const nextTask = findNextIncompleteTask(activeProject, taskContext.task.id);
+        if (nextTask) {
+          setTaskAutomationNotice({
+            tone: "success",
+            message: `${result.reason} Moving to next task...`,
+          });
+          setIsAutoPrompting(false);
+          handleNavigateConversation(nextTask.task.id, {
+            autoStart: shouldAutoStartTaskThread(activeProject, nextTask.task.id),
+          });
+          return;
+        }
+      }
+
+      setPrompt(result.prompt || "");
+      setTaskAutomationNotice({
+        tone: result.taskStatus === "done" ? "success" : "info",
+        message: result.taskStatus === "done"
+          ? `${result.reason} This task is now marked done.`
+          : result.reason,
+      });
+      scrollComposerToBottom();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to generate a task prompt.";
+      setGenerationError(message);
+    } finally {
+      setIsAutoPrompting(false);
+    }
   };
 
   const handleBeginEditMessage = (message: { id: string; text: string; attachments?: string[]; modelId?: string }) => {
@@ -2537,7 +3505,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setInlineEditId(message.id);
     setInlineEditText(message.text);
     setEditingMessageId(message.id);
-    setSelectedModel(message.modelId || "gpt-5.2");
+    const messageModel = message.modelId || getDefaultModelId(featureFlags);
+    const validModel = modelCatalog.some((entry) => entry.id === messageModel) ? messageModel : modelCatalog[0]?.id ?? getDefaultModelId(featureFlags);
+    setSelectedModel(validModel);
   };
 
   const handleCancelEdit = () => {
@@ -2600,6 +3570,24 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setReplacementSourceMessageId(null);
   };
 
+  const handleForceReset = async () => {
+    try {
+      await window.electronAPI?.project?.forceResetAgent?.({ repoPath: activeProject.repoPath });
+    } catch { /* ignore */ }
+    setIsGenerating(false);
+    setPendingPrompt(null);
+    setPendingAttachments([]);
+    setPendingModelId(null);
+    setPendingCheckpointId(null);
+    setReplacementSourceMessageId(null);
+    setAgentLiveOutput("");
+    setAgentLiveStatus("Idle");
+    setOtherAgentMeta(null);
+    setGeneratingForMeta(null);
+    setCancelledRun(null);
+    setGenerationError(null);
+  };
+
   const handleGeneratePlan = async (options?: {
     prompt?: string;
     attachments?: ComposerAttachment[];
@@ -2626,7 +3614,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       try {
+        isGeneratingViaAwaitRef.current = true;
         setIsGenerating(true);
+        setGeneratingForMeta({ taskId: taskContext.task.id, taskName: taskContext.task.title, scope: "task-agent" });
+        setOtherAgentMeta(null);
         setGenerationError(null);
         setAgentLiveOutput("");
         setAgentLiveStatus("Starting agent...");
@@ -2657,7 +3648,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         setEditingMessageId(replaceFromMessageId ?? null);
         setGenerationError(message);
       } finally {
+        isGeneratingViaAwaitRef.current = false;
         setIsGenerating(false);
+        setAgentLiveOutput("");
+        setAgentLiveStatus("Idle");
         setPendingPrompt(null);
         setPendingAttachments([]);
         setPendingModelId(null);
@@ -2676,7 +3670,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     const isFollowUp = hasPlan;
 
     try {
+      isGeneratingViaAwaitRef.current = true;
       setIsGenerating(true);
+      setGeneratingForMeta({ scope: "project-manager" });
+      setOtherAgentMeta(null);
       setGenerationError(null);
       setAgentLiveOutput("");
       setAgentLiveStatus("Starting agent...");
@@ -2714,7 +3711,11 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       setEditingMessageId(replaceFromMessageId ?? null);
       setGenerationError(message);
     } finally {
+      isGeneratingViaAwaitRef.current = false;
       setIsGenerating(false);
+      setGeneratingForMeta(null);
+      setAgentLiveOutput("");
+      setAgentLiveStatus("Idle");
       setPendingPrompt(null);
       setPendingAttachments([]);
       setPendingModelId(null);
@@ -2723,6 +3724,80 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     }
   };
 
+  useEffect(() => {
+    if (!taskContext) {
+      previousTaskStateRef.current = { taskId: null, status: null };
+      pendingAutoAdvanceTaskIdRef.current = null;
+      return;
+    }
+
+    const previous = previousTaskStateRef.current;
+    if (
+      previous.taskId === taskContext.task.id
+      && previous.status
+      && previous.status !== "done"
+      && taskContext.task.status === "done"
+      // Only auto-advance if the LOCAL agent completed this task,
+      // not when a peer's status change arrived via P2P.
+      && localAgentCompletedTaskIdRef.current === taskContext.task.id
+    ) {
+      pendingAutoAdvanceTaskIdRef.current = taskContext.task.id;
+      localAgentCompletedTaskIdRef.current = null; // reset after consuming
+    }
+
+    previousTaskStateRef.current = {
+      taskId: taskContext.task.id,
+      status: taskContext.task.status,
+    };
+  }, [taskContext?.task.id, taskContext?.task.status]);
+
+  useEffect(() => {
+    if (!autoAdvanceTasks || !taskContext || isGenerating) {
+      return;
+    }
+
+    if (pendingAutoAdvanceTaskIdRef.current !== taskContext.task.id) {
+      return;
+    }
+
+    pendingAutoAdvanceTaskIdRef.current = null;
+    const nextTask = findNextIncompleteTask(activeProject, taskContext.task.id);
+    if (!nextTask) {
+      return;
+    }
+
+    handleNavigateConversation(nextTask.task.id, {
+      autoStart: shouldAutoStartTaskThread(activeProject, nextTask.task.id),
+    });
+  }, [activeProject, autoAdvanceTasks, isGenerating, taskContext]);
+
+  useEffect(() => {
+    if (autoStartParam !== "1" || !taskContext || isGenerating || pendingPrompt) {
+      return;
+    }
+
+    const clearAutoStart = () => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("autostart");
+      router.replace(params.toString() ? `${pathname}?${params.toString()}` : pathname);
+    };
+
+    if (handledAutoStartTaskIdRef.current === taskContext.task.id) {
+      clearAutoStart();
+      return;
+    }
+
+    if (hasSavedConversation || !taskContext.task.startingPrompt?.trim()) {
+      handledAutoStartTaskIdRef.current = taskContext.task.id;
+      clearAutoStart();
+      return;
+    }
+
+    handledAutoStartTaskIdRef.current = taskContext.task.id;
+    void handleGeneratePlan({ prompt: taskContext.task.startingPrompt });
+    clearAutoStart();
+  }, [autoStartParam, hasSavedConversation, isGenerating, pathname, pendingPrompt, router, searchParams, taskContext]);
+
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -2730,10 +3805,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     }
   };
 
-  const isImportedProject = Boolean((activeProject as Record<string, unknown>).imported);
-
-  const handleAnalyzeImportedProject = () => {
-    const analysisPrompt = `Analyze this existing codebase at ${activeProject.repoPath} and create a comprehensive project plan. Read the package.json, README, and key source files to understand the project structure, tech stack, and current state. Then generate a structured plan with subprojects and tasks that reflect the existing work and any clear next steps. Treat this as an already-in-progress project — mark completed work as done and identify what remains.`;
+  const handleAnalyzeProject = () => {
+    const analysisPrompt = activeProject.imported
+      ? `Analyze this existing codebase and map out what has already been built. Group the work into subprojects, mark completed features as done, partially built features as building, and remaining work as planned. Focus on giving a clear picture of current project state and the best next steps.`
+      : `Analyze this project and create a comprehensive project plan. Identify the tech stack, current state, what's been built, and what remains. Generate subprojects and tasks that reflect the existing work and clear next steps. Mark completed work as done.`;
     setPrompt(analysisPrompt);
     void handleGeneratePlan({ prompt: analysisPrompt });
   };
@@ -2745,45 +3820,84 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
         <div className="flex min-w-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="orb left-[-4rem] top-20 h-40 w-40 bg-[#9ec5ff]" />
+            <div className="orb bottom-[-2rem] right-10 h-44 w-44 bg-[#f7c87f]" />
             <div className="flex flex-1 items-center justify-center px-6 pb-32 pt-[5.2rem]">
-              <div className="max-w-xl text-center">
-                <h1 className="display-font text-[2.2rem] font-semibold tracking-tight theme-fg">
-                  {activeProject.name}
-                </h1>
-                {isImportedProject ? (
-                  <div className="mt-6">
-                    <p className="text-[14px] leading-relaxed theme-muted">This project was imported from an existing directory.</p>
-                    <button
-                      type="button"
-                      onClick={handleAnalyzeImportedProject}
-                      className="mt-4 rounded-full bg-[linear-gradient(135deg,#2563eb,#7c3aed)] px-6 py-3 text-[13px] font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.3)] transition hover:-translate-y-[1px] hover:shadow-[0_16px_36px_rgba(37,99,235,0.4)]"
-                    >
-                      Create Project Dashboard
-                    </button>
-                    <p className="mt-2 text-[11px] theme-muted">Analyzes your codebase and generates tasks and a project plan.</p>
+              <div className="relative w-full max-w-[860px] text-center">
+                <div className="app-surface relative overflow-hidden rounded-[2.2rem] px-8 py-10 shadow-[0_24px_80px_rgba(20,16,10,0.08)] dark:shadow-[0_28px_88px_rgba(0,0,0,0.3)]">
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(90deg,rgba(59,130,246,0.14),rgba(255,255,255,0),rgba(245,158,11,0.12))] dark:bg-[linear-gradient(90deg,rgba(59,130,246,0.18),rgba(255,255,255,0),rgba(251,191,36,0.1))]" />
+                  <div className="relative">
+                    <div className="inline-flex rounded-full bg-black/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted dark:bg-white/[0.06]">
+                      {currentHeaderEyebrow}
+                    </div>
+                    <h1 className="display-font mt-5 text-[2.4rem] font-semibold tracking-tight theme-fg sm:text-[2.8rem]">
+                      {activeProject.name}
+                    </h1>
+                    <p className="mx-auto mt-4 max-w-2xl text-[14px] leading-[1.75] theme-soft">{currentHeaderDescription}</p>
                   </div>
-                ) : null}
+
+                  <div className="mt-8">
+                  {activeProject.imported ? (
+                    <>
+                      <p className="text-[13px] leading-relaxed theme-muted">This project was imported from an existing directory and is ready for a structured audit.</p>
+                      <button
+                        type="button"
+                        onClick={handleAnalyzeProject}
+                        className="mt-5 rounded-full bg-[#111827] px-6 py-3 text-[13px] font-semibold text-white shadow-[0_14px_34px_rgba(17,24,39,0.18)] transition hover:-translate-y-[1px] hover:bg-[#0b1220] hover:shadow-[0_18px_38px_rgba(17,24,39,0.24)]"
+                      >
+                        Create Project Dashboard
+                      </button>
+                      <p className="mt-3 text-[11px] theme-muted">Analyzes the repo, creates tasks, and sets up the execution plan.</p>
+                    </>
+                  ) : (
+                    <p className="mx-auto max-w-xl text-[14px] leading-relaxed theme-muted">Start by explaining what you want to build. The PM will shape the plan, then you can move straight into task threads and preview.</p>
+                  )}
+                  </div>
+                  {(() => {
+                    const rec = getModelRecommendation(featureFlags, !!taskContext);
+                    const isAlreadySelected = selectedModel === rec.modelId;
+                    return (
+                      <div className="mx-auto mt-5 flex items-center justify-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M8 1.75a.75.75 0 0 1 .692.462l1.41 3.393 3.664.293a.75.75 0 0 1 .428 1.317l-2.791 2.39.853 3.58a.75.75 0 0 1-1.12.814L8 11.86l-3.134 1.96a.75.75 0 0 1-1.12-.814l.852-3.58-2.79-2.39a.75.75 0 0 1 .427-1.317l3.664-.293 1.41-3.393A.75.75 0 0 1 8 1.75Z" clipRule="evenodd" /></svg>
+                          {rec.label}
+                        </span>
+                        <span className="text-[10px] theme-muted">{rec.reason}</span>
+                        {!isAlreadySelected && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedModel(rec.modelId)}
+                            className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                          >
+                            Use
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 {generationError ? (
-                  <p className="mx-auto mt-5 max-w-xl rounded-[1rem] border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+                  <p className="danger-surface mx-auto mt-6 max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
                     {generationError}
                   </p>
                 ) : null}
+                </div>
               </div>
             </div>
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-8 pt-4 sm:px-6">
-              <div className="pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col gap-3">
+              <div className="pointer-events-auto mx-auto flex w-full max-w-[1040px] flex-col gap-3">
                 <RealProjectComposer
                   value={prompt}
                   onChange={setPrompt}
                   onSubmit={() => void handleGeneratePlan()}
                   onKeyDown={handleComposerKeyDown}
-                  disabled={isGenerating}
+                  disabled={chatLocked}
                   isGenerating={isGenerating}
                   onCancel={() => void handleCancelGeneration()}
                   placeholder="Talk to the project manager"
                   selectedModel={selectedModel}
                   onModelChange={setSelectedModel}
+                  modelCatalog={modelCatalog}
                   attachedFiles={attachedFiles}
                   onAttachFiles={handleAttachFiles}
                   onRemoveAttachment={handleRemoveAttachment}
@@ -2791,10 +3905,12 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                   contextMarkdown={contextMarkdown}
                   contextPath={contextPath}
                   contextTitle={`${activeProject.name} project context`}
+                  onContextEdit={setCustomContextMarkdown}
                   isDraggingFiles={isDraggingFiles}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDropFiles}
+                  featureFlags={featureFlags}
                 />
               </div>
             </div>
@@ -2808,89 +3924,126 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
       <ProjectSidebar />
 
-      <div className="flex min-w-0 flex-1 overflow-hidden">
+      <div ref={splitContainerRef} className="flex min-w-0 flex-1 overflow-hidden" data-split-container>
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-black/[0.05] px-5 py-4 sm:px-6 xl:px-8 dark:border-white/[0.08]">
-            <div className="mx-auto w-full max-w-[980px]">
-              <div ref={taskMenuRef} className="relative inline-flex max-w-full">
+          <div className="orb left-[-4rem] top-24 h-36 w-36 bg-[#9ec5ff]" />
+          <div className="orb bottom-10 right-[-3rem] h-44 w-44 bg-[#f7c87f]" />
+          <div className="relative px-5 pb-2 pt-4 sm:px-6 xl:px-8">
+            <div className="mx-auto w-full max-w-[1040px]">
+              <div ref={taskMenuRef} className="relative">
                 <button
+                  ref={taskMenuButtonRef}
                   type="button"
                   onClick={() => setShowTaskMenu((value) => !value)}
-                  className="group inline-flex max-w-full items-center gap-3 rounded-full border border-black/[0.06] bg-[linear-gradient(135deg,rgba(255,255,255,0.95),rgba(247,241,232,0.95))] px-4 py-2.5 text-left shadow-[0_10px_24px_rgba(28,21,14,0.08)] transition hover:-translate-y-[1px] hover:shadow-[0_14px_28px_rgba(28,21,14,0.12)] dark:border-white/[0.1] dark:bg-[linear-gradient(135deg,rgba(34,36,42,0.96),rgba(24,26,31,0.96))] dark:hover:bg-[linear-gradient(135deg,rgba(38,40,46,0.98),rgba(27,29,34,0.98))]"
+                  className="group flex w-full items-center justify-between gap-3 rounded-[1.2rem] bg-[rgba(255,255,255,0.56)] px-4 py-3 text-left shadow-[0_8px_28px_rgba(20,16,11,0.05)] backdrop-blur-md transition hover:bg-[rgba(255,255,255,0.74)] dark:bg-[rgba(255,255,255,0.04)] dark:shadow-[0_12px_30px_rgba(0,0,0,0.16)] dark:hover:bg-[rgba(255,255,255,0.06)]"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-[18px] font-semibold tracking-tight theme-fg">{currentHeaderTitle}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[17px] font-semibold tracking-[-0.02em] theme-fg sm:text-[19px]">{currentHeaderTitle}</p>
                   </div>
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-ink/60 transition group-hover:bg-black/[0.06] group-hover:text-ink dark:bg-white/[0.06] dark:text-white/60 dark:group-hover:bg-white/[0.1] dark:group-hover:text-white">
                     <ChevronDownIcon className={`h-4 w-4 transition ${showTaskMenu ? "rotate-180" : ""}`} />
                   </span>
                 </button>
 
-                {showTaskMenu ? (
-                  <div className="absolute left-0 top-[calc(100%+0.8rem)] z-30 w-[min(620px,calc(100vw-3rem))] overflow-hidden rounded-[1.5rem] border border-black/[0.08] bg-[rgba(255,252,246,0.98)] shadow-[0_24px_60px_rgba(22,18,12,0.16)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[rgba(24,26,31,0.98)] dark:shadow-[0_28px_72px_rgba(0,0,0,0.34)]">
-                    <div className="border-b border-black/[0.06] px-5 py-4 dark:border-white/[0.08]">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted">Conversations</p>
-                      <p className="mt-2 text-[14px] leading-relaxed theme-muted">Jump between the project manager and every task chat for this project.</p>
-                    </div>
+                {showTaskMenu && taskMenuLayout ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close conversations menu"
+                      onClick={() => setShowTaskMenu(false)}
+                      className="fixed inset-0 z-30 bg-transparent"
+                    />
+                    <div
+                      ref={taskMenuPanelRef}
+                      style={{ top: taskMenuLayout.top, left: taskMenuLayout.left, width: taskMenuLayout.width, maxHeight: taskMenuLayout.maxHeight }}
+                      className="fixed z-40 overflow-hidden rounded-[1.6rem] border border-black/[0.08] bg-[rgba(255,252,246,0.99)] shadow-[0_28px_72px_rgba(22,18,12,0.16)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[rgba(24,26,31,0.99)] dark:shadow-[0_32px_84px_rgba(0,0,0,0.34)]"
+                    >
+                      <div className="border-b border-black/[0.06] px-5 py-4 dark:border-white/[0.08]">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted">Conversations</p>
+                        <p className="mt-2 text-[14px] leading-relaxed theme-muted">Jump between the project manager and every task chat for this project.</p>
+                      </div>
 
-                    <div className="max-h-[420px] overflow-y-auto custom-scroll px-3 py-3">
-                      <button
-                        type="button"
-                        onClick={() => handleNavigateConversation()}
-                        className={`mb-3 flex w-full items-center justify-between gap-3 rounded-[1.15rem] px-4 py-3 text-left transition ${!taskContext ? "bg-[#1f2937] text-white shadow-[0_14px_30px_rgba(31,41,55,0.22)]" : "bg-black/[0.03] hover:bg-black/[0.05] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]"}`}
-                      >
-                        <div className="min-w-0">
-                          <p className={`truncate text-[14px] font-semibold ${!taskContext ? "text-white" : "theme-fg"}`}>Project Manager for {activeProject.name}</p>
-                        </div>
-                        {!taskContext ? <span className="rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/88">Current</span> : null}
-                      </button>
-
-                      {taskMenuSections.map((subproject, subprojectIndex) => (
-                        <div key={subproject.id} className="mb-3 last:mb-0">
-                          <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{subprojectIndex + 1}) {subproject.title}</p>
-                          <div className="space-y-2">
-                            {subproject.tasks.map((task) => {
-                              const isActive = taskContext?.task.id === task.id;
-                              const taskThread = activeProject.dashboard.taskThreads.find((thread) => thread.taskId === task.id);
-                              const hasMessages = (taskThread?.messages?.length ?? 0) > 0;
-
-                              return (
-                                <button
-                                  key={task.id}
-                                  type="button"
-                                  onClick={() => handleNavigateConversation(task.id)}
-                                  className={`flex w-full items-start justify-between gap-3 rounded-[1.15rem] px-4 py-3 text-left transition ${isActive ? "bg-[linear-gradient(135deg,#0f172a,#1d4ed8)] text-white shadow-[0_14px_30px_rgba(29,78,216,0.24)]" : "bg-black/[0.03] hover:bg-black/[0.05] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]"}`}
-                                >
-                                  <div className="min-w-0">
-                                    <p className={`truncate text-[14px] font-semibold ${isActive ? "text-white" : "theme-fg"}`}>{task.title}</p>
-                                  </div>
-                                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${isActive ? "bg-white/12 text-white/88" : hasMessages ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-200" : "bg-amber-100 text-amber-700 dark:bg-amber-500/12 dark:text-amber-200"}`}>
-                                    {isActive ? "Current" : hasMessages ? "Active" : "Ready"}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                      <div className="custom-scroll overflow-y-auto px-3 py-3" style={{ maxHeight: taskMenuLayout.maxHeight - 84 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleNavigateConversation()}
+                          className={`mb-3 flex w-full items-center justify-between gap-3 rounded-[1.2rem] border px-4 py-3 text-left transition ${!taskContext ? "border-transparent bg-[linear-gradient(135deg,#0f172a,#2563eb)] text-white shadow-[0_18px_34px_rgba(37,99,235,0.24)]" : "border-black/[0.05] bg-black/[0.02] hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:bg-white/[0.05]"}`}
+                        >
+                          <div className="min-w-0">
+                            <p className={`truncate text-[14px] font-semibold ${!taskContext ? "text-white" : "theme-fg"}`}>Project Manager for {activeProject.name}</p>
                           </div>
-                        </div>
-                      ))}
+                          {!taskContext ? <span className="rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/88">Current</span> : null}
+                        </button>
+
+                        {taskMenuSections.map((subproject, subprojectIndex) => (
+                          <div key={subproject.id} className="mb-3 last:mb-0">
+                            <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{subprojectIndex + 1}) {subproject.title}</p>
+                            <div className="space-y-2">
+                              {subproject.tasks.map((task) => {
+                                const isActive = taskContext?.task.id === task.id;
+                                const taskThread = activeProject.dashboard.taskThreads.find((thread) => thread.taskId === task.id);
+                                const hasMessages = (taskThread?.messages?.length ?? 0) > 0;
+                                const statusLabel = isActive
+                                  ? "Current"
+                                  : task.status === "done"
+                                    ? "Done"
+                                    : task.status === "review"
+                                      ? "Review"
+                                      : task.status === "building"
+                                        ? "Building"
+                                        : hasMessages
+                                          ? "Active"
+                                          : "Ready";
+                                const statusClass = isActive
+                                  ? "bg-white/12 text-white/88"
+                                  : task.status === "done"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-200"
+                                    : task.status === "review"
+                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-500/12 dark:text-amber-200"
+                                      : task.status === "building"
+                                        ? "bg-violet-100 text-violet-700 dark:bg-violet-500/12 dark:text-violet-200"
+                                        : hasMessages
+                                          ? "bg-sky-100 text-sky-700 dark:bg-sky-500/12 dark:text-sky-200"
+                                          : "bg-stone-100 text-stone-700 dark:bg-stone-500/12 dark:text-stone-200";
+
+                                return (
+                                  <button
+                                    key={task.id}
+                                    type="button"
+                                    onClick={() => handleNavigateConversation(task.id)}
+                                    className={`flex w-full items-start justify-between gap-3 rounded-[1.2rem] border px-4 py-3 text-left transition ${isActive ? "border-transparent bg-[linear-gradient(135deg,#0f172a,#1d4ed8)] text-white shadow-[0_18px_34px_rgba(29,78,216,0.24)]" : "border-black/[0.05] bg-black/[0.02] hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:bg-white/[0.05]"}`}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className={`truncate text-[14px] font-semibold ${isActive ? "text-white" : "theme-fg"}`}>{task.title}</p>
+                                    </div>
+                                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusClass}`}>
+                                      {statusLabel}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  </>
                 ) : null}
               </div>
             </div>
           </div>
 
-          <div ref={conversationRef} className="custom-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-40 pt-6 sm:px-6 xl:px-8">
-            <div className="mx-auto flex w-full max-w-[980px] flex-col gap-8">
-              <div className="space-y-8">
+          <div ref={conversationRef} className="custom-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-2 sm:px-6 xl:px-8">
+            <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-8">
+              <div className="space-y-6">
                 {editingMessageId ? (
-                  <div className="rounded-[1.2rem] border border-sky-200 bg-sky-50 px-4 py-3 text-[13px] text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+                  <div className="app-surface rounded-[1.35rem] px-5 py-4 text-[13px] shadow-[0_14px_34px_rgba(18,14,10,0.05)] dark:shadow-[0_18px_40px_rgba(0,0,0,0.2)]">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p>Editing this prompt will replace that message and everything after it.</p>
+                      <p className="theme-fg">Editing this prompt will replace that message and everything after it.</p>
                       <button
                         type="button"
                         onClick={handleCancelEdit}
-                        className="rounded-full border border-sky-300 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition hover:bg-sky-100 dark:border-sky-400/30 dark:hover:bg-sky-400/10"
+                        className={chatActionButtonClass}
                       >
                         Cancel edit
                       </button>
@@ -2899,19 +4052,41 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 ) : null}
 
                 {taskContext && canUseStartingPrompt ? (
-                  <div className="rounded-[1.35rem] border border-black/[0.06] bg-[linear-gradient(135deg,rgba(255,255,255,0.72),rgba(248,242,233,0.92))] p-5 shadow-[0_14px_40px_rgba(24,18,11,0.06)] dark:border-white/[0.08] dark:bg-[linear-gradient(135deg,rgba(35,37,43,0.96),rgba(24,26,31,0.96))]">
+                  <div className="app-surface rounded-[1.55rem] p-5 shadow-[0_16px_42px_rgba(24,18,11,0.06)] dark:shadow-[0_20px_48px_rgba(0,0,0,0.22)]">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Starter prompt</p>
                         <p className="mt-2 text-[15px] font-semibold theme-fg">Start this task with the PM-generated kickoff prompt.</p>
                         <p className="mt-2 line-clamp-3 text-[13px] leading-relaxed theme-muted">{taskContext.task.startingPrompt}</p>
+                        {(() => {
+                          const rec = getModelRecommendation(featureFlags, true);
+                          const isAlreadySelected = selectedModel === rec.modelId;
+                          return (
+                            <div className="mt-3 flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M8 1.75a.75.75 0 0 1 .692.462l1.41 3.393 3.664.293a.75.75 0 0 1 .428 1.317l-2.791 2.39.853 3.58a.75.75 0 0 1-1.12.814L8 11.86l-3.134 1.96a.75.75 0 0 1-1.12-.814l.852-3.58-2.79-2.39a.75.75 0 0 1 .427-1.317l3.664-.293 1.41-3.393A.75.75 0 0 1 8 1.75Z" clipRule="evenodd" /></svg>
+                                Recommended: {rec.label}
+                              </span>
+                              <span className="text-[10px] theme-muted">{rec.reason}</span>
+                              {!isAlreadySelected && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedModel(rec.modelId)}
+                                  className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                                >
+                                  Switch
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <button
                         type="button"
                         onClick={handleUseStartingPrompt}
-                        className="shrink-0 rounded-full bg-[linear-gradient(135deg,#111827,#1d4ed8)] px-4 py-2 text-[12px] font-semibold text-white shadow-[0_12px_30px_rgba(29,78,216,0.24)] transition hover:-translate-y-[1px] hover:shadow-[0_16px_34px_rgba(29,78,216,0.3)]"
+                        className="shrink-0 rounded-full bg-[#111827] px-4 py-2 text-[12px] font-semibold text-white shadow-[0_12px_30px_rgba(17,24,39,0.18)] transition hover:-translate-y-[1px] hover:bg-[#0b1220] hover:shadow-[0_16px_34px_rgba(17,24,39,0.24)]"
                       >
-                        Autofill prompt
+                        Use kickoff
                       </button>
                     </div>
                   </div>
@@ -2925,7 +4100,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                           <div className="mb-1.5 flex justify-end">
                             <p className="text-[11px] font-medium theme-muted">{message.from}</p>
                           </div>
-                          <div className="rounded-[1.65rem] rounded-br-md border-2 border-blue-500/40 bg-[#2d2b29] px-4 py-3 shadow-[0_12px_28px_rgba(32,24,18,0.16),0_0_0_1px_rgba(59,130,246,0.2)] dark:border-blue-400/30 dark:bg-[#25272b] dark:shadow-[0_16px_36px_rgba(0,0,0,0.28)]">
+                          <div className="rounded-[1.7rem] rounded-br-[0.6rem] border border-sky-400/30 bg-[linear-gradient(135deg,#1e293b,#0f172a)] px-5 py-4 shadow-[0_18px_36px_rgba(15,23,42,0.22)] dark:border-sky-400/24 dark:shadow-[0_22px_44px_rgba(0,0,0,0.32)]">
                             <textarea
                               value={inlineEditText}
                               onChange={(e) => setInlineEditText(e.target.value)}
@@ -2934,13 +4109,13 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                                 if (e.key === "Escape") handleCancelEdit();
                               }}
                               rows={Math.min(8, Math.max(2, inlineEditText.split("\n").length))}
-                              className="w-full resize-none bg-transparent text-[14px] leading-[1.55] text-white/96 outline-none placeholder:text-white/40"
+                              className="w-full resize-none bg-transparent text-[15px] leading-[1.65] text-white/96 outline-none placeholder:text-white/40"
                               autoFocus
                             />
                           </div>
                           <div className="mt-2 flex justify-end gap-2">
-                            <button type="button" onClick={handleCancelEdit} className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] font-semibold text-white/60 transition hover:bg-white/[0.06] hover:text-white">Cancel</button>
-                            <button type="button" onClick={handleSubmitInlineEdit} disabled={!inlineEditText.trim()} className="rounded-full bg-[linear-gradient(135deg,#2563eb,#7c3aed)] px-4 py-1.5 text-[11px] font-semibold text-white shadow-[0_8px_20px_rgba(37,99,235,0.25)] transition hover:-translate-y-[0.5px] hover:shadow-[0_10px_24px_rgba(37,99,235,0.35)] disabled:opacity-50">Resend</button>
+                            <button type="button" onClick={handleCancelEdit} className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] font-semibold text-white/64 transition hover:bg-white/[0.08] hover:text-white">Cancel</button>
+                            <button type="button" onClick={handleSubmitInlineEdit} disabled={!inlineEditText.trim()} className="rounded-full bg-white px-4 py-1.5 text-[11px] font-semibold text-slate-900 shadow-[0_8px_20px_rgba(255,255,255,0.16)] transition hover:-translate-y-[0.5px] hover:shadow-[0_10px_24px_rgba(255,255,255,0.22)] disabled:opacity-50">Resend</button>
                           </div>
                         </div>
                       </div>
@@ -2953,7 +4128,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                               <button
                                 type="button"
                                 onClick={() => handleBeginEditMessage(message)}
-                                className="rounded-full border border-black/[0.12] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/60 transition hover:bg-black/[0.04] hover:text-ink dark:border-white/[0.12] dark:text-white/60 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                                className={chatActionButtonClass}
                               >
                                 Edit prompt
                               </button>
@@ -2963,37 +4138,44 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                                 type="button"
                                 onClick={() => void handleRestoreCheckpoint(message.checkpointId!)}
                                 disabled={isRestoringCheckpoint}
-                                className="rounded-full border border-black/[0.12] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/60 transition hover:bg-black/[0.04] hover:text-ink disabled:opacity-50 dark:border-white/[0.12] dark:text-white/60 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                                className={`${chatActionButtonClass} disabled:opacity-50`}
                               >
                                 {isRestoringCheckpoint ? "Restoring..." : "Restore checkpoint"}
                               </button>
                             ) : null}
                           </div>
                         ) : message.isAI && taskContext ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="mt-1.5 flex items-center gap-3 text-[11px] theme-muted">
                             <button
                               type="button"
                               onClick={() => { setShowRightPane(true); setRightPaneMode("details"); setRightPaneResponseText(message.text); }}
-                              className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:border-white/[0.12] dark:hover:bg-white/[0.06]"
+                              className="transition hover:theme-fg"
                             >
                               Details
                             </button>
                             <button
                               type="button"
                               onClick={() => handleShowPreviewPane()}
-                              className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:border-white/[0.12] dark:hover:bg-white/[0.06]"
+                              className="transition hover:theme-fg"
                             >
                               Preview
                             </button>
                           </div>
                         ) : message.isAI && !taskContext ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="mt-1.5 flex items-center gap-3 text-[11px] theme-muted">
                             <button
                               type="button"
                               onClick={() => { setShowRightPane(true); setRightPaneMode("details"); setRightPaneResponseText(message.text); }}
-                              className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:border-white/[0.12] dark:hover:bg-white/[0.06]"
+                              className="transition hover:theme-fg"
                             >
                               Details
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShowPreviewPane()}
+                              className="transition hover:theme-fg"
+                            >
+                              Preview
                             </button>
                           </div>
                         ) : null}
@@ -3023,7 +4205,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                     <RealProjectChatBubble
                       message={{
                         id: cancelledRun.messageId,
-                        from: "Cameron",
+                        from: displayName || "You",
                         text: cancelledRun.prompt,
                         time: "Cancelled",
                         isMine: true,
@@ -3034,7 +4216,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                           <button
                             type="button"
                             onClick={() => handleBeginEditMessage({ id: cancelledRun.messageId, text: cancelledRun.prompt, attachments: cancelledRun.attachments, modelId: cancelledRun.modelId })}
-                            className="rounded-full border border-black/[0.12] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/60 transition hover:bg-black/[0.04] hover:text-ink dark:border-white/[0.12] dark:text-white/60 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                            className={chatActionButtonClass}
                           >
                             Edit prompt
                           </button>
@@ -3043,7 +4225,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                               type="button"
                               onClick={() => void handleRestoreCheckpoint(cancelledRun.checkpointId!)}
                               disabled={isRestoringCheckpoint}
-                              className="rounded-full border border-black/[0.12] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/60 transition hover:bg-black/[0.04] hover:text-ink disabled:opacity-50 dark:border-white/[0.12] dark:text-white/60 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                              className={`${chatActionButtonClass} disabled:opacity-50`}
                             >
                               {isRestoringCheckpoint ? "Restoring..." : "Restore checkpoint"}
                             </button>
@@ -3052,12 +4234,12 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                       }
                     />
                     <div className="flex items-start gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#64748b,#475569)] text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(71,85,105,0.24)]">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#64748b,#475569)] text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(71,85,105,0.24)]">
                         !
                       </div>
-                      <div className="min-w-0 flex-1 rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/20 dark:bg-amber-500/10">
-                        <p className="text-[13px] font-semibold text-amber-800 dark:text-amber-200">Chat cancelled</p>
-                        <p className="mt-1 text-[12px] leading-relaxed text-amber-700/90 dark:text-amber-200/80">This run was stopped before the agent replied. You can retry the same state or edit the prompt first.</p>
+                      <div className="danger-surface min-w-0 flex-1 rounded-[1.35rem] px-5 py-4 shadow-[0_12px_26px_rgba(185,28,28,0.06)] dark:shadow-none">
+                        <p className="text-[13px] font-semibold text-red-700 dark:text-red-200">Chat cancelled</p>
+                        <p className="mt-1 text-[12px] leading-relaxed text-red-700/85 dark:text-red-200/82">This run was stopped before the agent replied. You can retry the same state or edit the prompt first.</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -3069,14 +4251,14 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                               });
                               setCancelledRun(null);
                             }}
-                            className="rounded-full bg-amber-500 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-amber-600"
+                            className="rounded-full bg-[#111827] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-[#0b1220]"
                           >
                             Try again
                           </button>
                           <button
                             type="button"
                             onClick={() => handleBeginEditMessage({ id: cancelledRun.messageId, text: cancelledRun.prompt, attachments: cancelledRun.attachments, modelId: cancelledRun.modelId })}
-                            className="rounded-full border border-amber-300 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800 transition hover:bg-amber-100 dark:border-amber-400/30 dark:text-amber-200 dark:hover:bg-amber-400/10"
+                            className="danger-button rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition"
                           >
                             Edit before retry
                           </button>
@@ -3086,33 +4268,298 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                   </>
                 ) : null}
 
-                {isGenerating ? (
+                {/* ── P2P Peer Live Stream (inline at bottom of messages) ── */}
+                {Object.keys(peerStreams).length > 0 && Object.entries(peerStreams).map(([peerId, stream]) => {
+                  // Determine if this peer stream matches the current view
+                  const peerMatchesView = (() => {
+                    if (stream.scope === "task-agent") {
+                      // Task agent stream: show full output only if viewing the same task
+                      if (taskContext && stream.taskId && stream.taskId === taskContext.task.id) return true;
+                      if (taskContext && stream.conversationId && stream.conversationId.includes(taskContext.task.id)) return true;
+                      return false;
+                    }
+                    if (stream.scope === "project-manager") {
+                      // PM stream: show full output only if in PM chat (no taskContext)
+                      return !taskContext;
+                    }
+                    // solo-chat or other: show banner only (this page is not freestyle)
+                    return false;
+                  })();
+
+                  if (!peerMatchesView) {
+                    // Show compact "Agent running in X" banner
+                    const peerLabel = stream.scope === "task-agent"
+                      ? `${stream.taskName || "a task"} chat`
+                      : stream.scope === "project-manager"
+                        ? "PM Chat"
+                        : stream.scope === "solo-chat"
+                          ? `${stream.sessionTitle || "Freestyle"}`
+                          : stream.scope;
+                    const peerNavHref = stream.scope === "task-agent" && stream.taskId
+                      ? `/project/chat?task=${encodeURIComponent(stream.taskId)}`
+                      : stream.scope === "project-manager"
+                        ? "/project/chat"
+                        : stream.scope === "solo-chat"
+                          ? "/project/code"
+                          : null;
+
+                    return (
+                      <div key={peerId} className="flex items-center gap-3">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-600/20 text-[10px] font-bold text-cyan-500">
+                          {(stream.peerName || "P").slice(0, 2).toUpperCase()}
+                        </div>
+                        {peerNavHref ? (
+                          <a
+                            href={peerNavHref}
+                            className="group flex items-center gap-2 rounded-full bg-cyan-500/8 px-3.5 py-2 ring-1 ring-cyan-500/15 transition hover:bg-cyan-500/14 hover:ring-cyan-500/25"
+                          >
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                            </span>
+                            <span className="text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">
+                              {stream.peerName} — Agent running in {peerLabel}
+                            </span>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-cyan-500/50 transition group-hover:text-cyan-500">
+                              <path fillRule="evenodd" d="M4.22 11.78a.75.75 0 0 1 0-1.06L9.44 5.5H5.75a.75.75 0 0 1 0-1.5h5.5a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V6.56l-5.22 5.22a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+                            </svg>
+                          </a>
+                        ) : (
+                          <div className="flex items-center gap-2 rounded-full bg-cyan-500/8 px-3.5 py-2 ring-1 ring-cyan-500/15">
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                            </span>
+                            <span className="text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">
+                              {stream.peerName} — Agent running in {peerLabel}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                  <div key={peerId} className="flex items-start gap-3">
+                    <div className="avatar-ring shrink-0">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-600 text-[11px] font-bold text-white">
+                        {(stream.peerName || "P").slice(0, 2).toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="max-w-[84%] xl:max-w-[78%] min-w-0 flex-1">
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <p className="text-[11px] font-medium theme-fg">{stream.peerName}</p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-400">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                          </span>
+                          AI responding
+                        </span>
+                        <span className="text-[10px] font-normal theme-muted">
+                          ({stream.scope === "project-manager" ? "PM Chat" : stream.scope === "solo-chat" ? "Solo Chat" : stream.scope === "task-agent" ? "Task Agent" : stream.scope})
+                        </span>
+                      </div>
+                      <div className="app-surface overflow-hidden rounded-[1.45rem] rounded-tl-[0.7rem] shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.2)]">
+                        <pre className="custom-scroll max-h-[280px] min-h-[60px] overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.72] theme-soft whitespace-pre-wrap selection:bg-cyan-500/15">
+                          {stream.tokens.slice(-4000) || <span className="theme-muted italic">Waiting for response...</span>}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })}
+
+                {/* ── Local Agent: "Agent running in X" banner when viewing different task ── */}
+                {isGenerating && generatingForMeta && taskContext && generatingForMeta.taskId && generatingForMeta.taskId !== taskContext.task.id ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/20 text-[10px] font-bold text-violet-500">✦</div>
+                    <a
+                      href={`/project/chat?task=${encodeURIComponent(generatingForMeta.taskId)}`}
+                      className="group flex items-center gap-2 rounded-full bg-violet-500/8 px-3.5 py-2 ring-1 ring-violet-500/15 transition hover:bg-violet-500/14 hover:ring-violet-500/25"
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+                      </span>
+                      <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400">
+                        Agent running in {generatingForMeta.taskName || "another task"} chat
+                      </span>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-violet-500/50 transition group-hover:text-violet-500">
+                        <path fillRule="evenodd" d="M4.22 11.78a.75.75 0 0 1 0-1.06L9.44 5.5H5.75a.75.75 0 0 1 0-1.5h5.5a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V6.56l-5.22 5.22a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+                      </svg>
+                    </a>
+                  </div>
+                ) : isGenerating && generatingForMeta && !taskContext && generatingForMeta.scope === "task-agent" && generatingForMeta.taskId ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/20 text-[10px] font-bold text-violet-500">✦</div>
+                    <a
+                      href={`/project/chat?task=${encodeURIComponent(generatingForMeta.taskId)}`}
+                      className="group flex items-center gap-2 rounded-full bg-violet-500/8 px-3.5 py-2 ring-1 ring-violet-500/15 transition hover:bg-violet-500/14 hover:ring-violet-500/25"
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+                      </span>
+                      <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400">
+                        Agent running in {generatingForMeta.taskName || "a task"} chat
+                      </span>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-violet-500/50 transition group-hover:text-violet-500">
+                        <path fillRule="evenodd" d="M4.22 11.78a.75.75 0 0 1 0-1.06L9.44 5.5H5.75a.75.75 0 0 1 0-1.5h5.5a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V6.56l-5.22 5.22a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+                      </svg>
+                    </a>
+                  </div>
+                ) : null}
+
+                {/* ── "Other agent" banner from reconnect check (not peer, not local-generating) ── */}
+                {!isGenerating && otherAgentMeta ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/20 text-[10px] font-bold text-violet-500">✦</div>
+                    <a
+                      href={otherAgentMeta.taskId
+                        ? `/project/chat?task=${encodeURIComponent(otherAgentMeta.taskId)}`
+                        : otherAgentMeta.scope === "project-manager"
+                          ? "/project/chat"
+                          : otherAgentMeta.scope === "solo-chat"
+                            ? "/project/code"
+                            : "/project/chat"}
+                      className="group flex items-center gap-2 rounded-full bg-violet-500/8 px-3.5 py-2 ring-1 ring-violet-500/15 transition hover:bg-violet-500/14 hover:ring-violet-500/25"
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+                      </span>
+                      <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400">
+                        Agent running in {otherAgentMeta.taskName || (otherAgentMeta.scope === "project-manager" ? "PM Chat" : otherAgentMeta.scope === "solo-chat" ? "Freestyle" : "another chat")}
+                      </span>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-violet-500/50 transition group-hover:text-violet-500">
+                        <path fillRule="evenodd" d="M4.22 11.78a.75.75 0 0 1 0-1.06L9.44 5.5H5.75a.75.75 0 0 1 0-1.5h5.5a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V6.56l-5.22 5.22a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+                      </svg>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void handleForceReset()}
+                      className="rounded-full bg-amber-500/10 px-3 py-1.5 text-[10px] font-semibold text-amber-600 transition hover:bg-amber-500/18 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                      title="Force-kill the stuck agent and clean up"
+                    >
+                      Force Reset
+                    </button>
+                  </div>
+                ) : null}
+
+                {isGenerating && (!generatingForMeta || !generatingForMeta.taskId || (taskContext && generatingForMeta.taskId === taskContext.task.id) || (!taskContext && generatingForMeta.scope !== "task-agent")) ? (
                   <div className="flex items-start gap-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d8bff,#7c5cfc)] text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(93,139,255,0.24)]">
-                      ✦
+                    <div className="avatar-ring shrink-0">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1f2937] text-[11px] font-bold text-white dark:bg-[#f2efe8] dark:text-[#17181b]">
+                        ✦
+                      </div>
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="mb-1.5 flex items-center gap-2">
                         <p className="text-[11px] font-medium theme-fg">{assistantName}</p>
-                        <span className="text-[11px] theme-muted">thinking</span>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:bg-violet-400/10 dark:text-violet-400">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+                          </span>
+                          Thinking
+                        </span>
                       </div>
-                      <div className="app-surface rounded-[1.2rem] px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
+                      <div className="app-surface overflow-hidden rounded-[1.45rem] shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.2)]">
+                        {/* Header */}
+                        <div className="flex items-center justify-between gap-3 border-b border-black/[0.04] px-4 py-3 dark:border-white/[0.06]">
                           <div className="flex items-center gap-2.5">
                             <div className="flex gap-[3px]">
-                              <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink/20 animate-pulse-soft" />
-                              <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink/20 animate-pulse-soft" style={{ animationDelay: "0.15s" }} />
-                              <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink/20 animate-pulse-soft" style={{ animationDelay: "0.3s" }} />
+                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" />
+                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" style={{ animationDelay: "0.15s" }} />
+                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" style={{ animationDelay: "0.3s" }} />
                             </div>
-                            <span className="text-[14px] theme-soft">Thinking...</span>
+                            <span className="text-[12px] font-medium theme-soft">{agentLiveStatus === "Idle" ? "Preparing..." : agentLiveStatus}</span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => void handleCancelGeneration()}
-                            className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:border-white/[0.12] dark:hover:bg-white/[0.06]"
-                          >
-                            Stop
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setThinkingPanelExpanded((v) => !v)}
+                              className="rounded-full p-1.5 text-[11px] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:hover:bg-white/[0.06]"
+                              title={thinkingPanelExpanded ? "Collapse" : "Expand"}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3.5 w-3.5 transition ${thinkingPanelExpanded ? "rotate-180" : ""}`}>
+                                <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleCancelGeneration()}
+                              className="rounded-full bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-500/18 dark:text-red-400 dark:hover:bg-red-500/20"
+                            >
+                              Stop
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleForceReset()}
+                              className="rounded-full bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-600 transition hover:bg-amber-500/18 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                              title="Force-kill the agent and clean up git state"
+                            >
+                              Force Reset
+                            </button>
+                          </div>
+                        </div>
+                        {/* Live output stream */}
+                        {thinkingPanelExpanded ? (
+                          <div className="relative">
+                            <pre
+                              ref={thinkingOutputRef}
+                              className="custom-scroll max-h-[280px] min-h-[80px] overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.72] theme-soft selection:bg-violet-500/15"
+                            >
+                              {agentLiveOutput || (
+                                <span className="theme-muted italic">Waiting for model response...</span>
+                              )}
+                            </pre>
+                            {/* Fade-out gradient at top for visual depth */}
+                            <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[var(--surface)] to-transparent opacity-60" />
+                          </div>
+                        ) : null}
+                        {/* Interrupt input */}
+                        <div className="border-t border-black/[0.04] px-4 py-2.5 dark:border-white/[0.06]">
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={interruptPrompt}
+                              onChange={(e) => setInterruptPrompt(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey && interruptPrompt.trim()) {
+                                  e.preventDefault();
+                                  const msg = interruptPrompt.trim();
+                                  setInterruptPrompt("");
+                                  void handleCancelGeneration().then(() => {
+                                    setCancelledRun(null);
+                                    setPrompt(msg);
+                                    void handleGeneratePlan({ prompt: msg });
+                                  });
+                                }
+                              }}
+                              placeholder="Interrupt with a message..."
+                              className="min-w-0 flex-1 bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted/50"
+                            />
+                            <button
+                              type="button"
+                              disabled={!interruptPrompt.trim()}
+                              onClick={() => {
+                                const msg = interruptPrompt.trim();
+                                if (!msg) return;
+                                setInterruptPrompt("");
+                                void handleCancelGeneration().then(() => {
+                                  setCancelledRun(null);
+                                  setPrompt(msg);
+                                  void handleGeneratePlan({ prompt: msg });
+                                });
+                              }}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/12 text-violet-600 transition hover:bg-violet-500/20 disabled:opacity-30 dark:text-violet-400"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                                <path d="M2.87 2.298a.75.75 0 0 0-.812.93l1.962 4.856A1.5 1.5 0 0 0 5.419 9.2h3.831a.75.75 0 0 0 0-1.5H5.419l-1.2-2.968 8.086 3.24a.75.75 0 0 0 .024-1.395L2.87 2.298Z" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3121,39 +4568,27 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
               </div>
 
               {generationError ? (
-                <p className="max-w-xl rounded-[1rem] border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+                <p className="danger-surface max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
                   {generationError}
                 </p>
               ) : null}
             </div>
           </div>
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-6 pt-4 sm:px-6">
-            <div className="pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col gap-2">
-              {isGenerating ? (
-                <div className="flex items-center justify-center gap-2 py-2">
-                  <span className="animate-pulse text-[13px] font-medium theme-muted">{buildWorkingLabel(liveStatusFrame)}</span>
-                  <button
-                    type="button"
-                    onClick={() => void handleCancelGeneration()}
-                    className="rounded-full border border-black/[0.08] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:border-white/[0.12] dark:hover:bg-white/[0.06]"
-                  >
-                    Stop
-                  </button>
-                </div>
-              ) : null}
-
+          <div className="relative z-20 flex-shrink-0 px-4 pb-5 pt-2 sm:px-6">
+            <div ref={composerDockRef} className="mx-auto w-full max-w-[1040px]">
               <RealProjectComposer
                 value={prompt}
                 onChange={setPrompt}
                 onSubmit={() => void handleGeneratePlan()}
                 onKeyDown={handleComposerKeyDown}
-                disabled={isGenerating}
+                disabled={chatLocked}
                 isGenerating={isGenerating}
                 onCancel={() => void handleCancelGeneration()}
                 placeholder={taskContext ? "Talk to the task agent" : "Talk to the project manager"}
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
+                modelCatalog={modelCatalog}
                 attachedFiles={attachedFiles}
                 onAttachFiles={handleAttachFiles}
                 onRemoveAttachment={handleRemoveAttachment}
@@ -3161,87 +4596,364 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 contextMarkdown={contextMarkdown}
                 contextPath={contextPath}
                 contextTitle={taskContext ? `${taskContext.task.title} context` : `${activeProject.name} project context`}
+                onContextEdit={setCustomContextMarkdown}
+                taskAutomation={taskContext ? {
+                  message: taskAutomationMessage,
+                  noticeTone: taskAutomationNotice?.tone,
+                  statusLabel: currentHeaderStatus.label,
+                  statusClassName: currentHeaderStatus.className,
+                  workingLabel: isGenerating ? buildWorkingLabel(liveStatusFrame) : null,
+                  canUseStartingPrompt,
+                  autoAdvanceEnabled: autoAdvanceTasks,
+                  onUseStartingPrompt: handleUseStartingPrompt,
+                  onToggleAutoAdvance: () => setAutoAdvanceTasks((value) => !value),
+                  onAutoPrompt: () => void handleGenerateTaskPrompt(),
+                  isAutoPrompting,
+                } : undefined}
                 isDraggingFiles={isDraggingFiles}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDropFiles}
+                featureFlags={featureFlags}
               />
             </div>
           </div>
         </div>
 
         {showRightPane ? (
-          <div className="flex w-[50%] flex-shrink-0 flex-col border-l border-black/[0.06] bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] dark:border-white/[0.08]">
-            <div className="flex items-center gap-2 border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
-              <div className="flex gap-1">
+          <>
+            <div
+              role="separator"
+              aria-label="Resize preview pane"
+              aria-orientation="vertical"
+              className={`relative z-20 flex w-3 flex-shrink-0 cursor-col-resize select-none items-stretch justify-center ${isDraggingSplit ? "bg-sky-500/10" : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"}`}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setIsDraggingSplit(true);
+              }}
+            >
+              <div className={`my-3 w-[2px] rounded-full transition ${isDraggingSplit ? "bg-sky-500/70" : "bg-black/[0.15] dark:bg-white/[0.15]"}`} />
+            </div>
+            <div
+              style={{ flexBasis: `${splitRatio}%`, width: `${splitRatio}%`, minWidth: 320 }}
+              className="flex min-w-0 flex-shrink-0 flex-col overflow-hidden border-l border-black/[0.06] bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] dark:border-white/[0.08]"
+            >
+              <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
+                <div className="app-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.8rem] shadow-[0_20px_52px_rgba(20,16,10,0.08)] dark:shadow-[0_24px_60px_rgba(0,0,0,0.26)]">
+            <div className="flex items-center gap-3 border-b border-black/[0.06] px-4 py-4 dark:border-white/[0.08]">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : "Response details"}</p>
+                <p className="mt-1 truncate text-[14px] font-semibold theme-fg">{taskContext ? taskContext.task.title : activeProject.name}</p>
+              </div>
+              <div className="app-control-rail ml-auto flex gap-1 rounded-full p-1">
                 <button
                   type="button"
                   onClick={() => setRightPaneMode("preview")}
-                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "preview" ? "bg-ink/10 theme-fg dark:bg-white/[0.1]" : "theme-muted hover:theme-fg"}`}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "preview" ? "app-control-active" : "app-control-idle"}`}
                 >
                   Preview
                 </button>
                 <button
                   type="button"
                   onClick={() => setRightPaneMode("details")}
-                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "details" ? "bg-ink/10 theme-fg dark:bg-white/[0.1]" : "theme-muted hover:theme-fg"}`}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "details" ? "app-control-active" : "app-control-idle"}`}
                 >
                   Details
                 </button>
+                <button
+                  type="button"
+                  onClick={() => { setRightPaneMode("terminal"); }}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "terminal" ? "app-control-active" : "app-control-idle"}`}
+                >
+                  Terminal
+                </button>
               </div>
-              <div className="flex-1" />
-              {rightPaneMode === "preview" && previewServerStatus === "Preview server ready" ? (
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-400">Live</span>
+              {rightPaneMode === "preview" && previewReady && (previewMode === "terminal" || detectedPreviewUrl) ? (
+                <>
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-400">{previewMode === "terminal" ? (previewProcessId ? "Running" : "Done") : (previewProcessId ? "Live" : "Cached")}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFullscreen(true)}
+                    title="Fullscreen preview"
+                    className="app-control-rail flex h-8 w-8 items-center justify-center rounded-full transition"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 theme-muted">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 7V4.5A1 1 0 0 1 4.5 3.5H7M13 3.5h2.5a1 1 0 0 1 1 1V7M16.5 13v2.5a1 1 0 0 1-1 1H13M7 16.5H4.5a1 1 0 0 1-1-1V13" />
+                    </svg>
+                  </button>
+                </>
+              ) : rightPaneMode === "preview" ? (
+                <button
+                  type="button"
+                  onClick={() => setPreviewFullscreen(true)}
+                  title="Fullscreen preview"
+                  className="app-control-rail flex h-8 w-8 items-center justify-center rounded-full transition"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 theme-muted">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 7V4.5A1 1 0 0 1 4.5 3.5H7M13 3.5h2.5a1 1 0 0 1 1 1V7M16.5 13v2.5a1 1 0 0 1-1 1H13M7 16.5H4.5a1 1 0 0 1-1-1V13" />
+                  </svg>
+                </button>
               ) : null}
               <button
                 type="button"
                 onClick={handleCloseRightPane}
-                className="flex h-7 w-7 items-center justify-center rounded-full transition hover:bg-black/[0.06] dark:hover:bg-white/[0.08]"
+                className="app-control-rail flex h-8 w-8 items-center justify-center rounded-full transition"
               >
                 <span className="text-[14px] theme-muted">&times;</span>
               </button>
             </div>
 
             {rightPaneMode === "preview" ? (
-              detectedPreviewUrl && previewServerStatus === "Preview server ready" ? (
-                <div className="relative flex-1 overflow-y-auto bg-white">
-                  <iframe title="App preview" src={detectedPreviewUrl} className="h-full min-h-[540px] w-full border-0 bg-white" />
-                  <div className="absolute bottom-4 right-4 flex gap-2">
-                    <button type="button" onClick={() => { const iframe = document.querySelector('iframe[title="App preview"]') as HTMLIFrameElement | null; if (iframe) iframe.src = iframe.src; }} className="rounded-full bg-black/60 px-3 py-1.5 text-[11px] font-semibold text-white/80 shadow-[0_4px_16px_rgba(0,0,0,0.3)] backdrop-blur-sm transition hover:bg-black/80 hover:text-white dark:bg-white/10 dark:hover:bg-white/20">Refresh</button>
-                    <button type="button" onClick={() => void handleStopPreviewServer()} className="rounded-full bg-red-500/80 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_4px_16px_rgba(0,0,0,0.3)] backdrop-blur-sm transition hover:bg-red-600">Stop</button>
+              previewMode === "terminal" && previewReady ? (
+                <div className="min-h-0 flex-1 p-3">
+                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.35rem] border border-black/[0.06] bg-[#0d1117] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:border-white/[0.08]">
+                    <div className="flex items-center gap-3 border-b border-white/[0.06] bg-[#161b22] px-4 py-3">
+                      <div className="flex gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full bg-[#fb7185]" />
+                        <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+                        <span className="h-2.5 w-2.5 rounded-full bg-[#34d399]" />
+                      </div>
+                      <div className="min-w-0 flex-1 truncate text-[11px] font-medium text-white/60">
+                        {activeProject.repoPath}
+                      </div>
+                      {!previewProcessId ? (
+                        <span className="text-[10px] font-medium text-white/40">{previewServerStatus}</span>
+                      ) : null}
+                    </div>
+                    <pre className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-[1.65] text-green-300/90 selection:bg-green-600/30">
+                      {previewServerOutput || "Waiting for output...\n"}
+                    </pre>
+                    <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] bg-[#161b22] px-4 py-2.5">
+                      {previewProcessId ? (
+                        <button type="button" onClick={() => void handleStopPreviewServer()} className="rounded-full bg-red-500/20 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition hover:bg-red-500/30">Stop</button>
+                      ) : (
+                        <button type="button" onClick={() => { setPreviewExited(false); setPreviewServerOutput(""); void handleRunApp(); }} className="rounded-full bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.14]">Re-run</button>
+                      )}
+                    </div>
                   </div>
                 </div>
+              ) : detectedPreviewUrl && previewReady ? (
+                <div className="min-h-0 flex-1 p-3">
+                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.35rem] border border-black/[0.06] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:border-white/[0.08]">
+                  <div className="flex items-center gap-3 border-b border-black/[0.06] bg-[#f8fafc] px-4 py-3 dark:border-white/[0.08] dark:bg-[#171a1f]">
+                    <div className="flex gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#fb7185]" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#34d399]" />
+                    </div>
+                    <div className="min-w-0 flex-1 truncate rounded-full bg-black/[0.04] px-3 py-1 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-white/60">{detectedPreviewUrl}</div>
+                  </div>
+                  <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+                  {/* Use <webview> instead of <iframe> — Electron's webview bypasses X-Frame-Options
+                      and other iframe restrictions that dev servers impose */}
+                  <webview
+                    key={detectedPreviewUrl}
+                    src={detectedPreviewUrl}
+                    style={{ width: "100%", height: "100%", border: "none" }}
+                    ref={(el: HTMLElement | null) => {
+                      if (!el) return;
+                      // Block the webview from opening new windows (focus steal / popups)
+                      const wv = el as HTMLElement & { addEventListener: HTMLElement["addEventListener"]; getWebContentsId?: () => number };
+                      const handler = (e: Event) => { e.preventDefault(); };
+                      wv.addEventListener("new-window", handler);
+                    }}
+                  />
+                  <div className="absolute bottom-4 right-4 flex gap-2" style={{ zIndex: 10 }}>
+                    <button type="button" onClick={() => { const wv = document.querySelector('webview') as HTMLElement & { reload?: () => void } | null; if (wv?.reload) wv.reload(); }} className="rounded-full bg-black/68 px-3 py-1.5 text-[11px] font-semibold text-white/88 shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition hover:bg-black/84 hover:text-white dark:bg-white/12 dark:hover:bg-white/20">Refresh</button>
+                    <button type="button" onClick={() => void handleStopPreviewServer()} className="rounded-full bg-red-500/84 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-sm transition hover:bg-red-600">Stop</button>
+                  </div>
+                </div>
+                </div>
+                </div>
               ) : (
-                <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 text-center">
-                  <GlobeIcon className="h-12 w-12 theme-muted opacity-30" />
-                  <div>
+                <div className="flex flex-1 flex-col overflow-hidden p-4">
+                  <div className="app-surface-soft flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-hidden rounded-[1.45rem] px-8 text-center">
+                  <GlobeIcon className="h-12 w-12 flex-shrink-0 theme-muted opacity-30" />
+                  <div className="flex-shrink-0">
                     <p className="text-[16px] font-semibold theme-fg">Your app will be previewed here</p>
                     <p className="mt-2 text-[13px] theme-muted">Start a local dev server to see your app running live.</p>
                   </div>
-                  {pendingPreviewLaunch ? (
-                    <p className="animate-pulse text-[13px] font-medium theme-muted">Starting server...</p>
-                  ) : previewProcessId ? (
-                    <div className="flex flex-col items-center gap-3">
-                      <p className="animate-pulse text-[13px] font-medium theme-muted">{previewServerStatus}</p>
-                      <button type="button" onClick={() => void handleStopPreviewServer()} className="rounded-full bg-red-500/20 px-5 py-2.5 text-[13px] font-semibold text-red-600 transition hover:bg-red-500/30 dark:text-red-400">Stop Server</button>
+                  {pendingPreviewLaunch || previewProcessId ? (
+                    <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden">
+                      <p className="flex-shrink-0 animate-pulse text-[13px] font-medium theme-muted">{previewServerStatus}</p>
+                      {previewServerOutput ? (
+                        <pre className="min-h-0 w-full flex-1 overflow-auto rounded-[1rem] bg-black/5 p-3 text-left text-[11px] leading-relaxed theme-muted dark:bg-white/5">{previewServerOutput.slice(-3000)}</pre>
+                      ) : null}
+                      <button type="button" onClick={() => void handleStopPreviewServer()} className="flex-shrink-0 rounded-full bg-red-500/16 px-5 py-2.5 text-[13px] font-semibold text-red-600 transition hover:bg-red-500/24 dark:text-red-400">Stop</button>
+                    </div>
+                  ) : previewExited && previewServerOutput ? (
+                    <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden">
+                      <p className="flex-shrink-0 text-[13px] font-medium text-red-500">{previewServerStatus}</p>
+                      <pre className="min-h-0 w-full flex-1 overflow-auto rounded-[1rem] bg-red-500/5 p-3 text-left text-[11px] leading-relaxed theme-muted dark:bg-red-500/10">{previewServerOutput.slice(-3000)}</pre>
+                      <button type="button" onClick={() => { setPreviewExited(false); setPreviewServerOutput(""); void handleRunApp(); }} className="flex-shrink-0 rounded-full bg-[#111827] px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(17,24,39,0.18)] transition hover:-translate-y-[1px] hover:bg-[#0b1220] hover:shadow-[0_14px_30px_rgba(17,24,39,0.24)]">Retry</button>
                     </div>
                   ) : (
-                    <button type="button" onClick={() => void handleRunApp()} className="rounded-full bg-[linear-gradient(135deg,#2563eb,#7c3aed)] px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] transition hover:-translate-y-[1px] hover:shadow-[0_12px_28px_rgba(37,99,235,0.4)]">Run App</button>
+                    <button type="button" onClick={() => void handleRunApp()} className="rounded-full bg-[#111827] px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(17,24,39,0.18)] transition hover:-translate-y-[1px] hover:bg-[#0b1220] hover:shadow-[0_14px_30px_rgba(17,24,39,0.24)]">Run App</button>
                   )}
                 </div>
+                </div>
               )
+            ) : rightPaneMode === "terminal" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.35rem] border border-black/[0.06] bg-[#0d1117] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:border-white/[0.08]">
+                  <div className="flex items-center gap-3 border-b border-white/[0.06] bg-[#161b22] px-4 py-3">
+                    <div className="flex gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#fb7185]" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#34d399]" />
+                    </div>
+                    <div className="min-w-0 flex-1 truncate text-[11px] font-medium text-white/60">
+                      {activeProject.repoPath}
+                    </div>
+                    {terminalProcessId ? (
+                      <button
+                        type="button"
+                        onClick={handleStopTerminalProcess}
+                        className="rounded-full bg-red-500/20 px-2.5 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/30"
+                      >
+                        Stop
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setTerminalOutput("")}
+                      className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold text-white/50 transition hover:bg-white/[0.1] hover:text-white/70"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <pre
+                    ref={terminalOutputRef}
+                    className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-[1.65] text-green-300/90 selection:bg-green-600/30"
+                  >
+                    {terminalOutput || "Run commands in your project directory.\nType a command below and press Enter.\n\n"}
+                  </pre>
+                  <div className="flex items-center gap-2 border-t border-white/[0.06] bg-[#161b22] px-4 py-2.5">
+                    <span className="text-[12px] font-bold text-green-400/70">$</span>
+                    <input
+                      value={terminalCommand}
+                      onChange={(e) => setTerminalCommand(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleRunTerminalCommand();
+                        }
+                      }}
+                      placeholder="Enter a command..."
+                      className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-white/90 outline-none placeholder:text-white/25"
+                    />
+                  </div>
+                </div>
+              </div>
             ) : (
-              <div className="flex-1 overflow-y-auto custom-scroll px-6 py-5">
+              <div className="flex-1 overflow-y-auto custom-scroll px-5 py-4">
                 {rightPaneResponseText ? (
-                  <div className="space-y-3 text-[14px] leading-[1.7] theme-fg">{renderChatMessageBody(rightPaneResponseText, "assistant")}</div>
+                  <div className="app-surface-soft space-y-3 rounded-[1.45rem] px-5 py-4 text-[14px] leading-[1.7] theme-fg">{renderChatMessageBody(rightPaneResponseText, "assistant")}</div>
                 ) : (
                   <p className="text-[13px] theme-muted">Click &ldquo;Details&rdquo; on any AI response to see the full text here.</p>
                 )}
               </div>
             )}
+                </div>
+              </div>
           </div>
+          </>
         ) : null}
       </div>
+
+      {/* Fullscreen preview overlay */}
+      {previewFullscreen ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#0d1117]">
+          <div className="flex items-center gap-3 border-b border-white/[0.08] bg-[#161b22] px-5 py-3">
+            <div className="flex gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#fb7185]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#34d399]" />
+            </div>
+            {previewMode === "terminal" ? (
+              <div className="min-w-0 flex-1 truncate text-[12px] font-medium text-white/60">
+                {activeProject.repoPath} — Terminal Preview
+              </div>
+            ) : (
+              <div className="min-w-0 flex-1 truncate rounded-full bg-white/[0.06] px-3 py-1 text-[12px] text-white/60">
+                {detectedPreviewUrl || "No preview URL"}
+              </div>
+            )}
+            {previewProcessId ? (
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-400">{previewMode === "terminal" ? "Running" : "Live"}</span>
+            ) : null}
+            {previewMode !== "terminal" ? (
+              <button
+                type="button"
+                onClick={() => { const wv = document.querySelector('.fullscreen-preview-webview') as HTMLElement & { reload?: () => void } | null; if (wv?.reload) wv.reload(); }}
+                className="rounded-full bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.14] hover:text-white"
+              >
+                Refresh
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setPreviewFullscreen(false)}
+              title="Exit fullscreen"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] transition hover:bg-white/[0.14]"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 text-white/70">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 3.5v2.5a1 1 0 0 1-1 1H3.5M16.5 7h-2.5a1 1 0 0 1-1-1V3.5M13 16.5v-2.5a1 1 0 0 1 1-1h2.5M3.5 13H6a1 1 0 0 1 1 1v2.5" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleStopPreviewServer()}
+              className="rounded-full bg-red-500/20 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition hover:bg-red-500/30"
+            >
+              Stop
+            </button>
+          </div>
+          <div className="relative min-h-0 flex-1 bg-white">
+            {previewMode === "terminal" ? (
+              <div className="flex h-full flex-col bg-[#0d1117]">
+                <pre className="min-h-0 flex-1 overflow-auto px-6 py-4 font-mono text-[13px] leading-[1.7] text-green-300/90 selection:bg-green-600/30">
+                  {previewServerOutput || "Waiting for output...\n"}
+                </pre>
+                <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] bg-[#161b22] px-5 py-2.5">
+                  {previewProcessId ? (
+                    <button type="button" onClick={() => void handleStopPreviewServer()} className="rounded-full bg-red-500/20 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition hover:bg-red-500/30">Stop</button>
+                  ) : (
+                    <button type="button" onClick={() => { setPreviewExited(false); setPreviewServerOutput(""); void handleRunApp(); }} className="rounded-full bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.14]">Re-run</button>
+                  )}
+                </div>
+              </div>
+            ) : detectedPreviewUrl && previewReady ? (
+              <webview
+                key={`fs-${detectedPreviewUrl}`}
+                src={detectedPreviewUrl}
+                className="fullscreen-preview-webview"
+                style={{ width: "100%", height: "100%", border: "none" }}
+                ref={(el: HTMLElement | null) => {
+                  if (!el) return;
+                  const wv = el as HTMLElement & { addEventListener: HTMLElement["addEventListener"] };
+                  const handler = (e: Event) => { e.preventDefault(); };
+                  wv.addEventListener("new-window", handler);
+                }}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center bg-[#0d1117]">
+                <div className="text-center">
+                  <GlobeIcon className="mx-auto h-12 w-12 text-white/20" />
+                  <p className="mt-4 text-[14px] font-medium text-white/60">{pendingPreviewLaunch || previewProcessId ? previewServerStatus : previewExited ? previewServerStatus : "No preview running"}</p>
+                  {previewServerOutput ? (
+                    <pre className={`mx-auto mt-4 max-h-64 max-w-xl overflow-auto rounded-xl p-4 text-left text-[11px] leading-relaxed ${previewExited ? "bg-red-500/10 text-red-300/70" : "bg-white/[0.04] text-white/50"}`}>{previewServerOutput.slice(-3000)}</pre>
+                  ) : null}
+                  {!pendingPreviewLaunch && !previewProcessId ? (
+                    <button type="button" onClick={() => { if (previewExited) { setPreviewExited(false); setPreviewServerOutput(""); } void handleRunApp(); }} className="mt-6 rounded-full bg-white/12 px-5 py-2.5 text-[13px] font-semibold text-white shadow transition hover:bg-white/18">{previewExited ? "Retry" : "Run App"}</button>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3253,24 +4965,28 @@ function RealProjectChatBubble({
   message: RealProjectConversationMessage;
   actions?: ReactNode;
 }) {
-  if (message.isMine) {
+  // Peer user messages should show as left-aligned (not "mine") on the receiving machine
+  const isEffectivelyMine = message.isMine && !(message as any).fromPeer;
+
+  if (isEffectivelyMine) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[78%] xl:max-w-[74%]">
-          <div className="mb-1.5 flex justify-end">
-            <p className="text-[11px] font-medium theme-muted">{message.from}</p>
+          <div className="mb-2 flex items-center justify-end gap-2">
+            <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted dark:bg-white/[0.06]">You</span>
+            <p className="text-[11px] font-medium theme-muted">{message.time}</p>
           </div>
-          <div className="rounded-[1.65rem] rounded-br-md border border-black/[0.08] bg-[#2d2b29] px-5 py-3 text-white shadow-[0_12px_28px_rgba(32,24,18,0.16)] dark:border-white/[0.08] dark:bg-[#25272b] dark:shadow-[0_16px_36px_rgba(0,0,0,0.28)]">
+          <div className="rounded-[1.75rem] rounded-br-[0.65rem] border border-slate-900/10 bg-[linear-gradient(135deg,#1e293b,#0f172a)] px-5 py-4 text-white shadow-[0_18px_34px_rgba(15,23,42,0.18)] dark:border-white/[0.08] dark:shadow-[0_22px_42px_rgba(0,0,0,0.3)]">
             {message.attachments?.length ? (
               <div className="mb-3 flex flex-wrap gap-2">
                 {message.attachments.map((attachment) => (
-                  <span key={attachment} className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white/78">
+                  <span key={attachment} className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white/78 backdrop-blur-sm">
                     {attachment.split(/[/\\]/).pop() || attachment}
                   </span>
                 ))}
               </div>
             ) : null}
-            <div className="space-y-3 text-[14px] leading-[1.55] text-white/96">{renderChatMessageBody(message.text, "user")}</div>
+            <div className="space-y-3 text-[14px] leading-[1.65] text-white/96">{renderChatMessageBody(message.text, "user")}</div>
           </div>
           {actions}
         </div>
@@ -3278,18 +4994,35 @@ function RealProjectChatBubble({
     );
   }
 
+  const isPeerMessage = (message as any).fromPeer;
+  const peerDisplayName = isPeerMessage ? ((message as any).peerName || "Peer") : null;
+  const avatarBg = isPeerMessage && !message.isAI ? "bg-cyan-600" : "bg-[#1f2937]";
+  const avatarText = isPeerMessage && !message.isAI
+    ? (peerDisplayName || "P").slice(0, 2).toUpperCase()
+    : "✦";
+
   return (
     <div className="flex items-start gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5d8bff,#7c5cfc)] text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(93,139,255,0.24)]">
-        ✦
+      <div className="avatar-ring shrink-0">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-full ${avatarBg} text-[11px] font-bold text-white dark:${isPeerMessage ? avatarBg : "bg-[#f2efe8] dark:text-[#17181b]"}`}>
+          {avatarText}
+        </div>
       </div>
-      <div className="max-w-[82%] xl:max-w-[76%]">
+      <div className="max-w-[84%] xl:max-w-[78%]">
         <div className="mb-1.5 flex items-center gap-2">
-          <p className="text-[11px] font-medium theme-fg">{message.from}</p>
+          <p className="text-[11px] font-medium theme-fg">{isPeerMessage && !message.isAI ? peerDisplayName : message.from}</p>
+          {isPeerMessage && (
+            <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-600 dark:text-cyan-400">
+              {message.isAI ? `via ${peerDisplayName}` : "Peer"}
+            </span>
+          )}
           <span className="text-[11px] theme-muted">{message.time}</span>
         </div>
-        <div className="rounded-[1.15rem] px-0 py-0 theme-fg">
-          <div className="space-y-3">{renderChatMessageBody(message.text, "assistant")}</div>
+        <div className="app-surface rounded-[1.6rem] rounded-tl-[0.7rem] px-5 py-4 shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_20px_44px_rgba(0,0,0,0.22)]">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted dark:bg-white/[0.06]">{message.isAI ? "Assistant" : peerDisplayName || message.from}</span>
+          </div>
+          <div className="space-y-3 theme-fg">{renderChatMessageBody(message.text, message.isAI ? "assistant" : "user")}</div>
         </div>
         {actions ? <div className="mt-2">{actions}</div> : null}
       </div>
@@ -3308,6 +5041,7 @@ function RealProjectComposer({
   placeholder,
   selectedModel,
   onModelChange,
+  modelCatalog = copilotModelCatalog,
   attachedFiles,
   onAttachFiles,
   onRemoveAttachment,
@@ -3315,10 +5049,13 @@ function RealProjectComposer({
   contextMarkdown,
   contextPath,
   contextTitle,
+  onContextEdit,
+  taskAutomation,
   isDraggingFiles,
   onDragOver,
   onDragLeave,
   onDrop,
+  featureFlags,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -3330,6 +5067,7 @@ function RealProjectComposer({
   placeholder: string;
   selectedModel: string;
   onModelChange: (model: string) => void;
+  modelCatalog?: ModelCatalogEntry[];
   attachedFiles: ComposerAttachment[];
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
@@ -3337,27 +5075,59 @@ function RealProjectComposer({
   contextMarkdown: string;
   contextPath: string;
   contextTitle: string;
+  onContextEdit?: (newContext: string) => void;
+  taskAutomation?: {
+    message: string;
+    noticeTone?: "info" | "success";
+    statusLabel?: string;
+    statusClassName?: string;
+    workingLabel?: string | null;
+    canUseStartingPrompt: boolean;
+    autoAdvanceEnabled: boolean;
+    onUseStartingPrompt: () => void;
+    onToggleAutoAdvance: () => void;
+    onAutoPrompt: () => void;
+    isAutoPrompting: boolean;
+  };
   isDraggingFiles: boolean;
   onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  featureFlags?: { githubCopilotCli?: boolean; claudeCode?: boolean };
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const contextPanelRef = useRef<HTMLDivElement | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showContextPanel, setShowContextPanel] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [modelMenuPos, setModelMenuPos] = useState<{ left: number; bottom: number } | null>(null);
+  const [editingContext, setEditingContext] = useState(false);
+  const [editedContext, setEditedContext] = useState("");
+  const [chatMode, setChatMode] = useState<"agent" | "ask" | "plan">("agent");
 
-  const selectedModelMeta = getModelCatalogEntry(selectedModel);
+  const hasBothProviders = !!featureFlags?.githubCopilotCli && !!featureFlags?.claudeCode;
+  const [providerTab, setProviderTab] = useState<"claude" | "copilot">(() => {
+    // Default to whichever provider the current model belongs to
+    if (claudeModelCatalog.some((m) => m.id === selectedModel)) return "claude";
+    return "copilot";
+  });
+
+  const selectedModelMeta = getModelCatalogEntry(selectedModel, modelCatalog);
   const estimatedTokens = estimateTokens([contextMarkdown, value].filter(Boolean).join("\n"));
   const maxTokens = selectedModelMeta.maxTokens;
   const tokenPercent = Math.min(100, Math.round((estimatedTokens / maxTokens) * 100));
   const tokenLabel = `${formatTokenCount(estimatedTokens)} / ${selectedModelMeta.contextWindow}`;
-  const filteredModels = copilotModelCatalog.filter((entry) => {
+  const contextPreview = contextMarkdown.trim().split(/\r?\n/).slice(0, 14).join("\n");
+  const filteredModels = modelCatalog.filter((entry) => {
     const haystack = `${entry.label} ${entry.provider} ${entry.id}`.toLowerCase();
-    return haystack.includes(modelSearch.trim().toLowerCase());
+    const matchesSearch = haystack.includes(modelSearch.trim().toLowerCase());
+    if (!hasBothProviders || !matchesSearch) return matchesSearch;
+    // When both providers active, also filter by provider tab
+    if (providerTab === "claude") return matchesSearch && claudeModelCatalog.some((m) => m.id === entry.id);
+    return matchesSearch && copilotModelCatalog.some((m) => m.id === entry.id);
   });
 
   useEffect(() => {
@@ -3382,7 +5152,7 @@ function RealProjectComposer({
     const handlePointerDown = (event: MouseEvent | globalThis.MouseEvent) => {
       const target = event.target as Node;
 
-      if (modelMenuRef.current?.contains(target) || contextPanelRef.current?.contains(target)) {
+      if (modelMenuRef.current?.contains(target) || contextPanelRef.current?.contains(target) || modelButtonRef.current?.contains(target)) {
         return;
       }
 
@@ -3396,11 +5166,17 @@ function RealProjectComposer({
 
   return (
     <div
-      className={`app-surface-strong rounded-[1.7rem] shadow-[0_18px_48px_rgba(0,0,0,0.08)] transition dark:shadow-[0_22px_48px_rgba(0,0,0,0.28)] ${isDraggingFiles ? "ring-2 ring-sky-400/60" : ""}`}
+      className={`relative overflow-hidden rounded-2xl bg-[rgba(245,241,234,0.7)] backdrop-blur-xl transition dark:bg-[rgba(28,30,36,0.6)] ${isDraggingFiles ? "ring-2 ring-sky-400/60" : ""}`}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {isDraggingFiles ? (
+        <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.5rem] border border-sky-400/35 bg-sky-500/10 text-[13px] font-semibold text-sky-700 backdrop-blur-sm dark:text-sky-200">
+          Drop files to attach them to this prompt
+        </div>
+      ) : null}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -3412,195 +5188,332 @@ function RealProjectComposer({
         className="hidden"
       />
 
-      <div className="p-3">
-        <div className="relative rounded-[1.25rem] bg-white/52 px-4 py-3 dark:bg-white/[0.03]">
+      <div className="px-3 pb-3 pt-3">
+        <div className="relative">
           {showContextPanel ? (
-            <div ref={contextPanelRef} className="mb-3 overflow-hidden rounded-lg border border-black/[0.08] bg-[#1e1f25] text-white shadow-[0_8px_24px_rgba(0,0,0,0.24)]">
-              <div className="flex items-center justify-between border-b border-white/[0.08] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-semibold text-white/90">Context Window</p>
-                  <p className="text-[10px] text-white/50">{tokenLabel} • {tokenPercent}%</p>
+            <div ref={contextPanelRef} className="app-surface mb-3 overflow-hidden rounded-[1.3rem] shadow-[0_18px_42px_rgba(18,14,10,0.12)] dark:shadow-[0_20px_48px_rgba(0,0,0,0.28)]">
+              <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold theme-fg">Context</p>
+                  <p className="truncate text-[10px] theme-muted">{contextTitle}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowContextPanel(false)}
-                  className="rounded p-1 text-white/50 transition hover:bg-white/[0.08] hover:text-white"
+                  className="app-control-rail rounded-full p-1.5 transition"
                 >
                   <CloseSmallIcon />
                 </button>
               </div>
-              <div className="relative h-1 bg-white/[0.08]">
+              <div className="relative h-1 bg-black/[0.06] dark:bg-white/[0.08]">
                 <div className="absolute inset-y-0 left-0 bg-[#0078d4] transition-all" style={{ width: `${tokenPercent}%` }} />
               </div>
-              <div className="px-3 py-2 text-[11px]">
-                <div className="mb-1.5 font-semibold text-white/70">System</div>
-                <div className="mb-1 flex justify-between text-white/55"><span className="pl-2">System Instructions</span><span>{contextMarkdown ? `${Math.round((estimateTokens(contextMarkdown) / maxTokens) * 100)}%` : "0%"}</span></div>
-                <div className="mb-1 flex justify-between text-white/55"><span className="pl-2">Reserved Output</span><span>~25%</span></div>
-                <div className="mb-1.5 mt-2.5 font-semibold text-white/70">User Context</div>
-                <div className="mb-1 flex justify-between text-white/55"><span className="pl-2">Messages</span><span>{value ? `${Math.round((estimateTokens(value) / maxTokens) * 100)}%` : "0%"}</span></div>
-                <div className="mb-1 flex justify-between text-white/55"><span className="pl-2">Files</span><span>{attachedFiles.length > 0 ? `${attachedFiles.length} attached` : "0%"}</span></div>
+              <div className="grid gap-3 px-4 py-3 text-[11px]">
+                <div className="rounded-[1rem] bg-black/[0.03] px-3 py-3 dark:bg-white/[0.04]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold theme-fg">Source</p>
+                    <p className="text-[10px] theme-muted">{tokenLabel}</p>
+                  </div>
+                  {contextPath ? <p className="mt-1.5 break-all text-[10px] leading-relaxed theme-muted">{contextPath}</p> : null}
+                </div>
+                <div className="rounded-[1rem] bg-black/[0.03] px-3 py-3 dark:bg-white/[0.04]">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold theme-fg">Preview</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[10px] theme-muted">{tokenPercent}% of window</p>
+                      {!editingContext ? (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingContext(true); setEditedContext(contextMarkdown); }}
+                          className="rounded-lg bg-violet-500/10 px-2 py-1 text-[10px] font-semibold text-violet-400 transition hover:bg-violet-500/20"
+                        >
+                          Edit
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingContext(false)}
+                            className="rounded-lg bg-black/[0.04] px-2 py-1 text-[10px] font-semibold theme-muted transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onContextEdit) onContextEdit(editedContext);
+                              setEditingContext(false);
+                            }}
+                            className="rounded-lg bg-[#0078d4] px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-[#006cbf]"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {editingContext ? (
+                    <textarea
+                      value={editedContext}
+                      onChange={(e) => setEditedContext(e.target.value)}
+                      className="custom-scroll w-full min-h-[180px] max-h-[320px] resize-y overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/[0.03] p-2 font-mono text-[10.5px] leading-6 theme-soft outline-none ring-1 ring-violet-500/30 focus:ring-violet-500/50 dark:bg-white/[0.03]"
+                    />
+                  ) : (
+                    <pre className="custom-scroll max-h-[180px] overflow-y-auto whitespace-pre-wrap text-[10.5px] leading-6 theme-soft">{contextPreview || "No context loaded yet."}</pre>
+                  )}
+                </div>
               </div>
             </div>
           ) : null}
 
-          <div className="flex items-end gap-3">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-ink/70 transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.12]"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-              </svg>
-            </button>
-
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              onKeyDown={onKeyDown}
-              rows={1}
-              placeholder={placeholder}
-              className="min-h-[1.5rem] flex-1 resize-none overflow-y-hidden bg-transparent text-[16px] leading-[1.5] text-ink placeholder:text-ink-muted/45 outline-none dark:text-[var(--fg)] dark:placeholder:text-[var(--muted)]"
-            />
-
-            {isGenerating ? (
+          <div className="rounded-[1.45rem] border border-black/[0.06] bg-[rgba(255,255,255,0.56)] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:border-white/[0.08] dark:bg-[rgba(255,255,255,0.03)]">
+            <div className="flex items-start gap-2.5">
               <button
                 type="button"
-                onClick={onCancel}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 transition hover:bg-red-500/25 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30"
-                title="Stop generating"
+                onClick={() => fileInputRef.current?.click()}
+                className="app-control-rail flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  <rect x="5" y="5" width="10" height="10" rx="1.5" />
+                  <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
                 </svg>
               </button>
-            ) : (
-              <button
-                type="button"
-                disabled={disabled || !value.trim()}
-                onClick={onSubmit}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/[0.08] text-ink transition hover:bg-black/[0.12] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white/[0.1] dark:text-white dark:hover:bg-white/[0.14]"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
-                </svg>
-              </button>
-            )}
+
+              <div className="min-w-0 flex-1">
+                <textarea
+                  ref={textareaRef}
+                  value={value}
+                  onChange={(event) => onChange(event.target.value)}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                  placeholder={placeholder}
+                  className="min-h-[3rem] w-full resize-none overflow-y-hidden bg-transparent text-[15px] leading-[1.68] text-ink placeholder:text-ink-muted/45 outline-none dark:text-[var(--fg)] dark:placeholder:text-[var(--muted)]"
+                />
+
+                {attachedFiles.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {attachedFiles.map((attachment) => (
+                      <span key={attachment.id} className="inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-3 py-1.5 text-[11px] font-medium theme-fg dark:bg-white/[0.07]">
+                        <span>{attachment.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveAttachment(attachment.id)}
+                          className="rounded-full text-ink-muted transition hover:text-ink dark:hover:text-white"
+                        >
+                          <CloseSmallIcon className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              {isGenerating ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 transition hover:bg-red-500/25 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30"
+                  title="Stop generating"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                    <rect x="5" y="5" width="10" height="10" rx="1.5" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={disabled || !value.trim()}
+                  onClick={onSubmit}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111827] text-white transition hover:bg-[#0b1220] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                    <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
 
-          {attachedFiles.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {attachedFiles.map((attachment) => (
-                <span key={attachment.id} className="inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-3 py-1.5 text-[11px] font-medium theme-fg dark:bg-white/[0.07]">
-                  <span>{attachment.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveAttachment(attachment.id)}
-                    className="rounded-full text-ink-muted transition hover:text-ink dark:hover:text-white"
-                  >
-                    <CloseSmallIcon className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
                   setShowContextPanel((value) => !value);
                   setShowModelMenu(false);
                 }}
-                className="group flex items-center gap-1.5 rounded-full bg-black/[0.04] px-2 py-1 transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                className="app-control-rail group inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold transition"
+                title={contextTitle}
               >
-                <svg width="18" height="18" viewBox="0 0 18 18" className="-rotate-90">
-                  <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2" className="text-black/[0.08] dark:text-white/[0.1]" />
-                  <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={`${2 * Math.PI * 7}`} strokeDashoffset={`${2 * Math.PI * 7 * (1 - tokenPercent / 100)}`} strokeLinecap="round" className="text-[#0078d4] transition-all" />
-                </svg>
-                <span className="text-[10px] font-medium theme-muted group-hover:theme-fg">{tokenPercent}%</span>
+                <FileCodeIcon className="h-3.5 w-3.5 theme-muted group-hover:theme-fg" />
+                <span className="theme-fg">Context</span>
+                <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[10px] theme-muted dark:bg-white/[0.06]">{tokenPercent}%</span>
               </button>
 
-              <div ref={modelMenuRef} className="relative">
+              {/* Mode toggle — Agent / Ask / Plan */}
+              <div className="inline-flex items-center rounded-full bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                {(["agent", "ask", "plan"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setChatMode(mode)}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize transition ${chatMode === mode ? "bg-white text-ink shadow-sm dark:bg-[#2a2a2a] dark:text-[var(--fg)]" : "text-ink-muted/60 hover:text-ink dark:text-[var(--muted)] dark:hover:text-[var(--fg)]"}`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
                 <button
+                  ref={modelButtonRef}
                   type="button"
                   onClick={() => {
+                    if (!showModelMenu && modelButtonRef.current) {
+                      const rect = modelButtonRef.current.getBoundingClientRect();
+                      setModelMenuPos({ left: rect.left, bottom: window.innerHeight - rect.top + 6 });
+                    }
                     setShowModelMenu((value) => !value);
+                    setModelSearch("");
                     setShowContextPanel(false);
                   }}
-                  className="inline-flex items-center gap-2 rounded-full bg-black/[0.04] px-3 py-1.5 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                  className="app-control-rail inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold theme-fg transition"
                 >
                   <span>{selectedModelMeta.label}</span>
                   <ChevronDownIcon className={`h-3.5 w-3.5 transition ${showModelMenu ? "rotate-180" : ""}`} />
                 </button>
+              </div>
 
-                {showModelMenu ? (
-                  <div className="absolute bottom-9 left-0 z-30 max-h-[340px] w-[260px] overflow-hidden rounded-lg border border-black/[0.08] bg-[rgba(255,255,255,0.98)] shadow-[0_8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[#1e1f25]/98 dark:shadow-[0_8px_24px_rgba(0,0,0,0.36)]">
-                    <div className="flex items-center gap-2 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
-                      <SearchIcon className="h-3 w-3 theme-muted" />
-                      <input
-                        value={modelSearch}
-                        onChange={(event) => setModelSearch(event.target.value)}
-                        placeholder="Search models"
-                        className="w-full bg-transparent text-[11px] theme-fg outline-none placeholder:theme-muted"
-                      />
+              {showModelMenu && modelMenuPos ? createPortal(
+                <div
+                  ref={modelMenuRef}
+                  className="fixed z-[9999] max-h-[min(420px,70vh)] w-[300px] overflow-hidden rounded-[1.2rem] border border-black/[0.08] bg-[rgba(255,255,255,0.98)] shadow-[0_20px_44px_rgba(0,0,0,0.14)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[#1e1f25]/98 dark:shadow-[0_20px_44px_rgba(0,0,0,0.4)]"
+                  style={{ left: modelMenuPos.left, bottom: modelMenuPos.bottom }}
+                >
+                  <div className="flex items-center gap-2 border-b border-black/[0.06] px-2.5 py-2 dark:border-white/[0.08]">
+                    <SearchIcon className="h-3.5 w-3.5 theme-muted" />
+                    <input
+                      value={modelSearch}
+                      onChange={(event) => setModelSearch(event.target.value)}
+                      placeholder="Search models"
+                      autoFocus
+                      className="w-full bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted"
+                    />
+                  </div>
+                  {hasBothProviders ? (
+                    <div className="flex gap-1 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
+                      {(["claude", "copilot"] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setProviderTab(tab)}
+                          className={`rounded-full px-3 py-1 text-[10px] font-semibold transition ${providerTab === tab ? "bg-[#0078d4] text-white" : "theme-muted hover:theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                        >
+                          {tab === "claude" ? "Claude Code" : "GitHub Copilot"}
+                        </button>
+                      ))}
                     </div>
-
-                    <div className="custom-scroll max-h-[296px] overflow-y-auto py-1">
+                  ) : null}
+                  <div className={`custom-scroll overflow-y-auto pb-3 pt-1 ${hasBothProviders ? "max-h-[min(330px,calc(70vh-90px))]" : "max-h-[min(370px,calc(70vh-50px))]"}`}>
                     {(["featured", "other"] as const).map((group) => {
                       const groupModels = filteredModels.filter((entry) => entry.group === group);
-                      if (groupModels.length === 0) {
-                        return null;
-                      }
-
+                      if (groupModels.length === 0) return null;
                       return (
                         <div key={group} className="mb-0.5 last:mb-0">
-                          <p className="px-2.5 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted">
+                          <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted">
                             {group === "featured" ? "Recommended" : "Other models"}
                           </p>
                           {groupModels.map((entry) => {
-                              const isSelected = entry.id === selectedModel;
-
-                              return (
-                                <button
-                                  key={entry.id}
-                                  type="button"
-                                  onClick={() => {
-                                    onModelChange(entry.id);
-                                    setShowModelMenu(false);
-                                  }}
-                                  className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left transition ${isSelected ? "bg-[#0078d4] text-white" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
-                                >
-                                  <div className="min-w-0">
-                                    <span className="text-[11px] font-medium">{entry.label}</span>
-                                    {entry.warning ? <span className={`ml-1.5 text-[10px] ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.warning}</span> : null}
+                            const isSelected = entry.id === selectedModel;
+                            return (
+                              <button
+                                key={entry.id}
+                                type="button"
+                                onClick={() => { onModelChange(entry.id); setShowModelMenu(false); setModelSearch(""); }}
+                                className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition ${isSelected ? "bg-[#0078d4] text-white" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11.5px] font-medium">{entry.label}</span>
+                                    {entry.warning ? <span className={`text-[10px] ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.warning}</span> : null}
                                   </div>
-                                  <div className="flex shrink-0 items-center gap-2">
-                                    <span className={`text-[10px] ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.usage}</span>
+                                  <div className={`mt-0.5 flex items-center gap-2 text-[10px] ${isSelected ? "text-white/72" : "theme-muted"}`}>
+                                    <span>{entry.provider}</span>
+                                    <span>{entry.contextWindow}</span>
                                   </div>
-                                </button>
-                              );
-                            })}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <span className={`text-[10px] font-medium ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.usage}</span>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       );
                     })}
-                    </div>
                   </div>
-                ) : null}
-              </div>
+                </div>,
+                document.body
+              ) : null}
 
               <button
                 type="button"
                 onClick={onOpenUsagePage}
-                className="rounded-full bg-black/[0.04] px-3 py-1.5 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                className="app-control-rail rounded-full px-3 py-1.5 text-[11px] font-semibold theme-fg transition"
               >
                 Usage
               </button>
+
+              {taskAutomation ? (
+                <>
+                  <span className="mx-0.5 h-3 w-px bg-black/[0.1] dark:bg-white/[0.12]" />
+                  {taskAutomation.canUseStartingPrompt ? (
+                    <button
+                      type="button"
+                      onClick={taskAutomation.onUseStartingPrompt}
+                      className="app-control-rail rounded-full px-3 py-1.5 text-[11px] font-semibold theme-fg transition"
+                    >
+                      Kickoff
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={taskAutomation.onAutoPrompt}
+                    disabled={taskAutomation.isAutoPrompting || disabled}
+                    className={`relative inline-flex items-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-100 ${taskAutomation.isAutoPrompting ? "app-auto-prompt-loading text-white" : taskAutomation.autoAdvanceEnabled ? "bg-[#111827] text-white shadow-[0_10px_24px_rgba(17,24,39,0.16)]" : "bg-black/[0.06] theme-fg hover:bg-black/[0.1] dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"}`}
+                    title={taskAutomation.autoAdvanceEnabled ? "Auto + Flow: generates prompts and auto-advances to the next task when done" : "Generate the next best prompt for this task"}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path d="M8 1a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 1ZM5.03 2.97a.75.75 0 0 1 0 1.06L3.56 5.5a.75.75 0 0 1-1.06-1.06l1.47-1.47a.75.75 0 0 1 1.06 0Zm5.94 0a.75.75 0 0 1 1.06 0l1.47 1.47a.75.75 0 0 1-1.06 1.06L10.97 4.03a.75.75 0 0 1 0-1.06ZM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM1 8a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5A.75.75 0 0 1 1 8Zm10 0a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5A.75.75 0 0 1 11 8Zm-5.97 2.97a.75.75 0 0 1 0 1.06l-1.47 1.47a.75.75 0 0 1-1.06-1.06l1.47-1.47a.75.75 0 0 1 1.06 0Zm5.94 0a.75.75 0 0 1 1.06 0l1.47 1.47a.75.75 0 0 1-1.06 1.06l-1.47-1.47a.75.75 0 0 1 0-1.06ZM8 11a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 11Z" /></svg>
+                    {taskAutomation.isAutoPrompting ? (
+                      <>
+                        <span>Generating</span>
+                        <span className="flex items-center gap-[3px]">
+                          <span className="app-auto-prompt-dot" />
+                          <span className="app-auto-prompt-dot" style={{ animationDelay: "0.16s" }} />
+                          <span className="app-auto-prompt-dot" style={{ animationDelay: "0.32s" }} />
+                        </span>
+                      </>
+                    ) : taskAutomation.autoAdvanceEnabled ? (
+                      <span className="flex items-center gap-1.5">
+                        <span>Auto</span>
+                        <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">Flow</span>
+                      </span>
+                    ) : "Auto"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={taskAutomation.onToggleAutoAdvance}
+                    className={`rounded-full px-2 py-1.5 text-[10px] font-semibold transition ${taskAutomation.autoAdvanceEnabled ? "text-white/60 hover:text-white/90" : "app-control-rail theme-muted hover:theme-fg"}`}
+                    title={taskAutomation.autoAdvanceEnabled ? "Flow is on — Auto will advance to the next task when done. Click to disable." : "Enable Flow — Auto will advance to the next task when done."}
+                  >
+                    {taskAutomation.autoAdvanceEnabled ? "●" : "○"}
+                  </button>
+                </>
+              ) : null}
             </div>
 
-{attachedFiles.length > 0 ? <p className="text-[10px] theme-muted">{attachedFiles.length} file{attachedFiles.length === 1 ? "" : "s"} attached</p> : null}
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] theme-muted">
+              {attachedFiles.length > 0 ? <span>{attachedFiles.length} file{attachedFiles.length === 1 ? "" : "s"} attached</span> : null}
+            </div>
           </div>
         </div>
       </div>

@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeBuddy — Complete Technical Deep Dive</title>
+<style>
+  @page { margin: 0.75in; size: letter; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a2e; line-height: 1.7; max-width: 8.5in; margin: 0 auto; padding: 0.75in; background: #fff; font-size: 11pt; }
+  h1 { font-size: 28pt; font-weight: 800; margin-bottom: 6pt; letter-spacing: -0.5px; color: #0d0d1a; }
+  h2 { font-size: 18pt; font-weight: 700; margin-top: 28pt; margin-bottom: 10pt; color: #1a1a2e; border-bottom: 2px solid #e2e2e8; padding-bottom: 6pt; page-break-after: avoid; }
+  h3 { font-size: 14pt; font-weight: 600; margin-top: 18pt; margin-bottom: 8pt; color: #2d2d4a; page-break-after: avoid; }
+  h4 { font-size: 12pt; font-weight: 600; margin-top: 14pt; margin-bottom: 6pt; color: #3d3d5c; }
+  p { margin-bottom: 8pt; }
+  ul, ol { margin-bottom: 8pt; padding-left: 24pt; }
+  li { margin-bottom: 4pt; }
+  code { background: #f0f0f6; padding: 1px 5px; border-radius: 3px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 10pt; }
+  pre { background: #f4f4fa; border: 1px solid #e0e0ea; border-radius: 6px; padding: 12px 16px; overflow-x: auto; font-size: 9.5pt; margin: 8pt 0 12pt; line-height: 1.5; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  .cover { text-align: center; padding: 80pt 0 40pt; page-break-after: always; }
+  .cover h1 { font-size: 42pt; margin-bottom: 12pt; }
+  .cover .subtitle { font-size: 16pt; color: #555; font-weight: 400; margin-bottom: 30pt; }
+  .cover .meta { font-size: 11pt; color: #888; }
+  .toc { page-break-after: always; }
+  .toc h2 { border-bottom: none; }
+  .toc ol { list-style: none; padding-left: 0; }
+  .toc > ol > li { margin-bottom: 6pt; font-weight: 600; }
+  .toc > ol > li > ol { margin-top: 4pt; }
+  .toc > ol > li > ol > li { font-weight: 400; font-size: 10.5pt; margin-bottom: 2pt; }
+  .toc a { color: #1a1a2e; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .callout { background: #f0f4ff; border-left: 4px solid #4a6cf7; padding: 10pt 14pt; border-radius: 0 6px 6px 0; margin: 10pt 0 14pt; }
+  .callout-warn { background: #fff8f0; border-left-color: #f7a84a; }
+  .callout-green { background: #f0fff4; border-left-color: #34d399; }
+  .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 9pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .status-done { background: #d1fae5; color: #065f46; }
+  .status-partial { background: #fef3c7; color: #92400e; }
+  .status-stub { background: #fee2e2; color: #991b1b; }
+  .status-planned { background: #e0e7ff; color: #3730a3; }
+  table { width: 100%; border-collapse: collapse; margin: 10pt 0 14pt; font-size: 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #e0e0ea; padding: 6pt 10pt; text-align: left; }
+  th { background: #f4f4fa; font-weight: 600; }
+  .flow-diagram { background: #fafafe; border: 1px solid #e0e0ea; border-radius: 8px; padding: 16pt; margin: 10pt 0 14pt; font-family: 'Cascadia Code', monospace; font-size: 9pt; line-height: 1.6; white-space: pre; overflow-x: auto; page-break-inside: avoid; }
+  .section-break { page-break-before: always; }
+  hr { border: none; border-top: 1px solid #e8e8ee; margin: 20pt 0; }
+  .prompt-box { background: #1a1a2e; color: #e0e0ea; border-radius: 8px; padding: 14px 18px; font-family: 'Cascadia Code', monospace; font-size: 9pt; line-height: 1.55; margin: 10pt 0 14pt; overflow-x: auto; white-space: pre-wrap; page-break-inside: avoid; }
+  .prompt-box .comment { color: #6b7280; }
+  .prompt-box .highlight { color: #fbbf24; }
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- COVER PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div style="font-size:48pt; margin-bottom: 20pt;">🛠️</div>
+  <h1>CodeBuddy</h1>
+  <p class="subtitle">Complete Technical Deep Dive &amp; Progress Roadmap</p>
+  <p class="meta">Version 0.1.0 &nbsp;·&nbsp; Generated March 29, 2026</p>
+  <p class="meta" style="margin-top: 8pt;">A self-contained desktop workspace for building software with AI agents</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#what-is-codebuddy">1. What Is CodeBuddy?</a>
+      <ol>
+        <li><a href="#elevator-pitch">1.1 Elevator Pitch</a></li>
+        <li><a href="#who-its-for">1.2 Who It's For</a></li>
+        <li><a href="#tech-stack">1.3 Technology Stack at a Glance</a></li>
+      </ol>
+    </li>
+    <li><a href="#architecture">2. Architecture Overview</a>
+      <ol>
+        <li><a href="#arch-layers">2.1 Three-Layer Sandwich</a></li>
+        <li><a href="#arch-ipc">2.2 How the Layers Talk (IPC)</a></li>
+        <li><a href="#arch-ai">2.3 The AI Brain (Copilot CLI)</a></li>
+        <li><a href="#arch-data">2.4 Where Data Lives</a></li>
+      </ol>
+    </li>
+    <li><a href="#page-by-page">3. Page-by-Page Breakdown &amp; Progress</a>
+      <ol>
+        <li><a href="#page-landing">3.1 Landing Page</a></li>
+        <li><a href="#page-home">3.2 Home / Project Manager</a></li>
+        <li><a href="#page-workspace">3.3 Project Workspace (Dashboard)</a></li>
+        <li><a href="#page-chat">3.4 PM Chat &amp; Task Agent Chat</a></li>
+        <li><a href="#page-files">3.5 Files</a></li>
+        <li><a href="#page-preview">3.6 Preview</a></li>
+        <li><a href="#page-activity">3.7 Activity</a></li>
+        <li><a href="#page-settings">3.8 Project Settings</a></li>
+        <li><a href="#page-people">3.9 People</a></li>
+        <li><a href="#page-usersettings">3.10 User Settings</a></li>
+      </ol>
+    </li>
+    <li><a href="#backend-services">4. Backend Services Deep Dive</a>
+      <ol>
+        <li><a href="#svc-project">4.1 Project Service (The Brain)</a></li>
+        <li><a href="#svc-process">4.2 Process Service</a></li>
+        <li><a href="#svc-repo">4.3 Repo Service</a></li>
+        <li><a href="#svc-settings">4.4 Settings Service</a></li>
+        <li><a href="#svc-tooling">4.5 Tooling Service</a></li>
+        <li><a href="#svc-activity">4.6 Activity Service</a></li>
+      </ol>
+    </li>
+    <li><a href="#agentic-deep-dive">5. Deep Dive: Every Agentic Process</a>
+      <ol>
+        <li><a href="#agent-plan">5.1 Generate Project Plan</a></li>
+        <li><a href="#agent-pm">5.2 PM Chat (Project Manager Conversation)</a></li>
+        <li><a href="#agent-task">5.3 Task Agent Chat (The Builder)</a></li>
+        <li><a href="#agent-autoprompt">5.4 Auto-Prompt / Generate Task Prompt</a></li>
+        <li><a href="#agent-launch">5.5 Launch Dev Server</a></li>
+        <li><a href="#agent-github">5.6 Ensure GitHub Repo</a></li>
+      </ol>
+    </li>
+    <li><a href="#run-app-deep-dive">6. Deep Dive: The "Run App" Button</a></li>
+    <li><a href="#autoflow-deep-dive">7. Deep Dive: The Autoflow System</a></li>
+    <li><a href="#safety">8. Safety &amp; Security Model</a></li>
+    <li><a href="#generalizability">9. Generalizability Analysis</a></li>
+    <li><a href="#progress-roadmap">10. Progress Roadmap</a></li>
+  </ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 1. WHAT IS CODEBUDDY? -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="what-is-codebuddy" class="section-break">1. What Is CodeBuddy?</h2>
+
+<h3 id="elevator-pitch">1.1 Elevator Pitch</h3>
+<p>
+  CodeBuddy is a <strong>desktop application</strong> that lets anyone — even non-programmers — describe a software idea in plain English and have AI agents build it for them, step by step, all within one self-contained window. Think of it as a project manager, code editor, terminal, and live preview all rolled into one app, with AI doing the heavy lifting.
+</p>
+
+<h3 id="who-its-for">1.2 Who It's For</h3>
+<ul>
+  <li><strong>Non-technical creators</strong> who have app ideas but can't code.</li>
+  <li><strong>Beginners</strong> who want to learn by watching an AI agent work.</li>
+  <li><strong>Solo developers</strong> who want AI assistance with planning and routine tasks.</li>
+  <li><strong>Friend groups</strong> who want to collaborate on side projects without complex tooling.</li>
+</ul>
+
+<h3 id="tech-stack">1.3 Technology Stack at a Glance</h3>
+<table>
+  <tr><th>Component</th><th>Technology</th><th>Purpose</th></tr>
+  <tr><td>Desktop Shell</td><td>Electron 41.0.3</td><td>Wraps everything into a native Windows/macOS/Linux app</td></tr>
+  <tr><td>Frontend Framework</td><td>Next.js 16.2.1 + React 19</td><td>Renders all the UI pages</td></tr>
+  <tr><td>Language</td><td>TypeScript + JavaScript</td><td>Frontend is TypeScript, backend services are plain JS</td></tr>
+  <tr><td>Styling</td><td>Tailwind CSS 4</td><td>Utility-first CSS for fast UI development</td></tr>
+  <tr><td>AI Engine</td><td>GitHub Copilot CLI (<code>copilot.exe</code>)</td><td>The "brain" — every AI call goes through this</td></tr>
+  <tr><td>Version Control</td><td>Git + GitHub CLI (<code>gh</code>)</td><td>Built-in repo management and GitHub integration</td></tr>
+  <tr><td>Packaging</td><td>electron-builder 26.8.1</td><td>Creates Windows installer (.exe), NSIS</td></tr>
+  <tr><td>Default AI Model</td><td>GPT-5.2 (configurable)</td><td>15+ model options including Anthropic Claude, Google Gemini</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 2. ARCHITECTURE OVERVIEW -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="architecture" class="section-break">2. Architecture Overview</h2>
+
+<h3 id="arch-layers">2.1 Three-Layer Sandwich</h3>
+<p>CodeBuddy's architecture is a three-layer sandwich. Each layer has a specific job and can only talk to the one next to it:</p>
+
+<div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────┐
+│                    RENDERER (Frontend)                       │
+│  Next.js pages • React components • Tailwind CSS             │
+│  Runs in an Electron BrowserWindow (like a browser tab)      │
+├─────────────────────────────────────────────────────────────┤
+│                    PRELOAD BRIDGE                             │
+│  electron/preload.js → exposes window.electronAPI            │
+│  Secure channel: renderer can ONLY call approved methods     │
+├─────────────────────────────────────────────────────────────┤
+│                    MAIN PROCESS (Backend)                     │
+│  electron/main.js + 6 services                               │
+│  Node.js with full system access: filesystem, processes,     │
+│  git, GitHub CLI, Copilot CLI                                │
+└─────────────────────────────────────────────────────────────┘
+</div>
+
+<p><strong>Why this matters:</strong> The frontend (what you see) cannot directly access your filesystem or run programs. It must ask the backend through the preload bridge. This keeps things secure — a web page can't randomly delete your files.</p>
+
+<h3 id="arch-ipc">2.2 How the Layers Talk (IPC)</h3>
+<p>IPC stands for <em>Inter-Process Communication</em>. It's how the frontend sends requests to the backend and gets results back. Think of it like a restaurant:</p>
+<ul>
+  <li><strong>Frontend</strong> = the customer placing an order</li>
+  <li><strong>Preload bridge</strong> = the waiter who takes the order and brings back food</li>
+  <li><strong>Backend services</strong> = the kitchen that actually cooks</li>
+</ul>
+
+<p>Here's the complete list of "orders" the frontend can place:</p>
+
+<table>
+  <tr><th>Category</th><th>Method</th><th>What It Does</th></tr>
+  <tr><td rowspan="3">System</td><td><code>system.openDirectory()</code></td><td>Opens a folder picker dialog</td></tr>
+  <tr><td><code>system.openFile()</code></td><td>Opens a file picker dialog</td></tr>
+  <tr><td><code>system.openUrl(url)</code></td><td>Opens a URL in the system browser</td></tr>
+  <tr><td rowspan="5">Process</td><td><code>process.run(cmd, cwd)</code></td><td>Runs a shell command (like "npm install")</td></tr>
+  <tr><td><code>process.cancel(id)</code></td><td>Stops a running process</td></tr>
+  <tr><td><code>process.listRunning()</code></td><td>Lists all active processes</td></tr>
+  <tr><td><code>process.onOutput(fn)</code></td><td>Subscribes to live terminal output</td></tr>
+  <tr><td><code>process.onCompleted(fn)</code></td><td>Gets notified when a process finishes</td></tr>
+  <tr><td rowspan="6">Repo</td><td><code>repo.inspect(path)</code></td><td>Gets git info (branch, changed files, commits)</td></tr>
+  <tr><td><code>repo.listDirectory(path)</code></td><td>Lists files/folders in a directory</td></tr>
+  <tr><td><code>repo.readFile(path)</code></td><td>Reads a file's contents</td></tr>
+  <tr><td><code>repo.writeFile(path, content)</code></td><td>Saves content to a file</td></tr>
+  <tr><td><code>repo.commit(path, msg)</code></td><td>Creates a git commit</td></tr>
+  <tr><td><code>repo.checkoutBranch(path, name)</code></td><td>Switches git branches</td></tr>
+  <tr><td rowspan="3">Settings</td><td><code>settings.get()</code></td><td>Reads all app settings</td></tr>
+  <tr><td><code>settings.update(partial)</code></td><td>Saves changed settings</td></tr>
+  <tr><td><code>settings.onChanged(fn)</code></td><td>Subscribes to settings changes</td></tr>
+  <tr><td rowspan="10">Project</td><td><code>project.create(options)</code></td><td>Creates a new project</td></tr>
+  <tr><td><code>project.delete(id, options)</code></td><td>Deletes a project</td></tr>
+  <tr><td><code>project.generatePlan(id, prompt)</code></td><td>AI generates the project plan</td></tr>
+  <tr><td><code>project.sendTaskMessage(…)</code></td><td>Sends a message to a task agent</td></tr>
+  <tr><td><code>project.sendPMMessage(…)</code></td><td>Sends a message to the PM agent</td></tr>
+  <tr><td><code>project.generateTaskPrompt(…)</code></td><td>AI auto-generates the next prompt</td></tr>
+  <tr><td><code>project.launchDevServer(id)</code></td><td>AI figures out how to run the app</td></tr>
+  <tr><td><code>project.restoreCheckpoint(…)</code></td><td>Restores files to a previous state</td></tr>
+  <tr><td><code>project.ensureGithubRepo(id)</code></td><td>Pushes the project to GitHub</td></tr>
+  <tr><td><code>project.cancelActiveRequest(id)</code></td><td>Cancels an in-flight AI request</td></tr>
+  <tr><td>Tools</td><td><code>tools.listStatus()</code></td><td>Checks which CLI tools are installed</td></tr>
+  <tr><td>Activity</td><td><code>activity.getRecent(n)</code></td><td>Gets recent activity events</td></tr>
+</table>
+
+<h3 id="arch-ai">2.3 The AI Brain (Copilot CLI)</h3>
+<p>
+  Every single AI interaction in CodeBuddy goes through one executable: <code>copilot.exe</code> (GitHub Copilot CLI). This is a command-line program that takes a text prompt and returns an AI-generated response.
+</p>
+<p>Here's the basic flow:</p>
+<div class="flow-diagram">
+User types → Frontend sends IPC → Backend builds prompt → copilot.exe runs → Response parsed → UI updated
+
+Detailed:
+1. User clicks a button or types a message
+2. Frontend calls window.electronAPI.project.someMethod(...)
+3. IPC handler in register-handlers.js routes to project-service.js
+4. project-service.js:
+   a. Reads current project state from settings.json
+   b. Gathers context (file trees, config files, conversation history)
+   c. Builds a detailed text prompt with system instructions
+   d. Calls processService.runProgram(copilotExePath, ["-p", prompt, ...flags])
+5. copilot.exe talks to the AI model (GPT-5.2, Claude, etc.) and returns text
+6. project-service.js parses the response, updates settings.json
+7. Response flows back through IPC to the frontend
+8. React updates the UI
+</div>
+
+<div class="callout">
+  <strong>Key insight:</strong> CodeBuddy doesn't contain its own AI model. It relies entirely on GitHub Copilot CLI, which means the user needs a GitHub Copilot subscription. The CLI handles authentication, model selection, and rate limiting automatically.
+</div>
+
+<h3 id="arch-data">2.4 Where Data Lives</h3>
+<p>CodeBuddy stores all of its data in two places:</p>
+<table>
+  <tr><th>Location</th><th>What's Stored</th><th>Example Path</th></tr>
+  <tr>
+    <td><strong>Settings file</strong></td>
+    <td>All project metadata, conversation history, plans, task threads, preferences</td>
+    <td><code>%APPDATA%\codebuddy\settings.json</code></td>
+  </tr>
+  <tr>
+    <td><strong>Project folders</strong></td>
+    <td>Actual source code, <code>.codebuddy/</code> subdirectory with checkpoints and agent context files</td>
+    <td><code>C:\Users\you\Projects\my-app\</code></td>
+  </tr>
+</table>
+<p>
+  The <code>.codebuddy/</code> folder inside each project contains:
+</p>
+<ul>
+  <li><code>.codebuddy/checkpoints/</code> — Snapshots of all project files taken before every AI prompt (so you can undo)</li>
+  <li><code>.codebuddy/agents/</code> — Markdown files that give each task agent its full context</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 3. PAGE-BY-PAGE BREAKDOWN -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="page-by-page" class="section-break">3. Page-by-Page Breakdown &amp; Progress</h2>
+
+<h3 id="page-landing">3.1 Landing Page <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/page.tsx</code></p>
+<p>The first thing users see. A full-screen hero with the tagline "Describe your idea. We'll build it." and a call-to-action button that navigates to <code>/home</code>.</p>
+<ul>
+  <li>Ambient mesh gradient background animation</li>
+  <li>Theme support (light/dark) via ThemeProvider</li>
+  <li>No data fetching — purely static</li>
+</ul>
+
+<h3 id="page-home">3.2 Home / Project Manager <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/home</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/home/page.tsx</code></p>
+<p>The command center for managing projects. Two tabs: <strong>Projects</strong> and <strong>Friends</strong>.</p>
+
+<h4>Projects Tab (Fully Functional)</h4>
+<ul>
+  <li><strong>Create new project:</strong> Enter name + description → pick base directory → optional GitHub repo creation → calls <code>project.create()</code></li>
+  <li><strong>Import existing project:</strong> Pick a folder → auto-detects if it's a git repo → optional GitHub connection → creates project entry in settings</li>
+  <li><strong>Select project:</strong> Click a project card → becomes the active project → automatically sets <code>activeProjectId</code> in settings</li>
+  <li><strong>Delete project:</strong> Four delete options — CodeBuddy only, local files, GitHub repo, or both</li>
+</ul>
+
+<h4>Friends Tab <span class="status-badge status-stub">Mock Data</span></h4>
+<ul>
+  <li>Shows hardcoded friend cards (Nia, Dre, Mia, Nick) with online status</li>
+  <li>Message "bubbles" are placeholder</li>
+  <li>No real backend for friend connections yet</li>
+</ul>
+
+<h3 id="page-workspace">3.3 Project Workspace (Dashboard) <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/project</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/page.tsx</code></p>
+<p>The main project management dashboard. Shows the AI-generated plan with subprojects, tasks, progress ring, and build order.</p>
+<ul>
+  <li><strong>Progress ring:</strong> Visual percentage of tasks marked "done"</li>
+  <li><strong>Subproject cards:</strong> Each subproject shows its goal, status (Planned/Building/Review/Done), and child tasks</li>
+  <li><strong>Task management:</strong> Click a task to see details, change status, view due dates, see conversation threads</li>
+  <li><strong>Manual operations:</strong> Add custom subprojects, add custom tasks, reorder tasks, assign owners, set due dates</li>
+  <li><strong>Build order:</strong> AI-recommended sequence for tackling subprojects</li>
+  <li><strong>Links to chat:</strong> Each task card links to <code>/project/chat?task=TASK_ID</code> to start the task agent</li>
+</ul>
+
+<h3 id="page-chat">3.4 PM Chat &amp; Task Agent Chat <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/project/chat</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/chat/page.tsx</code> (~4,500 lines — the biggest page)</p>
+<p>This is the heart of CodeBuddy. It has two modes depending on the URL:</p>
+
+<h4>PM Chat Mode (default: no <code>?task=</code> param)</h4>
+<ul>
+  <li>Chat with the Project Manager AI about your project plan, strategy, questions</li>
+  <li>PM will NOT regenerate the plan — only discusses and advises</li>
+  <li>Each message creates a checkpoint (snapshot) before sending</li>
+  <li>Edit/retry: Click edit on any message → restores to that checkpoint → re-sends</li>
+  <li>File attachments: Attach project files to give the PM more context</li>
+</ul>
+
+<h4>Task Agent Mode (with <code>?task=TASK_ID</code> param)</h4>
+<ul>
+  <li>Chat with a dedicated AI agent that can <strong>read and write files</strong> in your project</li>
+  <li>The agent uses Copilot CLI with <code>--allow-all-tools --add-dir .</code> (full file access)</li>
+  <li>Each task has its own conversation thread</li>
+  <li>Agents update the task status (planned → building → review → done) automatically</li>
+  <li>Kickoff prompt: A pre-written starting prompt appears for each task</li>
+  <li>Auto-prompt button (⚡): AI generates the next best prompt for you</li>
+  <li>Auto-advance: When a task is done, optionally auto-navigates to the next task</li>
+</ul>
+
+<h4>Right Panel</h4>
+<p>The right side has three tabs:</p>
+<ul>
+  <li><strong>Preview:</strong> Live webview showing your app running on localhost (device presets: Desktop/Tablet/Mobile)</li>
+  <li><strong>Details:</strong> Shows the task's context markdown</li>
+  <li><strong>Terminal:</strong> Live output from the running dev server</li>
+</ul>
+
+<h3 id="page-files">3.5 Files <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/project/files</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/files/page.tsx</code></p>
+<p>A built-in code editor and git interface with three tabs:</p>
+<ul>
+  <li><strong>Code tab:</strong> File tree browser + text editor. Navigate directories, open files, edit and save. Syntax highlighting labels (TypeScript, JSON, Markdown, etc.)</li>
+  <li><strong>Updates tab:</strong> Git change tracker — staged vs. unstaged files, diff viewer, stage/unstage buttons, commit with message, branch switching</li>
+  <li><strong>IDE tab:</strong> Future integration placeholder</li>
+</ul>
+<p>All file operations go through <code>electronAPI.repo.*</code> methods (inspect, listDirectory, readFile, writeFile, commit, etc.).</p>
+
+<h3 id="page-preview">3.6 Preview <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/project/preview</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/preview/page.tsx</code></p>
+<p>A standalone full-page preview. Same "Run App" logic as the chat page — calls <code>launchDevServer</code>, spawns the dev server, detects the URL from output, loads it in a webview. Has device preset buttons (Desktop, Tablet, Mobile) and fullscreen toggle.</p>
+
+<h3 id="page-activity">3.7 Activity <span class="status-badge status-partial">UI Done, Backend Partial</span></h3>
+<p><strong>Route:</strong> <code>/project/activity</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/activity/page.tsx</code></p>
+<p>Shows a timeline of project events (builds, reviews, comments, status changes, deploys, team joins). Events are categorized with color-coded icons and filterable by type. The event data comes from the <code>activity</code> array in the project dashboard. The activity service logs events from every IPC handler automatically.</p>
+
+<h3 id="page-settings">3.8 Project Settings <span class="status-badge status-done">Done</span></h3>
+<p><strong>Route:</strong> <code>/project/settings</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/project/settings/page.tsx</code></p>
+<p>Configure the active project:</p>
+<ul>
+  <li><strong>General:</strong> Project name, description, visibility (private / friends only / public)</li>
+  <li><strong>Collaborators:</strong> List of team members with roles (Owner, Editor, Reviewer) and online status</li>
+  <li><strong>Appearance:</strong> Light/dark theme toggle</li>
+  <li><strong>AI Model:</strong> Choose from 15+ AI models (GPT-5.2, Claude Opus 4.6, Gemini 3.1 Pro, etc.)</li>
+  <li><strong>Desktop integrations:</strong> Tool paths (git, gh CLI), project root directory, system prompt editor, GitHub defaults</li>
+  <li><strong>Tool status:</strong> Live detection of installed CLI tools with version info</li>
+</ul>
+
+<h3 id="page-people">3.9 People <span class="status-badge status-stub">Mock Data</span></h3>
+<p><strong>Route:</strong> <code>/people</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/people/page.tsx</code></p>
+<p>Lists friends with online/offline status and a "Message" button. Has an invite link section. Currently uses mock data from <code>lib/mock-data.ts</code>. No real friend system backend exists yet.</p>
+
+<h3 id="page-usersettings">3.10 User Settings <span class="status-badge status-partial">UI Done, Backend Minimal</span></h3>
+<p><strong>Route:</strong> <code>/settings</code> &nbsp;·&nbsp; <strong>File:</strong> <code>src/app/settings/page.tsx</code></p>
+<p>Shows user profile (hardcoded "Cameron"), workspace defaults (theme, notifications). Primarily static UI with no authentication backend.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 4. BACKEND SERVICES -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="backend-services" class="section-break">4. Backend Services Deep Dive</h2>
+
+<h3 id="svc-project">4.1 Project Service — The Brain (~2,660 lines)</h3>
+<p><strong>File:</strong> <code>electron/services/project-service.js</code></p>
+<p>This is the largest and most important file in the entire codebase. It handles:</p>
+<ul>
+  <li>Creating and deleting projects (new or imported)</li>
+  <li>All 6 agentic AI calls (plan generation, PM chat, task chat, auto-prompt, dev server launch, GitHub repo)</li>
+  <li>The checkpoint/restore system</li>
+  <li>Agent context file synchronization</li>
+  <li>Safe command jail for protecting the app from AI mistakes</li>
+  <li>Git identity resolution and initial commit handling</li>
+  <li>README auto-generation from plans</li>
+</ul>
+
+<div class="callout callout-green">
+  <strong>Generalizability note:</strong> This service is framework-agnostic. It works by reading whatever config files exist in the project directory (package.json, Cargo.toml, pyproject.toml, go.mod, etc.) and passing them to the AI. It doesn't have hardcoded assumptions about what language or framework the user chose.
+</div>
+
+<h3 id="svc-process">4.2 Process Service (~150 lines)</h3>
+<p><strong>File:</strong> <code>electron/services/process-service.js</code></p>
+<p>Spawns and manages child processes (shell commands, dev servers, copilot.exe). Two main methods:</p>
+<ul>
+  <li><code>run(command, cwd, env)</code> — Runs a shell command (e.g., <code>npm install</code>). Uses <code>shell: true</code>.</li>
+  <li><code>runProgram(file, args, cwd, env)</code> — Runs a specific executable directly (e.g., copilot.exe). Uses <code>shell: false</code>.</li>
+</ul>
+<p>Tracks all running processes in a Map. Emits events: <code>process:started</code>, <code>process:output</code>, <code>process:completed</code>, <code>process:error</code>, <code>process:cancelled</code>, <code>process:timeout</code>.</p>
+
+<h3 id="svc-repo">4.3 Repo Service (~200 lines)</h3>
+<p><strong>File:</strong> <code>electron/services/repo-service.js</code></p>
+<p>Wraps Git operations using <code>execFile(git, args, {cwd})</code>. Provides:</p>
+<ul>
+  <li><code>inspectRepository()</code> — Gets current branch, branches list, changed files, recent commits</li>
+  <li><code>listDirectory() / readFileContent() / writeFileContent()</code> — CRUD for project files</li>
+  <li><code>stageFiles() / unstageFiles() / commit()</code> — Git staging and committing</li>
+  <li><code>checkoutBranch() / getCommitDetails() / getFileDiff()</code> — Branch management and diffs</li>
+</ul>
+
+<h3 id="svc-settings">4.4 Settings Service (~200 lines)</h3>
+<p><strong>File:</strong> <code>electron/services/settings-service.js</code></p>
+<p>Reads and writes the central <code>settings.json</code> file. Also defines the two main system prompts (see Section 5). Key functions:</p>
+<ul>
+  <li><code>readSettings()</code> — Reads and normalizes settings with defaults</li>
+  <li><code>updateSettings(partial)</code> — Deep-merges partial updates</li>
+  <li>Broadcasts <code>settings:changed</code> events to the frontend whenever settings update</li>
+</ul>
+
+<h3 id="svc-tooling">4.5 Tooling Service (~150 lines)</h3>
+<p><strong>File:</strong> <code>electron/services/tooling-service.js</code></p>
+<p>Checks which CLI tools are available on the user's system. Detects: <code>git</code>, <code>gh</code> (GitHub CLI), <code>copilot.exe</code>, <code>node</code>, <code>npm</code>, <code>claude</code> (Code). Returns version info and availability status for each.</p>
+
+<h3 id="svc-activity">4.6 Activity Service</h3>
+<p><strong>File:</strong> <code>electron/services/activity-service.js</code></p>
+<p>Logs timestamped activity events. Every IPC handler in <code>register-handlers.js</code> automatically logs events through this service. Events are stored in the project dashboard's <code>activity</code> array.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 5. AGENTIC DEEP DIVE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="agentic-deep-dive" class="section-break">5. Deep Dive: Every Agentic Process</h2>
+<p>
+  CodeBuddy has <strong>6 distinct AI agent calls</strong>. Each one sends a carefully constructed prompt to Copilot CLI and handles the response differently. Below is every single one, with its full system prompt, context window contents, and how the response is used.
+</p>
+
+<h3 id="agent-plan">5.1 Generate Project Plan</h3>
+<p><strong>Function:</strong> <code>generateProjectPlan(projectId, prompt, model)</code></p>
+<p><strong>When it fires:</strong> When the user clicks "Generate Plan" on a new project, or when an imported project needs analysis.</p>
+<p><strong>Copilot CLI flags:</strong> <code>-p &lt;prompt&gt; --no-color -s [--model &lt;model&gt;]</code> (text-only, no tool use)</p>
+
+<h4>What goes into the prompt (the "context window"):</h4>
+<ol>
+  <li><strong>System prompt</strong> — Either <code>DEFAULT_SYSTEM_PROMPT_MARKDOWN</code> (for new projects) or <code>IMPORTED_PROJECT_SYSTEM_PROMPT</code> (for imported projects). These are ~40-80 line markdown documents that tell the AI its role and rules.</li>
+  <li><strong>JSON schema</strong> — The exact JSON structure the AI must return (subprojects, tasks, build order, etc.)</li>
+  <li><strong>Project name and description</strong></li>
+  <li><strong>File tree</strong> — A depth-2 listing of all files in the project (from <code>gatherProjectSnapshot()</code>)</li>
+  <li><strong>Key file contents</strong> — The actual contents of important files (package.json, README, etc.)</li>
+  <li><strong>User's prompt</strong> — The description they typed when creating the project</li>
+</ol>
+
+<h4>System Prompt for New Projects (condensed):</h4>
+<div class="prompt-box"><span class="comment"># CodeBuddy Project Planner</span>
+
+You are the project planning system for CodeBuddy.
+Your job is to turn a non-technical user's product request into a practical MVP plan.
+
+<span class="highlight">Goals:</span>
+- Make the plan understandable to someone with no coding experience
+- Break the MVP into clear subprojects (2-5)
+- Create concrete implementation tasks (2-5 per subproject) in build order
+- Keep the first version narrow, testable, and realistic
+
+<span class="highlight">CodeBuddy Platform Context:</span>
+- Built-in Terminal tab for running shell commands
+- Built-in Live Preview tab for viewing web apps
+- Built-in file editor and Git integration
+- NEVER reference VS Code, external terminals, or browsers
+- Starting prompts must reference CodeBuddy's native tools
+
+<span class="highlight">Output:</span> Return valid JSON matching the requested schema exactly.</div>
+
+<h4>System Prompt for Imported Projects (condensed):</h4>
+<div class="prompt-box"><span class="comment"># CodeBuddy Project Analyst</span>
+
+Your job is to examine an already-built codebase and produce a clear picture of
+what exists, what works, and what the developer should focus on next.
+
+<span class="highlight">Analysis rules:</span>
+- Set task status to "done" if code clearly exists, "building" if partial, "planned" if needed
+- Put completed subprojects first, in-progress next, then planned
+- The dashboard should feel like a progress report, not a blank plan</div>
+
+<h4>What happens with the response:</h4>
+<ol>
+  <li>Parse the JSON response into subprojects, tasks, and build order</li>
+  <li>Generate unique IDs for each subproject and task</li>
+  <li>Assign due dates (spread across ~14 days from now)</li>
+  <li>Store everything in <code>project.dashboard.plan</code></li>
+  <li>Write agent context files to <code>.codebuddy/agents/</code></li>
+  <li>Auto-generate a <code>README.md</code> with the plan summary</li>
+  <li>Add a "plan generated" activity event</li>
+  <li>Set project stage to "Building"</li>
+</ol>
+
+<hr>
+
+<h3 id="agent-pm">5.2 PM Chat (Project Manager Conversation)</h3>
+<p><strong>Function:</strong> <code>sendPMMessage({ projectId, prompt, model, attachedFiles, replaceFromMessageId })</code></p>
+<p><strong>When it fires:</strong> Every time the user sends a message in PM Chat mode.</p>
+<p><strong>Copilot CLI flags:</strong> <code>-p &lt;prompt&gt; --no-color -s [--model]</code> (text-only, no tool use)</p>
+
+<h4>What goes into the prompt:</h4>
+<ol>
+  <li><strong>System prompt markdown</strong> — The project's stored system prompt (usually the planner prompt)</li>
+  <li><strong>Role instructions:</strong> "You are the Project Manager. The plan has already been created. Do NOT regenerate or modify the plan."</li>
+  <li><strong>CodeBuddy platform rules</strong> — Never reference VS Code, external terminals, etc.</li>
+  <li><strong>"Attention User Input Required" instructions</strong> — If the response needs user-provided info (API keys, etc.), it must end with a clearly marked section</li>
+  <li><strong>Project name and description</strong></li>
+  <li><strong>Recent conversation transcript</strong> — Previous messages in the chat</li>
+  <li><strong>Attached files</strong> — Any files the user drag-dropped into the message</li>
+  <li><strong>The user's latest message</strong></li>
+</ol>
+
+<h4>What happens before sending:</h4>
+<ul>
+  <li>A <strong>checkpoint snapshot</strong> is created — all project files are copied to <code>.codebuddy/checkpoints/&lt;id&gt;/</code></li>
+  <li>This allows edit/retry to restore to the exact state before this message</li>
+</ul>
+
+<h4>What happens with the response:</h4>
+<ul>
+  <li>The raw text is stored as an AI message in <code>dashboard.conversation</code></li>
+  <li>The user's message is also stored (with their name, initials, model used, checkpoint ID)</li>
+  <li>Agent context files are re-synced</li>
+</ul>
+
+<hr>
+
+<h3 id="agent-task">5.3 Task Agent Chat (The Builder) — Most Powerful</h3>
+<p><strong>Function:</strong> <code>sendTaskMessage({ projectId, taskId, threadId, prompt, model, attachedFiles, replaceFromMessageId })</code></p>
+<p><strong>When it fires:</strong> Every time the user sends a message while on a task (URL has <code>?task=TASK_ID</code>).</p>
+<p><strong>Copilot CLI flags:</strong> <code>-p &lt;prompt&gt; --allow-all-tools --add-dir . --no-color -s [--model]</code></p>
+
+<div class="callout callout-warn">
+  <strong>This is the only agent that can modify files.</strong> The <code>--allow-all-tools</code> flag gives Copilot CLI permission to read and write files, run commands, and use other tools. The <code>--add-dir .</code> flag adds the project directory as context. All other agents are text-only.
+</div>
+
+<h4>What goes into the prompt (in order):</h4>
+<ol>
+  <li><strong>Task agent system prompt</strong> — Built by <code>buildTaskAgentSystemPrompt()</code>. Includes:
+    <ul>
+      <li>"You are a hands-on task agent inside CodeBuddy"</li>
+      <li>Response format: ## What I did, ## Recommended next steps, ## Move to next task when</li>
+      <li>Full CodeBuddy platform rules (26 lines of restrictions)</li>
+      <li>README.md reading/updating instructions</li>
+      <li>"Attention User Input Required" instructions</li>
+      <li>TASK_STATUS metadata line instructions</li>
+      <li>Task title, note, and subproject context</li>
+    </ul>
+  </li>
+  <li><strong>CRITICAL SAFETY RULES</strong> — A 30-line block of absolutely forbidden commands (see Section 8)</li>
+  <li><strong>Context markdown</strong> — The shared task context from <code>.codebuddy/agents/</code></li>
+  <li><strong>Attached files</strong></li>
+  <li><strong>Recent conversation transcript</strong></li>
+  <li><strong>The user's latest message</strong></li>
+</ol>
+
+<h4>The Task Agent System Prompt (full):</h4>
+<div class="prompt-box">You are a hands-on task agent inside CodeBuddy — a desktop coding workspace.
+Do the task work and reply like a collaborator in chat.
+Prefer short sections, bullets, and concrete next steps over schemas.
+Assume the user is non-technical and avoid unnecessary jargon.
+Default response structure: ## What I did, ## Recommended next steps, ## Move to the next task when.
+
+<span class="highlight">CRITICAL — CodeBuddy Platform Rules:</span>
+CodeBuddy RUNS ON PORT 3000. NEVER kill, stop, or interfere with port 3000.
+- Built-in TERMINAL panel for shell commands
+- Built-in LIVE PREVIEW panel for localhost
+- NEVER tell the user to open VS Code, an external terminal, or browser
+- NEVER run 'code .', 'explorer', 'open', or launch external applications
+- NEVER suggest the user leave CodeBuddy
+- NEVER kill processes or run taskkill/Stop-Process/kill/pkill
+- If port 3000 is in use, that IS CodeBuddy — use a different port
+
+<span class="highlight">README.md:</span> Read it before starting. Update it after completing work.
+
+<span class="highlight">User Input Required:</span> If response needs API keys, credentials, etc., end with:
+---
+## Attention User Input Required
+[list items needed]
+
+End EVERY reply with: TASK_STATUS: planned|building|review|done
+Optionally: TASK_STATUS_REASON: &lt;short reason&gt;
+
+Task title: [from plan]
+Task note: [from plan]
+Subproject: [from plan]</div>
+
+<h4>What happens with the response:</h4>
+<ol>
+  <li>Extract TASK_STATUS metadata from the last lines</li>
+  <li>Update the task's status in the plan (e.g., "planned" → "building")</li>
+  <li>Store messages in the task's thread</li>
+  <li>Re-sync agent context files</li>
+  <li>Format the response (if it accidentally returned JSON, convert to readable markdown)</li>
+</ol>
+
+<hr>
+
+<h3 id="agent-autoprompt">5.4 Auto-Prompt / Generate Task Prompt</h3>
+<p><strong>Function:</strong> <code>generateTaskPrompt({ projectId, taskId, threadId, model })</code></p>
+<p><strong>When it fires:</strong> When the user clicks the ⚡ (lightning) auto-prompt button.</p>
+<p><strong>Copilot CLI flags:</strong> <code>-p &lt;prompt&gt; --no-color -s [--model]</code> (text-only)</p>
+
+<h4>What goes into the prompt:</h4>
+<ol>
+  <li>"You generate the next best user prompt for a CodeBuddy task"</li>
+  <li>Instruction to return JSON: <code>{"prompt":"string","taskStatus":"planned|building|review|done","reason":"string"}</code></li>
+  <li>CodeBuddy platform context rules</li>
+  <li>Project name and description</li>
+  <li>Subproject and task details (title, note, current status, starting prompt)</li>
+  <li>Latest thread summary and recent conversation transcript (last 10 messages)</li>
+</ol>
+
+<h4>What happens with the response:</h4>
+<ul>
+  <li>Parse the JSON to get the generated prompt text, task status assessment, and reason</li>
+  <li>Update task status if the AI says it's done</li>
+  <li>Return the prompt text to the frontend, which pre-fills the chat composer</li>
+  <li>If auto-advance is enabled and the task is "done", the frontend auto-navigates to the next incomplete task</li>
+</ul>
+
+<hr>
+
+<h3 id="agent-launch">5.5 Launch Dev Server</h3>
+<p><strong>Function:</strong> <code>launchDevServer({ projectId, model })</code></p>
+<p><strong>When it fires:</strong> When the user clicks "Run App" to preview their project.</p>
+<p><strong>Copilot CLI flags:</strong> <code>-p &lt;prompt&gt; --no-color -s [--model]</code> (text-only, fast)</p>
+
+<h4>What goes into the prompt:</h4>
+<ol>
+  <li>"You are a dev-ops expert"</li>
+  <li>Rules: output EXACTLY two lines: <code>LAUNCH_COMMAND:</code> and <code>EXPECTED_PORT:</code></li>
+  <li>Platform info (Windows/macOS/Linux, use npm.cmd on Windows)</li>
+  <li>Port detection hints (check package.json scripts for hardcoded PORT, .env files, vite.config, framework defaults)</li>
+  <li>Safety: never launch Electron, Tauri, or desktop shells; only start the web renderer</li>
+  <li>Project name, file tree, all config file contents (up to 2KB each), README excerpt</li>
+</ol>
+
+<h4>What happens with the response:</h4>
+<ol>
+  <li>Parse <code>LAUNCH_COMMAND:</code> and <code>EXPECTED_PORT:</code> from the response</li>
+  <li>If the agent fails, fall back to a heuristic <code>detectLaunchCommand()</code> that checks package.json scripts</li>
+  <li>Return both values to the frontend for spawning the dev server</li>
+</ol>
+
+<h4>Special feature: .env auto-copy</h4>
+<p>Before asking the AI, the function checks if <code>.env</code> exists. If not, it copies from <code>.env.example</code>, <code>.env.local.example</code>, <code>.env.sample</code>, or <code>.env.template</code>. This prevents first-run failures.</p>
+
+<hr>
+
+<h3 id="agent-github">5.6 Ensure GitHub Repo</h3>
+<p><strong>Function:</strong> <code>ensureGithubRepoForProject(projectId)</code></p>
+<p><strong>When it fires:</strong> When the user clicks "Push to GitHub" or during project creation with GitHub enabled.</p>
+<p><strong>No AI involved</strong> — this is a pure Git/GitHub CLI operation.</p>
+
+<h4>Steps:</h4>
+<ol>
+  <li>Resolve git identity (from <code>gh api user</code> or fallback to "CodeBuddy")</li>
+  <li>Set <code>user.name</code> and <code>user.email</code> in git config</li>
+  <li>Ensure an initial commit exists (stage all files + commit if needed)</li>
+  <li>Check if remote "origin" already exists</li>
+  <li>If not, run: <code>gh repo create &lt;name&gt; --private --source . --remote origin</code></li>
+  <li>Push to origin with: <code>git push -u origin HEAD</code></li>
+  <li>Save the GitHub URL in the project settings</li>
+</ol>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 6. RUN APP DEEP DIVE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="run-app-deep-dive" class="section-break">6. Deep Dive: The "Run App" Button</h2>
+<p>This is one of the most complex flows in CodeBuddy, spanning the backend and frontend. Here's every step from click to preview:</p>
+
+<div class="flow-diagram">
+User clicks "▶ Run App"
+        │
+        ▼
+┌─── handleRunApp() ──────────────────────────────────────────────┐
+│ 1. Call electronAPI.project.launchDevServer(projectId)           │
+│    → Backend reads all config files (package.json, etc.)         │
+│    → Backend asks AI: "What command starts this project?"        │
+│    → AI returns: LAUNCH_COMMAND + EXPECTED_PORT                  │
+│    → Fallback: detectLaunchCommand() heuristic if AI fails       │
+│ 2. Store expectedPort for later fallback                         │
+│ 3. Call electronAPI.process.run(command, projectPath, env)       │
+│    env = { BROWSER: "none", FORCE_COLOR: "0" }                  │
+│    NOTE: No PORT override — the project decides its own port     │
+└──────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─── Process Output Listener ─────────────────────────────────────┐
+│ Watches every line of terminal output for:                       │
+│                                                                  │
+│ Strategy 1: URL regex detection                                  │
+│   Matches patterns like "http://localhost:3001"                  │
+│   If found → set previewUrl immediately                          │
+│                                                                  │
+│ Strategy 2: Keyword fallback (3-second delay)                    │
+│   Matches keywords: "compiled", "ready", "started",              │
+│   "listening", "server running"                                  │
+│   If found → wait 3 seconds → run multi-port probe              │
+│                                                                  │
+│ Multi-port probe order:                                          │
+│   1. expectedPort (from AI agent)                                │
+│   2. Common ports: 3000, 3001, 5173, 5174, 8080, 8000,         │
+│      4200, 4000, 1234                                            │
+│   For each: HTTP GET → if 200 → use that port                   │
+└──────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─── Preview Webview ─────────────────────────────────────────────┐
+│ previewUrl is set → Electron &lt;webview&gt; loads the URL            │
+│ CSP stripping: main.js removes X-Frame-Options headers          │
+│ Device presets: Desktop (100%), Tablet (768px), Mobile (375px)  │
+│ Refresh / Stop / Fullscreen controls available                   │
+└──────────────────────────────────────────────────────────────────┘
+</div>
+
+<div class="callout">
+  <strong>Why no PORT override?</strong> Earlier versions tried to inject a random port (like <code>PORT=5847</code>) into the environment, but many projects (e.g., Create React App with <code>set PORT=3001</code> in their scripts) override env vars. The current approach lets the project decide its own port and uses AI prediction + multi-port probing to find it.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 7. AUTOFLOW DEEP DIVE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="autoflow-deep-dive" class="section-break">7. Deep Dive: The Autoflow System</h2>
+<p>The "autoflow" is not a single button — it's a system of three connected features that together create a semi-autonomous build loop:</p>
+
+<h3>7.1 Kickoff Prompts</h3>
+<p>When the plan is generated, every task gets a <code>startingPrompt</code> — a pre-written first message designed to tell the task agent exactly what to do. When you navigate to a task for the first time, a card appears:</p>
+<div class="flow-diagram">
+┌──────────────────────────────────────────────────┐
+│  ⚡ Kickoff prompt                                │
+│                                                    │
+│  "Initialize the React project with Create React   │
+│   App. Set up the folder structure with            │
+│   components/, pages/, and utils/ directories.     │
+│   Install React Router and Tailwind CSS."          │
+│                                                    │
+│  [ Use kickoff ]                                   │
+└──────────────────────────────────────────────────┘
+</div>
+<p>Clicking "Use kickoff" pastes this prompt into the chat composer and sends it.</p>
+
+<h3>7.2 Auto-Prompt (⚡ Button)</h3>
+<p>After the first message, the ⚡ button in the chat composer calls <code>generateTaskPrompt()</code>. This asks the AI: "Given where this task is right now, what should the user say next?" The AI returns a tailored prompt that gets pre-filled into the composer.</p>
+
+<h3>7.3 Auto-Advance</h3>
+<p>A toggle: "Auto-advance tasks." When enabled:</p>
+<ol>
+  <li>After each AI response, the system checks if the task status is "done"</li>
+  <li>If done, it finds the next incomplete task in the plan</li>
+  <li>Automatically navigates to that task's chat</li>
+  <li>The kickoff prompt appears for the new task</li>
+</ol>
+
+<h3>The Full Autoflow Loop</h3>
+<div class="flow-diagram">
+┌─ Start ─────────────────────────────────────────────────────────┐
+│                                                                  │
+│  Task 1: "Set up project structure"                              │
+│  ├── Kickoff prompt appears → User clicks "Use kickoff"          │
+│  ├── Agent works, writes files, replies with TASK_STATUS: done   │
+│  ├── Auto-advance enabled → navigates to Task 2                  │
+│  │                                                               │
+│  Task 2: "Build the homepage"                                    │
+│  ├── Kickoff prompt appears → User clicks "Use kickoff"          │
+│  ├── Agent works, replies with TASK_STATUS: building             │
+│  ├── User clicks ⚡ → AI generates next prompt → pre-filled      │
+│  ├── User clicks Send → Agent continues → TASK_STATUS: done      │
+│  ├── Auto-advance → Task 3                                       │
+│  │                                                               │
+│  ... continues through all tasks ...                             │
+│                                                                  │
+│  Last task: TASK_STATUS: done → All tasks complete! 🎉           │
+└──────────────────────────────────────────────────────────────────┘
+</div>
+
+<div class="callout callout-warn">
+  <strong>Current state:</strong> The autoflow requires the user to click "Use kickoff" or "Send" for each step. It's semi-automated, not fully autonomous. A fully autonomous mode (where it sends kickoff → waits → sends auto-prompt → waits → repeat) could be built on top of this foundation but doesn't exist yet.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 8. SAFETY -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="safety" class="section-break">8. Safety &amp; Security Model</h2>
+<p>Since CodeBuddy gives an AI agent the power to run commands and write files, safety is critical. Here are the four layers of protection:</p>
+
+<h3>8.1 System Prompt Rules</h3>
+<p>Every agent prompt includes explicit rules about what the AI must never do. These are "soft" guardrails — they rely on the AI following instructions.</p>
+
+<h3>8.2 CRITICAL SAFETY RULES Block</h3>
+<p>The task agent (the only one with tool access) gets an additional 30-line safety block injected into every prompt:</p>
+<div class="prompt-box"><span class="highlight">=== CRITICAL SAFETY RULES — VIOLATION WILL CRASH THE APP ===</span>
+
+You are running INSIDE the CodeBuddy desktop application.
+CodeBuddy runs on port 3000 (Next.js dev server) and an Electron process.
+If you kill or interfere with port 3000, YOU WILL CRASH THE APP.
+
+<span class="highlight">ABSOLUTELY FORBIDDEN COMMANDS:</span>
+- taskkill, Stop-Process, kill, pkill, killall
+- netstat + kill/stop combos
+- npx kill-port, fkill, lsof + kill
+- code, code ., code &lt;file&gt;
+- explorer, open, start, xdg-open
+- Any command that opens a GUI window, browser, or external terminal
+- npm start on port 3000 (it's taken by CodeBuddy)
+- shutdown, restart, logoff, exit
+
+<span class="highlight">ALLOWED COMMANDS:</span>
+- npm install, pip install, cargo build (installing/building)
+- mkdir, touch, echo (creating files)
+- cat, ls, dir (reading files)
+- git add, commit, status (version control)
+- npm test, pytest, cargo test (testing)
+- Any command that reads, creates, or modifies PROJECT files
+
+<span class="highlight">=== END SAFETY RULES ===</span></div>
+
+<h3>8.3 Safe Command Jail</h3>
+<p>A "hard" guardrail: Before running copilot.exe, CodeBuddy creates a temporary directory filled with <strong>no-op wrapper scripts</strong> for dangerous commands:</p>
+<pre><code>Jail directory contains fake executables for:
+  code, code.cmd         → "exit 0" (VS Code)
+  explorer, explorer.cmd → "exit 0" (Windows Explorer)
+  open                   → "exit 0" (macOS open)
+  start, start.cmd       → "exit 0" (Windows start)
+  taskkill, taskkill.cmd → "exit 0" (process killer)
+  shutdown               → "exit 0"
+  tasklist               → "exit 0"</code></pre>
+<p>This jail directory is prepended to the PATH environment variable when running copilot.exe. So even if the AI tries to run <code>code .</code>, it executes the fake no-op version instead of the real VS Code.</p>
+
+<h3>8.4 Environment Filtering</h3>
+<p>When running copilot.exe, the environment is sanitized:</p>
+<ul>
+  <li><code>EDITOR=cat</code> — Prevents any editor from opening</li>
+  <li><code>BROWSER=echo</code> — Prevents browser launches</li>
+  <li>PATH is filtered to remove known dangerous tool directories</li>
+  <li>The safe command jail is prepended to PATH</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 9. GENERALIZABILITY -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="generalizability" class="section-break">9. Generalizability Analysis</h2>
+<p>
+  <strong>The central question:</strong> Can CodeBuddy handle any type of project someone wants to build, not just React web apps?
+</p>
+
+<h3>9.1 What Makes It Generalizable (Strengths)</h3>
+
+<table>
+  <tr><th>Aspect</th><th>How It's Generalized</th><th>Evidence</th></tr>
+  <tr>
+    <td>Config file detection</td>
+    <td>Reads 15+ config formats</td>
+    <td><code>launchDevServer()</code> checks: package.json, Cargo.toml, pyproject.toml, requirements.txt, Gemfile, go.mod, build.gradle, pom.xml, Makefile, docker-compose.yml, composer.json, mix.exs, .csproj, .sln, index.html</td>
+  </tr>
+  <tr>
+    <td>AI-driven planning</td>
+    <td>System prompts are framework-agnostic</td>
+    <td>The planner prompt says "MVP plan" without mentioning specific frameworks. It defers to the AI's training data.</td>
+  </tr>
+  <tr>
+    <td>AI-driven dev server</td>
+    <td>AI determines the launch command from context</td>
+    <td>Instead of hardcoded <code>npm start</code>, the agent reads config files and outputs the right command (could be <code>cargo run</code>, <code>python manage.py runserver</code>, etc.)</td>
+  </tr>
+  <tr>
+    <td>Task agent tools</td>
+    <td>Copilot CLI <code>--allow-all-tools</code></td>
+    <td>The task agent can read/write any file type, run any command — not limited to JS/TS</td>
+  </tr>
+  <tr>
+    <td>File tree scanning</td>
+    <td>Uses generic <code>gatherProjectSnapshot()</code></td>
+    <td>Walks the directory, excludes common build artifacts (node_modules, .git, __pycache__, target/, etc.), reads key files</td>
+  </tr>
+  <tr>
+    <td>Model selection</td>
+    <td>15+ AI models including reasoning models</td>
+    <td>Users can pick the best model for their project type (e.g., Claude Opus for complex architecture)</td>
+  </tr>
+</table>
+
+<h3>9.2 Where Generalizability Could Break (Gaps)</h3>
+
+<table>
+  <tr><th>Gap</th><th>Impact</th><th>Mitigation Path</th></tr>
+  <tr>
+    <td>Preview is web-only</td>
+    <td>The &lt;webview&gt; can only show HTTP servers. CLI tools, desktop apps, mobile apps won't have a preview.</td>
+    <td>Could add terminal-only preview mode for non-web projects, or screenshot capture for desktop apps.</td>
+  </tr>
+  <tr>
+    <td>Port detection assumes HTTP</td>
+    <td>Projects that don't start an HTTP server (game engines, CLI tools, desktop apps) won't benefit from "Run App"</td>
+    <td>Could detect project type and skip preview for non-web projects, showing terminal output instead.</td>
+  </tr>
+  <tr>
+    <td>Windows-centric commands</td>
+    <td><code>npm.cmd</code>/<code>npx.cmd</code> hints are Windows-specific in the launch prompt</td>
+    <td>Already handled: the prompt checks <code>process.platform</code> and adjusts. Cross-platform support exists.</td>
+  </tr>
+  <tr>
+    <td>Friends/collaboration is mock</td>
+    <td>No real multi-user backend exists</td>
+    <td>Need authentication, WebSocket for real-time sync, and a server component.</td>
+  </tr>
+  <tr>
+    <td>System prompt mentions "MVP"</td>
+    <td>Could bias the AI toward simple web apps</td>
+    <td>The prompt says "practical MVP plan" which is generally fine — the AI still adapts to the description.</td>
+  </tr>
+  <tr>
+    <td>Checkpoint storage</td>
+    <td>Full file copies before every prompt can get large for big projects</td>
+    <td>Could switch to git-based checkpoints (stash/tag) instead of file copies.</td>
+  </tr>
+</table>
+
+<h3>9.3 Verdict</h3>
+<div class="callout callout-green">
+  <strong>CodeBuddy is well-generalized for any project that involves code files and can be developed from a terminal.</strong> It reads whatever project structure exists, lets the AI figure out the specifics, and doesn't hardcode assumptions about languages or frameworks. The main limitation is the preview system, which currently only works for web apps that start an HTTP server. Non-web projects (CLI tools, desktop apps, games, data science) can still use the planning, task agent, file editing, and terminal features — they just won't get the live preview.
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 10. PROGRESS ROADMAP -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="progress-roadmap" class="section-break">10. Progress Roadmap</h2>
+
+<h3>10.1 Overall Completion Summary</h3>
+<table>
+  <tr><th>Area</th><th>Status</th><th>Notes</th></tr>
+  <tr><td>Electron shell &amp; packaging</td><td><span class="status-badge status-done">Done</span></td><td>Windows installer builds, desktop shortcut works</td></tr>
+  <tr><td>Project creation (new)</td><td><span class="status-badge status-done">Done</span></td><td>Name, description, directory picker, git init</td></tr>
+  <tr><td>Project creation (import)</td><td><span class="status-badge status-done">Done</span></td><td>Folder picker, auto-analyze codebase</td></tr>
+  <tr><td>AI plan generation</td><td><span class="status-badge status-done">Done</span></td><td>Both new and imported project prompts</td></tr>
+  <tr><td>Project dashboard</td><td><span class="status-badge status-done">Done</span></td><td>Subprojects, tasks, progress ring, build order</td></tr>
+  <tr><td>PM Chat</td><td><span class="status-badge status-done">Done</span></td><td>Full conversation with checkpoints and edit/retry</td></tr>
+  <tr><td>Task Agent Chat</td><td><span class="status-badge status-done">Done</span></td><td>File-modifying agent with safety rules</td></tr>
+  <tr><td>Auto-prompt (⚡)</td><td><span class="status-badge status-done">Done</span></td><td>AI generates next prompt, auto-advance</td></tr>
+  <tr><td>Run App / Preview</td><td><span class="status-badge status-done">Done</span></td><td>AI launch detection, multi-port probe, device presets</td></tr>
+  <tr><td>File editor</td><td><span class="status-badge status-done">Done</span></td><td>Browse, open, edit, save files</td></tr>
+  <tr><td>Git integration</td><td><span class="status-badge status-done">Done</span></td><td>Stage, commit, branch, diff, history</td></tr>
+  <tr><td>GitHub push</td><td><span class="status-badge status-done">Done</span></td><td>Create repo, push to origin</td></tr>
+  <tr><td>Settings (project)</td><td><span class="status-badge status-done">Done</span></td><td>Name, description, model, tool paths, system prompt</td></tr>
+  <tr><td>Settings (user)</td><td><span class="status-badge status-partial">UI Only</span></td><td>Static profile page, no auth</td></tr>
+  <tr><td>Activity feed</td><td><span class="status-badge status-partial">Partial</span></td><td>UI done, backend logging exists, but events are basic</td></tr>
+  <tr><td>Checkpoint/restore</td><td><span class="status-badge status-done">Done</span></td><td>File snapshot before every prompt, restore on edit</td></tr>
+  <tr><td>Safe command jail</td><td><span class="status-badge status-done">Done</span></td><td>No-op wrappers for dangerous commands</td></tr>
+  <tr><td>Theme (light/dark)</td><td><span class="status-badge status-done">Done</span></td><td>Full theme system with CSS variables</td></tr>
+  <tr><td>Friends / People</td><td><span class="status-badge status-stub">Mock Only</span></td><td>Hardcoded data, no backend</td></tr>
+  <tr><td>Messaging</td><td><span class="status-badge status-stub">Placeholder</span></td><td>Messages page exists in sidebar but minimal</td></tr>
+  <tr><td>Authentication</td><td><span class="status-badge status-planned">Not Started</span></td><td>No login system, single user assumed</td></tr>
+  <tr><td>Real-time collaboration</td><td><span class="status-badge status-planned">Not Started</span></td><td>No WebSocket/server component</td></tr>
+  <tr><td>macOS / Linux builds</td><td><span class="status-badge status-planned">Not Started</span></td><td>electron-builder can target all platforms</td></tr>
+  <tr><td>Fully autonomous autoflow</td><td><span class="status-badge status-planned">Not Started</span></td><td>Semi-auto exists; full loop needs click-free mode</td></tr>
+</table>
+
+<h3>10.2 Function-Level Progress</h3>
+
+<h4>Backend Functions</h4>
+<table>
+  <tr><th>Function</th><th>Status</th><th>Lines</th><th>Notes</th></tr>
+  <tr><td><code>createProject()</code></td><td><span class="status-badge status-done">Done</span></td><td>~200</td><td>New + import paths, git init, GitHub option</td></tr>
+  <tr><td><code>deleteProject()</code></td><td><span class="status-badge status-done">Done</span></td><td>~80</td><td>4 delete modes</td></tr>
+  <tr><td><code>generateProjectPlan()</code></td><td><span class="status-badge status-done">Done</span></td><td>~180</td><td>Full planning with README generation</td></tr>
+  <tr><td><code>sendPMMessage()</code></td><td><span class="status-badge status-done">Done</span></td><td>~100</td><td>Checkpoint + chat + context sync</td></tr>
+  <tr><td><code>sendTaskMessage()</code></td><td><span class="status-badge status-done">Done</span></td><td>~200</td><td>Full agent with safety rules + tool access</td></tr>
+  <tr><td><code>generateTaskPrompt()</code></td><td><span class="status-badge status-done">Done</span></td><td>~100</td><td>Auto-prompt with status detection</td></tr>
+  <tr><td><code>launchDevServer()</code></td><td><span class="status-badge status-done">Done</span></td><td>~160</td><td>AI + heuristic fallback + .env auto-copy</td></tr>
+  <tr><td><code>ensureGithubRepoForProject()</code></td><td><span class="status-badge status-done">Done</span></td><td>~60</td><td>Git identity + gh repo create + push</td></tr>
+  <tr><td><code>restoreCheckpoint()</code></td><td><span class="status-badge status-done">Done</span></td><td>~50</td><td>Copy files back from checkpoint directory</td></tr>
+  <tr><td><code>createCheckpointSnapshot()</code></td><td><span class="status-badge status-done">Done</span></td><td>~80</td><td>Full file tree copy, excludes build artifacts</td></tr>
+  <tr><td><code>syncSharedAgentContextFiles()</code></td><td><span class="status-badge status-done">Done</span></td><td>~120</td><td>Writes .codebuddy/agents/ markdown files</td></tr>
+  <tr><td><code>getSafeCommandJailDir()</code></td><td><span class="status-badge status-done">Done</span></td><td>~50</td><td>Creates no-op wrappers for dangerous commands</td></tr>
+  <tr><td><code>runProgram()</code></td><td><span class="status-badge status-done">Done</span></td><td>~80</td><td>Safe env, PATH filtering, cancellation support</td></tr>
+</table>
+
+<h4>Frontend Pages</h4>
+<table>
+  <tr><th>Page</th><th>Status</th><th>Approx. Lines</th><th>Desktop API Integration</th></tr>
+  <tr><td>Landing (<code>/</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~60</td><td>None needed</td></tr>
+  <tr><td>Home (<code>/home</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~400</td><td>Full: create, delete, select projects</td></tr>
+  <tr><td>Workspace (<code>/project</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~600</td><td>Full: reads plan, manages tasks</td></tr>
+  <tr><td>Chat (<code>/project/chat</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~4,500</td><td>Full: all agent APIs, process control, preview</td></tr>
+  <tr><td>Files (<code>/project/files</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~800</td><td>Full: repo inspect, file CRUD, git operations</td></tr>
+  <tr><td>Preview (<code>/project/preview</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~350</td><td>Full: launch dev server, process events</td></tr>
+  <tr><td>Activity (<code>/project/activity</code>)</td><td><span class="status-badge status-partial">Partial</span></td><td>~200</td><td>Reads activity from dashboard</td></tr>
+  <tr><td>Settings (<code>/project/settings</code>)</td><td><span class="status-badge status-done">Done</span></td><td>~500</td><td>Full: settings read/write, tool detection</td></tr>
+  <tr><td>People (<code>/people</code>)</td><td><span class="status-badge status-stub">Mock</span></td><td>~60</td><td>None (mock data)</td></tr>
+  <tr><td>User Settings (<code>/settings</code>)</td><td><span class="status-badge status-partial">UI Only</span></td><td>~80</td><td>None (static)</td></tr>
+</table>
+
+<h3>10.3 What's Needed Next (Priority Order)</h3>
+<ol>
+  <li><strong>Fully autonomous autoflow</strong> — Wire the kickoff → send → auto-prompt → send → auto-advance loop to run without user clicks. This is the killer feature that would differentiate CodeBuddy.</li>
+  <li><strong>Non-web project detection</strong> — Detect projects that don't have web servers (CLI tools, desktop apps) and show terminal-only output instead of the preview webview.</li>
+  <li><strong>Authentication system</strong> — Even basic auth (email/password or GitHub OAuth) to enable multi-user features.</li>
+  <li><strong>Real friend connections</strong> — Replace mock data with actual social backend (invite links, friend requests, shared project access).</li>
+  <li><strong>Real-time collaboration</strong> — WebSocket server for live cursors, chat, and shared file editing.</li>
+  <li><strong>Cross-platform packaging</strong> — Test and build for macOS (.dmg) and Linux (.AppImage).</li>
+  <li><strong>Checkpoint optimization</strong> — Switch from full file copies to git-based checkpoints for large projects.</li>
+  <li><strong>Error recovery</strong> — Better handling when copilot.exe fails, returns garbage, or times out.</li>
+</ol>
+
+<hr>
+<p style="text-align: center; color: #888; margin-top: 30pt; font-size: 10pt;">
+  CodeBuddy Technical Deep Dive — Generated March 29, 2026<br>
+  Total codebase: ~12,000 lines across 30+ files<br>
+  Backend services: ~3,400 lines · Frontend pages: ~7,650 lines · Components/hooks: ~900 lines
+</p>
+
+</body>
+</html>

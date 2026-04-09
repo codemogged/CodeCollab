@@ -14,6 +14,7 @@ function createDefaultDashboard(systemPromptMarkdown = "", initialPrompt = "") {
     artifacts: [],
     channels: [],
     directMessages: [],
+    soloSessions: [],
   };
 }
 
@@ -39,6 +40,7 @@ type ActiveDesktopProject = {
     artifacts: unknown[];
     channels: unknown[];
     directMessages: unknown[];
+    soloSessions?: unknown[];
   };
 };
 
@@ -74,6 +76,7 @@ function normalizeActiveProject(project: Partial<ActiveDesktopProject> | null): 
       artifacts: Array.isArray(project.dashboard?.artifacts) ? project.dashboard.artifacts : [],
       channels: Array.isArray(project.dashboard?.channels) ? project.dashboard.channels : [],
       directMessages: Array.isArray(project.dashboard?.directMessages) ? project.dashboard.directMessages : [],
+      soloSessions: Array.isArray(project.dashboard?.soloSessions) ? project.dashboard.soloSessions : [],
     },
   };
 }

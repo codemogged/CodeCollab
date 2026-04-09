@@ -1,46 +1,171 @@
 # CodeBuddy
 
-CodeBuddy is a product prototype for collaborative vibe coding.
+A self-contained desktop workspace for building software with friends — powered by AI agents, real-time P2P collaboration, and GitHub integration.
 
-The concept is a hybrid of:
-- AI coding assistance
-- friend-first collaboration
-- simple project management
-- GitHub-backed execution
-- optional vetted expert help
+## What is CodeBuddy?
 
-## Product thesis
+CodeBuddy is a native desktop app that lets anyone — technical or not — create software projects, break them into tasks, and have AI agents do the coding. You invite friends to collaborate in real time over peer-to-peer connections, and everything syncs through GitHub automatically.
 
-Most tools in this market optimize for one of three things:
-- solo AI app generation
-- professional developer productivity
-- enterprise work coordination
+No VS Code. No terminal knowledge. No browser tabs. Everything happens inside one window.
 
-CodeBuddy is aimed at the gap between them: people who want to build software together, but do not want to learn a full developer workflow before they can get started.
+## Key Features
 
-## MVP in this repo
+- **AI-Powered Project Planning** — Describe what you want to build in plain English. CodeBuddy generates a structured plan with subprojects, tasks, and implementation-ready starting prompts.
+- **Dual AI Agents** — Tasks are executed by Claude Code or GitHub Copilot CLI (your choice per task). Agents write real code in your repo with full tool access.
+- **Real-Time P2P Collaboration** — Connect with friends over Hyperswarm. See live agent output, sync task status, and chat — all without a server.
+- **Multi-Project Support** — Work on multiple projects simultaneously, each with isolated P2P rooms and independent state.
+- **GitHub-Backed Sync** — Every project is a Git repo. Changes auto-commit and push to a `codebuddy-build` branch. Conflicts resolve automatically via soft-reset recovery.
+- **Built-In Everything** — Monaco code editor, live web preview, integrated terminal, file browser, and artifact viewer. No external tools needed.
+- **Onboarding Flow** — Guided setup installs Git, Node.js, GitHub CLI, Claude Code, and Copilot CLI automatically via winget.
+- **Checkpoint & Rollback** — File snapshots taken before each agent run let you undo any AI changes.
 
-This repo currently contains:
-- a landing page describing the concept and market position
-- a mocked collaborative workspace page
-- a minimal Next.js setup ready for iteration
-- product strategy documents in the `docs` folder
+## Architecture
 
-## Suggested near-term roadmap
+```
+┌──────────────────────────────────────────────┐
+│                  Electron Shell               │
+│  ┌────────────┐  ┌─────────────────────────┐ │
+│  │  Main Proc  │  │    Renderer (Next.js)   │ │
+│  │             │  │                         │ │
+│  │  Services:  │  │  Routes:                │ │
+│  │  ├ project  │◄─┤  ├ /home       dashboard│ │
+│  │  ├ p2p      │  │  ├ /project    workspace│ │
+│  │  ├ process  │  │  ├ /project/chat   AI   │ │
+│  │  ├ repo     │  │  ├ /project/code editor │ │
+│  │  ├ settings │  │  ├ /project/preview web │ │
+│  │  ├ tooling  │  │  ├ /people   collaborators│
+│  │  ├ activity │  │  ├ /settings  config    │ │
+│  │  ├ filewatcher│ │  └ /onboarding  setup  │ │
+│  │  └ state    │  │                         │ │
+│  └──────┬──────┘  └─────────────────────────┘ │
+│         │              IPC Bridge              │
+│         │          (preload.js)                │
+│  ┌──────┴──────┐                              │
+│  │ Hyperswarm  │  P2P mesh (per-project rooms)│
+│  │ Yjs CRDT    │  conflict-free state merge   │
+│  └─────────────┘                              │
+└──────────────────────────────────────────────┘
+```
 
-1. Add GitHub OAuth and connect one repository per project room.
-2. Convert the mocked timeline into live issue, branch, and pull request events.
-3. Add real-time room presence and comments.
-4. Add permissions for owner, friend, contributor, and vetted expert roles.
-5. Add an expert marketplace with scoped task requests.
+### Backend Services (Electron Main Process)
 
-## Local run
+| Service | Purpose |
+|---------|---------|
+| `project-service` | Project CRUD, AI agent execution, plan management, state broadcasting |
+| `p2p-service` | Hyperswarm-based multi-room P2P with Yjs CRDT state sync |
+| `process-service` | Spawns and manages Claude/Copilot CLI child processes |
+| `repo-service` | Git operations — clone, commit, push, pull, conflict recovery |
+| `settings-service` | Persistent user/project settings storage |
+| `tooling-service` | Detects and installs dev tools (Node, Git, GitHub CLI, Claude, Copilot) |
+| `file-watcher-service` | Watches project dirs, triggers auto-commit/push when agent idle |
+| `activity-service` | GitHub API integration for issues, PRs, branches, deploys |
+| `shared-state-service` | Cross-service singleton state |
 
-This environment does not currently have Node.js or npm installed, so I could not run the project here.
+### Frontend (Next.js + React + TypeScript)
 
-Once Node.js is available, install dependencies and start the app with:
+- **Home** — Project dashboard, create/import projects
+- **Project** — Task board, plan viewer, P2P controls, subproject navigation
+- **Chat** — Send prompts to AI agents, view streaming responses, P2P message relay
+- **Code** — Monaco editor with file tree, peer stream display
+- **Preview** — Live iframe preview of web apps running on localhost
+- **Files** — File browser with artifact detection
+- **People** — Manage collaborators, send P2P invites
+- **Settings** — Tool installation status, model selection, GitHub auth
+- **Onboarding** — First-run setup wizard
+
+### P2P Protocol
+
+Each project gets an isolated Hyperswarm room derived from the repo's remote URL. The wire protocol supports 7 message types:
+
+| Type | Purpose |
+|------|---------|
+| `hello` | Peer identity exchange (name, member info) |
+| `yjs-update` | CRDT document incremental update |
+| `yjs-sync` | Full CRDT state vector exchange |
+| `heartbeat` | Keepalive (30s interval) |
+| `chat-token` | Streaming AI agent output token relay |
+| `chat-message` | Complete chat message broadcast |
+| `state-change` | Task status, plan, thread, and conversation sync |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop shell | Electron 41 |
+| Frontend framework | Next.js 16 + React 19 |
+| Language | TypeScript (frontend), JavaScript (backend services) |
+| Styling | Tailwind CSS 3 |
+| Code editor | Monaco Editor |
+| P2P networking | Hyperswarm 4 |
+| State sync | Yjs CRDT |
+| AI agents | Claude Code CLI, GitHub Copilot CLI |
+| Version control | Git (via `simple-git`-style shell exec) |
+| Build/package | electron-builder |
+
+## Getting Started
+
+### Prerequisites
+
+- Windows 10/11 (macOS/Linux support planned)
+- Node.js 18+
+- Git
+- GitHub CLI (`gh`) with authentication
+
+### Development
 
 ```bash
+# Install dependencies
 npm install
-npm run dev
+
+# Run in development mode (Next.js + Electron)
+npm run dev:electron
+
+# Build and deploy to local install folder
+npm run deploy
 ```
+
+### Production Build
+
+```bash
+# Build standalone Windows executable
+npx electron-builder --win portable
+
+# Or use the deploy script (builds + copies to install folder)
+npm run deploy
+```
+
+The deploy target is `C:\Users\<you>\Desktop\CodeBuddy Install\`.
+
+### Running the Built App
+
+Use `debug-start.bat` for diagnostics output, or launch `CodeBuddy.exe` directly.
+
+## Project Structure
+
+```
+CodeBuddy/
+├── electron/
+│   ├── main.js              # Electron entry point
+│   ├── preload.js            # IPC bridge (sandboxed)
+│   ├── ipc/
+│   │   └── register-handlers.js  # All IPC channel registrations
+│   └── services/             # Backend service modules
+├── src/
+│   ├── app/                  # Next.js pages and routes
+│   ├── components/           # Shared React components
+│   ├── hooks/                # Custom React hooks
+│   └── lib/                  # Types, mock data, utilities
+├── docs/                     # Product strategy and architecture docs
+├── build/                    # App icons and build resources
+├── scripts/                  # Build helper scripts
+└── dist-electron/            # Build output (electron-builder)
+```
+
+## Current Build
+
+**Tag:** `copilot-fix-v21`
+**Version:** 0.1.0
+
+## License
+
+Private — not yet open-sourced.

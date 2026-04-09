@@ -294,6 +294,20 @@ export default function FilesPage() {
     };
   }, [activeProject?.repoPath]);
 
+  // Auto-switch back to codebuddy-build when leaving the Files tab
+  useEffect(() => {
+    return () => {
+      if (!connectedRepo || !window.electronAPI?.repo) return;
+      if (connectedRepo.branch !== "codebuddy-build" && connectedRepo.branches.includes("codebuddy-build")) {
+        window.electronAPI.repo.checkoutBranch({
+          repoPath: connectedRepo.repoPath,
+          branchName: "codebuddy-build",
+          create: false,
+        }).catch(() => { /* best-effort */ });
+      }
+    };
+  }, [connectedRepo?.repoPath, connectedRepo?.branch]);
+
   const handleConnectRepo = async () => {
     if (!window.electronAPI?.system || !window.electronAPI?.repo) {
       setRepoError("Local repository access is only available in the desktop app.");
@@ -521,6 +535,19 @@ export default function FilesPage() {
       setSelectedDiffText("");
       setSelectedCommitDetails(null);
       await handleOpenDirectory(currentDirectoryPath ?? inspection.repoPath);
+
+      // Also push to GitHub so the commit is actually saved remotely
+      try {
+        const remoteUrl = await window.electronAPI.repo.getRemoteUrl(connectedRepo.repoPath);
+        if (remoteUrl) {
+          await window.electronAPI.repo.push({ repoPath: connectedRepo.repoPath });
+          const refreshed = await window.electronAPI.repo.inspect(connectedRepo.repoPath);
+          setConnectedRepo(refreshed);
+        }
+      } catch (pushErr) {
+        console.warn("[files] Auto-push after commit failed:", pushErr);
+        // Don't fail the whole operation if push fails — the commit succeeded
+      }
     } catch (error) {
       setRepoError(normalizeRepoErrorMessage(error));
     } finally {
@@ -641,9 +668,7 @@ export default function FilesPage() {
               </p>
               {connectedRepo ? (
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] theme-muted">
-                  <span className="rounded-full border border-black/[0.08] bg-black/[0.04] px-2.5 py-0.5 text-[11px] font-semibold dark:border-white/[0.08] dark:bg-white/[0.06]">{connectedRepo.branch}</span>
-                  <span>{connectedRepo.changedFiles.length} changed</span>
-                  <span>{stagedFileCount} kept</span>
+                  <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${connectedRepo.branch === "codebuddy-build" ? "border-blue-500/30 bg-blue-500/15 text-blue-500 dark:text-blue-400" : connectedRepo.branch === "main" ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-500 dark:text-emerald-400" : "border-black/[0.08] bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.06]"}`}>{connectedRepo.branch}</span>
                   <span>{connectedRepo.recentCommits.length} commits</span>
                 </div>
               ) : null}
@@ -685,7 +710,31 @@ export default function FilesPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex flex-wrap gap-1.5">
-                  {connectedRepo.branches.map((branch) => (
+                  {/* Primary branch toggle: codebuddy-build and main */}
+                  {["codebuddy-build", "main"].filter(b => connectedRepo.branches.includes(b)).map((branch) => (
+                    <button
+                      key={branch}
+                      type="button"
+                      onClick={() => {
+                        setBranchDraft(branch);
+                        void handleCheckoutBranch(branch, false);
+                      }}
+                      disabled={isMutatingRepo || branch === connectedRepo.branch}
+                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                        branch === connectedRepo.branch
+                          ? branch === "codebuddy-build"
+                            ? "bg-blue-500 text-white ring-1 ring-blue-500/30"
+                            : "bg-emerald-500 text-white ring-1 ring-emerald-500/30"
+                          : branch === "codebuddy-build"
+                            ? "bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20 hover:bg-blue-500/20 dark:text-blue-400"
+                            : "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20 dark:text-emerald-400"
+                      } disabled:opacity-70`}
+                    >
+                      {branch === "codebuddy-build" ? "⚡ Working" : "🏠 Main"}
+                    </button>
+                  ))}
+                  {/* Other branches */}
+                  {connectedRepo.branches.filter(b => b !== "codebuddy-build" && b !== "main").map((branch) => (
                     <button
                       key={branch}
                       type="button"
@@ -783,64 +832,10 @@ export default function FilesPage() {
                 </span>
                 <span className="text-[12px] theme-muted">·</span>
                 <span className="text-[12px] theme-muted">{connectedRepo?.recentCommits.length ?? 0} commits</span>
-                {connectedRepo ? (
-                  <>
-                    <span className="text-[12px] theme-muted">·</span>
-                    <span className="text-[12px] theme-muted">{connectedRepo.changedFiles.length} changed</span>
-                  </>
-                ) : null}
+
               </div>
 
-              {connectedRepo?.changedFiles.length ? (
-                <div className="border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Changed files</p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleStageAll(false)}
-                        disabled={isMutatingRepo || !connectedRepo.changedFiles.some((file) => !isStagedFile(file))}
-                        className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold theme-fg transition hover:border-black/[0.14] disabled:opacity-50 dark:border-white/[0.1]"
-                      >
-                        Keep all
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleStageAll(true)}
-                        disabled={isMutatingRepo || !connectedRepo.changedFiles.some((file) => isStagedFile(file))}
-                        className="rounded-full border border-black/[0.08] px-3 py-1 text-[10px] font-semibold theme-fg transition hover:border-black/[0.14] disabled:opacity-50 dark:border-white/[0.1]"
-                      >
-                        Undo all
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-1">
-                    {connectedRepo.changedFiles.map((file) => (
-                      <div key={`${file.indexStatus}${file.workTreeStatus}:${file.path}`} className="flex flex-wrap items-center gap-2 rounded-xl bg-black/[0.04] px-3 py-2 text-[11px] font-medium theme-fg dark:bg-white/[0.06]">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isStagedFile(file) ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"}`}>
-                          {isStagedFile(file) ? "Kept" : "Changed"}
-                        </span>
-                        <span className="min-w-0 flex-1 break-all">{file.path}</span>
-                        <button
-                          type="button"
-                          onClick={() => void handleLoadDiff(file.path, isStagedFile(file))}
-                          className="rounded-full px-2.5 py-1 text-[10px] font-semibold theme-muted transition hover:bg-black/[0.05] hover:text-[var(--fg)] dark:hover:bg-white/[0.08]"
-                        >
-                          View changes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleStageToggle(file)}
-                          disabled={isMutatingRepo}
-                          className="rounded-full bg-ink px-2.5 py-1 text-[10px] font-semibold text-cream transition hover:bg-ink/90 disabled:opacity-50 dark:bg-white dark:text-[#17181b]"
-                        >
-                          {isStagedFile(file) ? "Undo" : "Keep"}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+
 
               {connectedRepo ? (
                 <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-2.5 dark:border-white/[0.08]">
