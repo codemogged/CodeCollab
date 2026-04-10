@@ -40,6 +40,15 @@ const claudeCodeModelOptions = [
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", usage: "Included", provider: "Claude Code" },
 ];
 
+const codexModelOptions = [
+  { id: "auto", label: "Auto", usage: "Default", provider: "OpenAI" },
+  { id: "codex-mini", label: "Codex Mini", usage: "Included", provider: "OpenAI" },
+  { id: "o4-mini", label: "o4-mini", usage: "Included", provider: "OpenAI" },
+  { id: "o3", label: "o3", usage: "Included", provider: "OpenAI" },
+  { id: "gpt-4.1", label: "GPT-4.1", usage: "Included", provider: "OpenAI" },
+  { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", usage: "Included", provider: "OpenAI" },
+];
+
 interface GithubAccount {
   host: string;
   username: string;
@@ -59,6 +68,7 @@ interface DesktopSettings {
   featureFlags: {
     githubCopilotCli: boolean;
     claudeCode: boolean;
+    codexCli: boolean;
     githubCompanion: boolean;
   };
 }
@@ -89,8 +99,10 @@ export default function SettingsPage() {
   /* AI Tools setup state */
   const [claudeCodeSetup, setClaudeCodeSetup] = useState<AiToolSetupState>(defaultToolState);
   const [copilotSetup, setCopilotSetup] = useState<AiToolSetupState>(defaultToolState);
+  const [codexSetup, setCodexSetup] = useState<AiToolSetupState>(defaultToolState);
   const [expandClaudeDetail, setExpandClaudeDetail] = useState(false);
   const [expandCopilotDetail, setExpandCopilotDetail] = useState(false);
+  const [expandCodexDetail, setExpandCodexDetail] = useState(false);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4000); };
@@ -262,6 +274,43 @@ export default function SettingsPage() {
     }
   };
 
+  const checkCodexCli = async () => {
+    setCodexSetup((s) => ({ ...s, checking: true }));
+    try {
+      const statuses = await window.electronAPI?.tools?.listStatus();
+      const codexTool = statuses?.find((t: { id: string }) => t.id === "codexCli");
+      setCodexSetup(codexTool?.available
+        ? { checking: false, installing: false, status: "ready", detail: codexTool.detail || "Codex CLI is ready" }
+        : { checking: false, installing: false, status: "missing", detail: "Not found — click Setup to install" });
+    } catch {
+      setCodexSetup({ checking: false, installing: false, status: "error", detail: "Could not check status" });
+    }
+  };
+
+  const handleSetupCodexCli = async () => {
+    setCodexSetup((s) => ({ ...s, installing: true, detail: "Installing Codex CLI…" }));
+    try {
+      const result = await window.electronAPI?.tools?.installCodex();
+      if (!result?.success) {
+        showToast("Install failed — see details");
+        setCodexSetup({ checking: false, installing: false, status: "missing", detail: result?.detail || "Install failed. Try: npm install -g @openai/codex" });
+        return;
+      }
+      // Install succeeded — auto-trigger OAuth
+      setCodexSetup({ checking: false, installing: true, status: "ready", detail: "Installed — opening sign-in…" });
+      showToast("Codex CLI installed — starting auth…");
+      try {
+        const authStatus = await window.electronAPI?.tools?.codexAuthStatus();
+        if (!authStatus?.authenticated) {
+          await window.electronAPI?.tools?.codexAuthLogin();
+        }
+      } catch { /* auth is optional */ }
+      await checkCodexCli();
+    } catch {
+      setCodexSetup({ checking: false, installing: false, status: "error", detail: "Setup failed" });
+    }
+  };
+
   const saveToolPaths = async () => {
     if (!window.electronAPI?.settings) return;
     try {
@@ -314,7 +363,7 @@ export default function SettingsPage() {
     } catch { /* */ }
   };
 
-  const handleToggleProvider = async (provider: "claudeCode" | "githubCopilotCli") => {
+  const handleToggleProvider = async (provider: "claudeCode" | "githubCopilotCli" | "codexCli") => {
     if (!window.electronAPI?.settings) return;
     const current = desktopSettings?.featureFlags?.[provider] ?? false;
     try {
@@ -322,7 +371,8 @@ export default function SettingsPage() {
         featureFlags: { ...desktopSettings?.featureFlags, [provider]: !current },
       });
       applyDesktopSettings(nextSettings);
-      showToast(`${provider === "claudeCode" ? "Claude Code" : "GitHub Copilot"} ${!current ? "enabled" : "disabled"}`);
+      const labels: Record<string, string> = { claudeCode: "Claude Code", githubCopilotCli: "GitHub Copilot", codexCli: "Codex CLI" };
+      showToast(`${labels[provider] || provider} ${!current ? "enabled" : "disabled"}`);
     } catch {
       showToast("Failed to update provider setting");
     }
@@ -336,6 +386,7 @@ export default function SettingsPage() {
     void loadGithubAccounts();
     void checkClaudeCode();
     void checkGithubCopilot();
+    void checkCodexCli();
 
     const stopListening = window.electronAPI?.settings?.onChanged((s: DesktopSettings) => applyDesktopSettings(s));
     return () => { stopListening?.(); };
@@ -630,6 +681,67 @@ export default function SettingsPage() {
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${desktopSettings?.featureFlags?.githubCopilotCli ? "bg-emerald-500" : "bg-black/10 dark:bg-white/15"}`}
                     >
                       <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${desktopSettings?.featureFlags?.githubCopilotCli ? "translate-x-4" : "translate-x-0.5"} mt-0.5`} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Codex CLI card */}
+              <div className={`relative overflow-hidden rounded-2xl border p-5 transition ${codexSetup.status === "ready" ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-black/[0.06] app-surface dark:border-white/[0.08]"}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500/15 to-emerald-500/15">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-green-500">
+                        <path fillRule="evenodd" d="M6.28 5.22a.75.75 0 010 1.06L2.56 10l3.72 3.72a.75.75 0 01-1.06 1.06L.97 10.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0zm7.44 0a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L17.44 10l-3.72-3.72a.75.75 0 010-1.06zM11.377 2.011a.75.75 0 01.612.867l-2.5 14.5a.75.75 0 01-1.478-.255l2.5-14.5a.75.75 0 01.866-.612z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-[14px] font-semibold theme-fg">Codex CLI</p>
+                      <p className="text-[11px] theme-muted">OpenAI&apos;s coding agent</p>
+                    </div>
+                  </div>
+                  {codexSetup.status === "ready" ? (
+                    <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-[10px] font-bold text-emerald-500">Connected</span>
+                  ) : codexSetup.status === "missing" ? (
+                    <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-[10px] font-bold text-amber-500">Not found</span>
+                  ) : null}
+                </div>
+                <p className="mt-3 text-[12px] leading-relaxed theme-muted">
+                  {codexSetup.status === "ready"
+                    ? "Codex CLI is installed and ready."
+                    : "OpenAI&apos;s AI coding agent via npm."}
+                </p>
+                {codexSetup.detail && codexSetup.status !== "unknown" ? (
+                  <div className="mt-2">
+                    <p className={`rounded-lg bg-black/[0.03] px-3 py-1.5 font-mono text-[10px] theme-muted dark:bg-white/[0.04] ${expandCodexDetail ? "" : "line-clamp-3"}`}>{codexSetup.detail}</p>
+                    {codexSetup.detail.length > 120 && (
+                      <button type="button" onClick={() => setExpandCodexDetail((v) => !v)} className="mt-1 text-[10px] font-medium text-blue-500 hover:text-blue-600 dark:text-blue-400">
+                        {expandCodexDetail ? "Show less" : "Show more"}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={codexSetup.status === "ready" ? () => void checkCodexCli() : () => void handleSetupCodexCli()}
+                  disabled={codexSetup.checking || codexSetup.installing}
+                  className={`mt-4 w-full rounded-xl px-4 py-2.5 text-[13px] font-semibold transition disabled:opacity-50 ${
+                    codexSetup.status === "ready"
+                      ? "border border-black/[0.06] bg-white/80 theme-fg hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.04] dark:hover:bg-white/[0.08]"
+                      : "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/20 hover:opacity-90"
+                  }`}
+                >
+                  {codexSetup.checking ? "Checking…" : codexSetup.installing ? "Installing…" : codexSetup.status === "ready" ? "Re-check" : "Install & Connect"}
+                </button>
+                {codexSetup.status === "ready" && (
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-black/[0.04] bg-black/[0.015] px-3.5 py-2.5 dark:border-white/[0.06] dark:bg-white/[0.02]">
+                    <span className="text-[12px] font-medium theme-fg">Use in CodeBuddy</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleProvider("codexCli")}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${desktopSettings?.featureFlags?.codexCli ? "bg-emerald-500" : "bg-black/10 dark:bg-white/15"}`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${desktopSettings?.featureFlags?.codexCli ? "translate-x-4" : "translate-x-0.5"} mt-0.5`} />
                     </button>
                   </div>
                 )}

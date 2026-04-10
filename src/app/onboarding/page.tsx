@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 /* ─── Types ─── */
 type Step = "welcome" | "tools" | "github" | "provider" | "profile" | "done";
-type AiProvider = "copilot" | "claude" | "both";
+type ProviderKey = "copilot" | "claude" | "codex";
 
 interface ToolCheckState {
   checking: boolean;
@@ -28,7 +28,9 @@ export default function OnboardingPage() {
   const [copilot, setCopilot] = useState<ToolCheckState>(defaultTool);
   const [claude, setClaude] = useState<ToolCheckState>(defaultTool);
   const [node, setNode] = useState<ToolCheckState>(defaultTool);
-  const [aiProvider, setAiProvider] = useState<AiProvider>("copilot");
+  const [python, setPython] = useState<ToolCheckState>(defaultTool);
+  const [codex, setCodex] = useState<ToolCheckState>(defaultTool);
+  const [selectedProviders, setSelectedProviders] = useState<Set<ProviderKey>>(new Set(["copilot"]));
   const [finishing, setFinishing] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [installLog, setInstallLog] = useState<string>("");
@@ -44,14 +46,38 @@ export default function OnboardingPage() {
   const [claudeAuthStatus, setClaudeAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
   const [claudeAuthError, setClaudeAuthError] = useState<string | null>(null);
 
-  /* Install progress animation */
-  const installPhases = ["Downloading Claude Code…", "Running install scripts…", "Configuring CLI tools…", "Almost there…"];
-  const [installPhase, setInstallPhase] = useState(0);
+  /* Codex auth state */
+  const [codexAuthStatus, setCodexAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
+  const [codexAuthError, setCodexAuthError] = useState<string | null>(null);
+
+  /* Install progress animation — generic for any tool */
+  const installPhasesMap: Record<string, string[]> = {
+    git: ["Downloading Git…", "Running installer…", "Configuring Git…", "Almost there…"],
+    node: ["Downloading Node.js…", "Running installer…", "Setting up npm…", "Almost there…"],
+    python: ["Downloading Python…", "Running installer…", "Configuring paths…", "Almost there…"],
+    gh: ["Downloading GitHub CLI…", "Running installer…", "Setting up gh…", "Almost there…"],
+    copilot: ["Downloading Copilot CLI…", "Running install scripts…", "Configuring tools…", "Almost there…"],
+    claude: ["Downloading Claude Code…", "Running install scripts…", "Configuring CLI tools…", "Almost there…"],
+    codex: ["Downloading Codex CLI…", "Installing via npm…", "Configuring tools…", "Almost there…"],
+  };
+  const [installPhases] = useState(installPhasesMap);
+  const [activeInstallPhases, setActiveInstallPhases] = useState<Record<string, number>>({});
   useEffect(() => {
-    if (!claude.installing) { setInstallPhase(0); return; }
-    const id = setInterval(() => setInstallPhase((p) => (p + 1) % 4), 3000);
+    const installing = [
+      git.installing && "git", node.installing && "node", python.installing && "python",
+      gh.installing && "gh", copilot.installing && "copilot", claude.installing && "claude",
+      codex.installing && "codex",
+    ].filter(Boolean) as string[];
+    if (installing.length === 0) { setActiveInstallPhases({}); return; }
+    const id = setInterval(() => {
+      setActiveInstallPhases((prev) => {
+        const next = { ...prev };
+        for (const key of installing) next[key] = ((next[key] || 0) + 1) % 4;
+        return next;
+      });
+    }, 3000);
     return () => clearInterval(id);
-  }, [claude.installing]);
+  }, [git.installing, node.installing, python.installing, gh.installing, copilot.installing, claude.installing, codex.installing]);
 
   /* ── auto-check tools when we land on the tools or provider step ── */
   useEffect(() => {
@@ -67,6 +93,8 @@ export default function OnboardingPage() {
     setCopilot((s) => ({ ...s, checking: true }));
     setClaude((s) => ({ ...s, checking: true }));
     setNode((s) => ({ ...s, checking: true }));
+    setPython((s) => ({ ...s, checking: true }));
+    setCodex((s) => ({ ...s, checking: true }));
     try {
       const statuses = await window.electronAPI!.tools.listStatus();
       const find = (id: string) => statuses.find((t: { id: string }) => t.id === id);
@@ -75,18 +103,24 @@ export default function OnboardingPage() {
       const copilotTool = find("githubCopilotCli");
       const claudeTool = find("claudeCode");
       const nodeTool = find("node");
+      const pythonTool = find("python");
+      const codexTool = find("codexCli");
 
       setGit({ checking: false, installing: false, status: gitTool?.available ? "ready" : "missing", detail: gitTool?.detail || "" });
       setGh({ checking: false, installing: false, status: ghTool?.available ? "ready" : "missing", detail: ghTool?.detail || "" });
       setCopilot({ checking: false, installing: false, status: copilotTool?.available ? "ready" : "missing", detail: copilotTool?.detail || "" });
       setClaude({ checking: false, installing: false, status: claudeTool?.available ? "ready" : "missing", detail: claudeTool?.detail || "" });
       setNode({ checking: false, installing: false, status: nodeTool?.available ? "ready" : "missing", detail: nodeTool?.detail || "" });
+      setPython({ checking: false, installing: false, status: pythonTool?.available ? "ready" : "missing", detail: pythonTool?.detail || "" });
+      setCodex({ checking: false, installing: false, status: codexTool?.available ? "ready" : "missing", detail: codexTool?.detail || "" });
     } catch {
       setGit({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setGh({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setCopilot({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setClaude({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setNode({ checking: false, installing: false, status: "error", detail: "Check failed" });
+      setPython({ checking: false, installing: false, status: "error", detail: "Check failed" });
+      setCodex({ checking: false, installing: false, status: "error", detail: "Check failed" });
     }
   }
 
@@ -193,6 +227,71 @@ export default function OnboardingPage() {
     }
   }
 
+  async function installCodexCli() {
+    console.log("[install] installCodexCli called");
+    if (!canUseElectron()) {
+      setInstallLog("Error: Electron API not available.");
+      return;
+    }
+    setCodex((s) => ({ ...s, installing: true }));
+    setInstallLog("Starting Codex CLI installation via npm...");
+    try {
+      const result = await window.electronAPI!.tools.installCodex();
+      console.log("[install] installCodex result:", JSON.stringify({ success: result.success, detail: result.detail, logLines: result.log?.length }));
+      const fullLog = (result.log || []).join("\n");
+      if (result.success) {
+        console.log("[install] Codex install succeeded, setting status to ready");
+        setCodex({ checking: false, installing: false, status: "ready", detail: result.detail || "Codex CLI installed" });
+        setInstallLog("");
+        // Auto-check and trigger OAuth after successful install
+        try {
+          console.log("[install] Checking Codex auth status...");
+          const authResult = await window.electronAPI!.tools.codexAuthStatus();
+          console.log("[install] Codex auth status:", JSON.stringify(authResult));
+          if (authResult.authenticated) {
+            setCodexAuthStatus("authenticated");
+          } else {
+            // Auto-trigger ChatGPT sign-in
+            console.log("[install] Auto-triggering Codex auth login...");
+            setCodexAuthStatus("authenticating");
+            try {
+              const loginResult = await window.electronAPI!.tools.codexAuthLogin();
+              console.log("[install] Codex auth login result:", JSON.stringify({ success: loginResult.success, timedOut: loginResult.timedOut }));
+              if (loginResult.success) {
+                setCodexAuthStatus("authenticated");
+              } else {
+                setCodexAuthStatus("not-authenticated");
+                setCodexAuthError(loginResult.timedOut ? "Authentication timed out. Click below to try again." : "Sign-in was not completed. Click below to try again.");
+              }
+            } catch (authErr) {
+              console.error("[install] Codex auth login exception:", authErr);
+              setCodexAuthStatus("not-authenticated");
+              setCodexAuthError("Something went wrong. Click below to try again.");
+            }
+          }
+        } catch (authCheckErr) {
+          console.error("[install] Codex auth status check exception:", authCheckErr);
+          setCodexAuthStatus("not-authenticated");
+        }
+      } else {
+        setCodex({ checking: false, installing: false, status: "error", detail: result.detail || "Install failed" });
+        setInstallLog(
+          "INSTALLATION FAILED\n\n" +
+          (result.detail || "Install failed") + "\n\n" +
+          "──── Detailed Log ────\n" + fullLog + "\n\n" +
+          "──── Manual Install ────\n" +
+          "Open a terminal and run:\n  npm install -g @openai/codex\n" +
+          "Then click Re-check below."
+        );
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[install] codex exception:", err);
+      setCodex({ checking: false, installing: false, status: "error", detail: "Install crashed: " + errMsg });
+      setInstallLog("INSTALL CRASHED\n\nError: " + errMsg);
+    }
+  }
+
   async function installNodeJs() {
     if (!canUseElectron()) return;
     setNode((s) => ({ ...s, installing: true, detail: "Installing Node.js via winget…" }));
@@ -220,6 +319,21 @@ export default function OnboardingPage() {
       }
     } catch {
       setGit({ checking: false, installing: false, status: "error", detail: "Install crashed" });
+    }
+  }
+
+  async function installPython() {
+    if (!canUseElectron()) return;
+    setPython((s) => ({ ...s, installing: true, detail: "Installing Python via winget…" }));
+    try {
+      const result = await window.electronAPI!.tools.installPython();
+      if (result.success) {
+        setPython({ checking: false, installing: false, status: "ready", detail: result.detail });
+      } else {
+        setPython({ checking: false, installing: false, status: "missing", detail: result.detail || "Install failed" });
+      }
+    } catch {
+      setPython({ checking: false, installing: false, status: "error", detail: "Install crashed" });
     }
   }
 
@@ -275,11 +389,54 @@ export default function OnboardingPage() {
   /* ── Check Claude auth when provider step loads and Claude is installed ── */
   useEffect(() => {
     if (step !== "provider" || !canUseElectron()) return;
-    if (claude.status === "ready" && (aiProvider === "claude" || aiProvider === "both")) {
+    if (claude.status === "ready" && selectedProviders.has("claude")) {
       checkClaudeAuth();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, claude.status, aiProvider]);
+  }, [step, claude.status, selectedProviders]);
+
+  /* ── Codex auth ── */
+  async function checkCodexAuth() {
+    if (!canUseElectron()) return;
+    setCodexAuthStatus("checking");
+    setCodexAuthError(null);
+    try {
+      const result = await window.electronAPI!.tools.codexAuthStatus();
+      setCodexAuthStatus(result.authenticated ? "authenticated" : "not-authenticated");
+    } catch {
+      setCodexAuthStatus("not-authenticated");
+    }
+  }
+
+  async function startCodexAuth() {
+    if (!canUseElectron()) return;
+    setCodexAuthStatus("authenticating");
+    setCodexAuthError(null);
+    try {
+      const result = await window.electronAPI!.tools.codexAuthLogin();
+      if (result.success) {
+        setCodexAuthStatus("authenticated");
+      } else if (result.timedOut) {
+        setCodexAuthStatus("not-authenticated");
+        setCodexAuthError("Authentication timed out. Try again.");
+      } else {
+        setCodexAuthStatus("not-authenticated");
+        setCodexAuthError("Authentication was not completed. Try again.");
+      }
+    } catch {
+      setCodexAuthStatus("error");
+      setCodexAuthError("Something went wrong. Make sure Codex CLI is installed.");
+    }
+  }
+
+  /* ── Check Codex auth when provider step loads and Codex is installed ── */
+  useEffect(() => {
+    if (step !== "provider" || !canUseElectron()) return;
+    if (codex.status === "ready" && selectedProviders.has("codex")) {
+      checkCodexAuth();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, codex.status, selectedProviders]);
 
   /* ── GitHub auth ── */
   useEffect(() => {
@@ -348,8 +505,9 @@ export default function OnboardingPage() {
         // Save display name + AI provider choice into settings
         const updates: Record<string, unknown> = {
           featureFlags: {
-            githubCopilotCli: aiProvider === "copilot" || aiProvider === "both",
-            claudeCode: aiProvider === "claude" || aiProvider === "both",
+            githubCopilotCli: selectedProviders.has("copilot"),
+            claudeCode: selectedProviders.has("claude"),
+            codexCli: selectedProviders.has("codex"),
             githubCompanion: true,
           },
         };
@@ -441,13 +599,14 @@ export default function OnboardingPage() {
           <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h2 className="text-3xl font-bold tracking-tight text-white">Check your tools</h2>
             <p className="mt-3 text-sm text-indigo-200/60">
-              CodeBuddy needs Git, Node.js, and GitHub CLI installed on your machine.
+              CodeBuddy needs Git, Node.js, Python, and GitHub CLI installed on your machine.
             </p>
 
             <div className="mt-8 space-y-3">
-              <ToolRow label="Git" state={git} required onInstall={installGitScm} helpUrl="https://git-scm.com/downloads" />
-              <ToolRow label="Node.js" state={node} required onInstall={installNodeJs} helpUrl="https://nodejs.org" />
-              <ToolRow label="GitHub CLI" state={gh} required onInstall={installGhCli} helpUrl="https://cli.github.com" />
+              <ToolRow label="Git" state={git} required onInstall={installGitScm} helpUrl="https://git-scm.com/downloads" installPhaseText={installPhases.git[activeInstallPhases.git || 0]} />
+              <ToolRow label="Node.js" state={node} required onInstall={installNodeJs} helpUrl="https://nodejs.org" installPhaseText={installPhases.node[activeInstallPhases.node || 0]} />
+              <ToolRow label="Python" state={python} required onInstall={installPython} helpUrl="https://python.org" installPhaseText={installPhases.python[activeInstallPhases.python || 0]} />
+              <ToolRow label="GitHub CLI" state={gh} required onInstall={installGhCli} helpUrl="https://cli.github.com" installPhaseText={installPhases.gh[activeInstallPhases.gh || 0]} />
             </div>
 
             <p className="mt-4 text-xs text-indigo-300/40">
@@ -482,124 +641,156 @@ export default function OnboardingPage() {
           <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h2 className="text-3xl font-bold tracking-tight text-white">Choose your AI</h2>
             <p className="mt-3 text-sm text-indigo-200/60">
-              Pick the AI assistant that will help you write code. You can change this later.
+              Select one or more AI assistants. We&apos;ll install each and handle sign-in automatically.
             </p>
 
-            {/* Simple radio selection */}
+            {/* Multi-select checkboxes */}
             <div className="mt-8 space-y-2">
+              {([
+                { key: "copilot" as ProviderKey, label: "GitHub Copilot", desc: "free with GitHub account", activeBorder: "border-indigo-400/40 bg-indigo-500/10 ring-1 ring-indigo-400/30", activeDot: "border-indigo-400", fill: "bg-indigo-400" },
+                { key: "claude" as ProviderKey, label: "Claude Code", desc: "Anthropic\u2019s CLI agent", activeBorder: "border-amber-400/40 bg-amber-500/10 ring-1 ring-amber-400/30", activeDot: "border-amber-400", fill: "bg-amber-400" },
+                { key: "codex" as ProviderKey, label: "Codex CLI", desc: "OpenAI\u2019s coding agent", activeBorder: "border-green-400/40 bg-green-500/10 ring-1 ring-green-400/30", activeDot: "border-green-400", fill: "bg-green-400" },
+              ]).map(({ key, label, desc, activeBorder, activeDot, fill }) => {
+                const checked = selectedProviders.has(key);
+                return (
+                  <div
+                    key={key}
+                    onClick={() => {
+                      setSelectedProviders((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                        return next;
+                      });
+                    }}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${checked ? activeBorder : "border-white/10 bg-white/5 hover:bg-white/[0.07]"}`}
+                  >
+                    <div className={`flex h-4 w-4 items-center justify-center rounded border-2 ${checked ? activeDot : "border-white/30"}`}>
+                      {checked && <div className={`h-2 w-2 rounded-sm ${fill}`} />}
+                    </div>
+                    <span className="text-sm font-semibold text-white">{label}</span>
+                    <span className="text-xs text-white/40">— {desc}</span>
+                  </div>
+                );
+              })}
+              {/* All option */}
               <div
-                onClick={() => setAiProvider("copilot")}
+                onClick={() => {
+                  const allSelected = selectedProviders.size === 3;
+                  setSelectedProviders(allSelected ? new Set(["copilot"]) : new Set(["copilot", "claude", "codex"]));
+                }}
                 className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${
-                  aiProvider === "copilot"
-                    ? "border-indigo-400/40 bg-indigo-500/10 ring-1 ring-indigo-400/30"
-                    : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
-                }`}
-              >
-                <div className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${aiProvider === "copilot" ? "border-indigo-400" : "border-white/30"}`}>
-                  {aiProvider === "copilot" && <div className="h-2 w-2 rounded-full bg-indigo-400" />}
-                </div>
-                <span className="text-sm font-semibold text-white">GitHub Copilot</span>
-                <span className="text-xs text-white/40">— free with GitHub account</span>
-              </div>
-              <div
-                onClick={() => setAiProvider("claude")}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${
-                  aiProvider === "claude"
-                    ? "border-amber-400/40 bg-amber-500/10 ring-1 ring-amber-400/30"
-                    : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
-                }`}
-              >
-                <div className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${aiProvider === "claude" ? "border-amber-400" : "border-white/30"}`}>
-                  {aiProvider === "claude" && <div className="h-2 w-2 rounded-full bg-amber-400" />}
-                </div>
-                <span className="text-sm font-semibold text-white">Claude Code</span>
-                <span className="text-xs text-white/40">— Anthropic&apos;s CLI agent</span>
-              </div>
-              <div
-                onClick={() => setAiProvider("both")}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${
-                  aiProvider === "both"
+                  selectedProviders.size === 3
                     ? "border-emerald-400/40 bg-emerald-500/10 ring-1 ring-emerald-400/30"
                     : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
                 }`}
               >
-                <div className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${aiProvider === "both" ? "border-emerald-400" : "border-white/30"}`}>
-                  {aiProvider === "both" && <div className="h-2 w-2 rounded-full bg-emerald-400" />}
+                <div className={`flex h-4 w-4 items-center justify-center rounded border-2 ${selectedProviders.size === 3 ? "border-emerald-400" : "border-white/30"}`}>
+                  {selectedProviders.size === 3 && <div className="h-2 w-2 rounded-sm bg-emerald-400" />}
                 </div>
-                <span className="text-sm font-semibold text-white">Both</span>
-                <span className="text-xs text-white/40">— switch any time</span>
+                <span className="text-sm font-semibold text-white">All</span>
+                <span className="text-xs text-white/40">— install everything</span>
               </div>
             </div>
 
-            {/* Required tools — same layout as the tools check page */}
-            <div className="mt-6 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-indigo-300/50">Required tools</p>
-              {(aiProvider === "copilot" || aiProvider === "both") && (
-                <ToolRow label="Copilot Extension" state={copilot} required onInstall={gh.status === "ready" ? installCopilotExtension : undefined} helpUrl={gh.status !== "ready" ? undefined : undefined} />
-              )}
-              {(aiProvider === "claude" || aiProvider === "both") && (
-                <>
-                  <ToolRow label="Claude Code" state={claude} required onInstall={installClaudeExtension} />
-                  {claude.installing && (
-                    <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 px-5 py-6 animate-in fade-in duration-300">
-                      <div className="flex flex-col items-center gap-4">
-                        <div className="relative flex h-12 w-12 items-center justify-center">
-                          <div className="absolute inset-0 rounded-full border-2 border-amber-400/20" />
-                          <div className="absolute inset-0 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
-                          <span className="text-lg">🔧</span>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-amber-300">{installPhases[installPhase]}</p>
-                          <p className="mt-1 text-xs text-white/40">This may take a minute — hang tight!</p>
-                        </div>
-                        <div className="flex gap-1">
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-1.5 w-1.5 rounded-full bg-amber-400" style={{ animation: `install-dot-pulse 1.4s ease-in-out ${i * 0.2}s infinite` }} />
-                          ))}
-                        </div>
+            {/* Required tools — show install/auth for each selected provider */}
+            {selectedProviders.size > 0 && (
+              <div className="mt-6 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-indigo-300/50">Required tools</p>
+
+                {/* Copilot */}
+                {selectedProviders.has("copilot") && (
+                  <ToolRow label="Copilot Extension" state={copilot} required onInstall={gh.status === "ready" ? installCopilotExtension : undefined} installPhaseText={installPhases.copilot[activeInstallPhases.copilot || 0]} />
+                )}
+
+                {/* Claude */}
+                {selectedProviders.has("claude") && (
+                  <>
+                    <ToolRow label="Claude Code" state={claude} required onInstall={installClaudeExtension} accentColor="amber" installPhaseText={installPhases.claude[activeInstallPhases.claude || 0]} />
+                    {claude.status === "ready" && (
+                      <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
+                        {claudeAuthStatus === "checking" && (
+                          <div className="flex items-center gap-3">
+                            <svg className="h-4 w-4 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            <span className="text-sm text-white/60">Checking Claude login...</span>
+                          </div>
+                        )}
+                        {claudeAuthStatus === "authenticated" && (
+                          <div className="flex items-center gap-2 text-emerald-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+                            <span className="text-sm font-semibold">Signed in to Claude</span>
+                          </div>
+                        )}
+                        {(claudeAuthStatus === "not-authenticated" || claudeAuthStatus === "error" || claudeAuthStatus === "unknown") && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-white/50">Claude Code is installed. Sign in to activate it.</p>
+                            <button
+                              onClick={startClaudeAuth}
+                              className="w-full rounded-lg bg-amber-500/20 px-4 py-2.5 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/30"
+                            >
+                              Sign in to Claude
+                            </button>
+                          </div>
+                        )}
+                        {claudeAuthStatus === "authenticating" && (
+                          <div className="flex flex-col items-center gap-3 py-2">
+                            <svg className="h-6 w-6 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            <p className="text-sm font-semibold text-amber-300">Log in to Claude Code</p>
+                            <p className="text-xs text-white/50">A browser window should open — complete sign-in there.</p>
+                          </div>
+                        )}
+                        {claudeAuthError && (
+                          <p className="mt-2 text-xs text-red-400">{claudeAuthError}</p>
+                        )}
                       </div>
-                    </div>
-                  )}
-                  {claude.status === "ready" && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-                      {claudeAuthStatus === "checking" && (
-                        <div className="flex items-center gap-3">
-                          <svg className="h-4 w-4 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                          <span className="text-sm text-white/60">Checking Claude login...</span>
-                        </div>
-                      )}
-                      {claudeAuthStatus === "authenticated" && (
-                        <div className="flex items-center gap-2 text-emerald-400">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
-                          <span className="text-sm font-semibold">Signed in to Claude</span>
-                        </div>
-                      )}
-                      {(claudeAuthStatus === "not-authenticated" || claudeAuthStatus === "error" || claudeAuthStatus === "unknown") && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-white/50">Claude Code is installed. Sign in to activate it.</p>
-                          <button
-                            onClick={startClaudeAuth}
-                            className="w-full rounded-lg bg-amber-500/20 px-4 py-2.5 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/30"
-                          >
-                            Sign in to Claude
-                          </button>
-                        </div>
-                      )}
-                      {claudeAuthStatus === "authenticating" && (
-                        <div className="flex flex-col items-center gap-3 py-2">
-                          <svg className="h-6 w-6 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                          <p className="text-sm font-semibold text-amber-300">Log in to Claude Code</p>
-                          <p className="text-xs text-white/50">A browser window should open — complete sign-in there.</p>
-                        </div>
-                      )}
-                      {claudeAuthError && (
-                        <p className="mt-2 text-xs text-red-400">{claudeAuthError}</p>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                    )}
+                  </>
+                )}
+
+                {/* Codex */}
+                {selectedProviders.has("codex") && (
+                  <>
+                    <ToolRow label="Codex CLI" state={codex} required onInstall={node.status === "ready" ? installCodexCli : undefined} accentColor="green" installPhaseText={installPhases.codex[activeInstallPhases.codex || 0]} />
+                    {codex.status === "ready" && (
+                      <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
+                        {codexAuthStatus === "checking" && (
+                          <div className="flex items-center gap-3">
+                            <svg className="h-4 w-4 animate-spin text-green-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            <span className="text-sm text-white/60">Checking Codex login...</span>
+                          </div>
+                        )}
+                        {codexAuthStatus === "authenticated" && (
+                          <div className="flex items-center gap-2 text-emerald-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+                            <span className="text-sm font-semibold">Signed in to Codex</span>
+                          </div>
+                        )}
+                        {(codexAuthStatus === "not-authenticated" || codexAuthStatus === "error" || codexAuthStatus === "unknown") && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-white/50">Codex CLI is installed. Sign in with your ChatGPT account to activate it.</p>
+                            <button
+                              onClick={startCodexAuth}
+                              className="w-full rounded-lg bg-green-500/20 px-4 py-2.5 text-sm font-semibold text-green-300 transition hover:bg-green-500/30"
+                            >
+                              Sign in to Codex
+                            </button>
+                          </div>
+                        )}
+                        {codexAuthStatus === "authenticating" && (
+                          <div className="flex flex-col items-center gap-3 py-2">
+                            <svg className="h-6 w-6 animate-spin text-green-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            <p className="text-sm font-semibold text-green-300">Log in to Codex CLI</p>
+                            <p className="text-xs text-white/50">A browser window should open — sign in with your ChatGPT account.</p>
+                          </div>
+                        )}
+                        {codexAuthError && (
+                          <p className="mt-2 text-xs text-red-400">{codexAuthError}</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {installLog && (
               <div className={`mt-4 rounded-lg border px-4 py-3 max-h-60 overflow-y-auto ${
@@ -833,12 +1024,16 @@ function ToolRow({
   required,
   helpUrl,
   onInstall,
+  installPhaseText,
+  accentColor = "indigo",
 }: {
   label: string;
   state: ToolCheckState;
   required?: boolean;
   helpUrl?: string;
   onInstall?: () => void;
+  installPhaseText?: string;
+  accentColor?: "indigo" | "amber" | "green";
 }) {
   const statusIcon =
     state.checking
@@ -859,6 +1054,37 @@ function ToolRow({
         : state.status === "error"
           ? "text-red-400"
           : "text-white/40";
+
+  const accentColors = {
+    indigo: { border: "border-indigo-400/20", bg: "bg-indigo-500/5", ring: "border-indigo-400", ringBg: "border-indigo-400/20", text: "text-indigo-300", dot: "bg-indigo-400" },
+    amber: { border: "border-amber-400/20", bg: "bg-amber-500/5", ring: "border-amber-400", ringBg: "border-amber-400/20", text: "text-amber-300", dot: "bg-amber-400" },
+    green: { border: "border-green-400/20", bg: "bg-green-500/5", ring: "border-green-400", ringBg: "border-green-400/20", text: "text-green-300", dot: "bg-green-400" },
+  };
+  const ac = accentColors[accentColor];
+
+  // Animated wrench + progress ring install graphic
+  if (state.installing && installPhaseText) {
+    return (
+      <div className={`rounded-xl border ${ac.border} ${ac.bg} px-5 py-6 animate-in fade-in duration-300`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative flex h-12 w-12 items-center justify-center">
+            <div className={`absolute inset-0 rounded-full border-2 ${ac.ringBg}`} />
+            <div className={`absolute inset-0 rounded-full border-2 ${ac.ring} border-t-transparent animate-spin`} />
+            <span className="text-lg">🔧</span>
+          </div>
+          <div className="text-center">
+            <p className={`text-sm font-semibold ${ac.text}`}>{installPhaseText}</p>
+            <p className="mt-1 text-xs text-white/40">This may take a minute — hang tight!</p>
+          </div>
+          <div className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`h-1.5 w-1.5 rounded-full ${ac.dot}`} style={{ animation: `install-dot-pulse 1.4s ease-in-out ${i * 0.2}s infinite` }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 px-5 py-4">

@@ -1,6 +1,25 @@
 // Type declarations for the Electron API exposed via preload.js
 // This makes window.electronAPI fully typed in your React components.
 
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  provider: string;
+  contextWindow: string;
+  maxTokens: number;
+  usage: string;
+  group: "featured" | "other";
+  warning?: string;
+}
+
+export interface ModelCatalogs {
+  copilot: ModelCatalogEntry[];
+  claude: ModelCatalogEntry[];
+  codex: ModelCatalogEntry[];
+  _version: number;
+  _updated: string | null;
+}
+
 export interface TerminalResult {
   processId: string;
   stdout: string;
@@ -419,6 +438,7 @@ export interface DesktopSettings {
   featureFlags: {
     githubCopilotCli: boolean;
     claudeCode: boolean;
+    codexCli: boolean;
     githubCompanion: boolean;
   };
 }
@@ -713,12 +733,16 @@ export interface ElectronAPI {
   };
   tools: {
     listStatus: () => Promise<ToolStatus[]>;
+    getModelCatalogs: () => Promise<ModelCatalogs>;
     installCopilot: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installClaude: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installNode: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installGit: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installGh: () => Promise<{ success: boolean; detail: string; log: string[] }>;
+    installPython: () => Promise<{ success: boolean; detail: string; log: string[] }>;
+    installCodex: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     runCopilotPrompt: (payload: CopilotPromptPayload) => Promise<TerminalResult>;
+    runGenericPrompt: (payload: CopilotPromptPayload) => Promise<TerminalResult>;
     githubAuthStatus: () => Promise<{ authenticated: boolean; username: string | null; detail: string }>;
     githubAuthLogin: () => Promise<{ success: boolean; stdout?: string; stderr?: string; deviceCode?: string | null; verificationUrl?: string | null; timedOut?: boolean }>;
     githubAuthLogout: (username?: string) => Promise<{ success: boolean; detail: string }>;
@@ -728,6 +752,9 @@ export interface ElectronAPI {
     claudeAuthStatus: () => Promise<{ authenticated: boolean; detail: string }>;
     claudeAuthLogin: () => Promise<{ success: boolean; stdout?: string; stderr?: string; timedOut?: boolean }>;
     onClaudeAuthProgress: (callback: (event: { output: string }) => void) => () => void;
+    codexAuthStatus: () => Promise<{ authenticated: boolean; detail: string }>;
+    codexAuthLogin: () => Promise<{ success: boolean; stdout?: string; stderr?: string; timedOut?: boolean }>;
+    onCodexAuthProgress: (callback: (event: { output: string }) => void) => () => void;
   };
   sharedState: {
     init: (repoPath: string) => Promise<SharedStateInitResult>;

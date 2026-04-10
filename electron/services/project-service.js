@@ -98,8 +98,30 @@ function getKnownCommandLocations(command) {
 
   if (command === "claude" || command === "claude.exe") {
     const home = process.env.USERPROFILE || os.homedir();
-    return [
+    const candidates = [
       home ? path.join(home, ".local", "bin", "claude.exe") : null,
+    ];
+    // Scan WinGet packages for claude.exe
+    if (localAppData) {
+      const wingetBase = path.join(localAppData, "Microsoft", "WinGet", "Packages");
+      try {
+        if (fsSync.existsSync(wingetBase)) {
+          const dirs = fsSync.readdirSync(wingetBase).filter(d => d.toLowerCase().includes("claudecode") || d.toLowerCase().includes("claude"));
+          for (const d of dirs) {
+            candidates.push(path.join(wingetBase, d, "claude.exe"));
+          }
+        }
+      } catch { /* skip */ }
+    }
+    return candidates.filter(Boolean);
+  }
+
+  if (command === "codex" || command === "codex.cmd") {
+    const appData = process.env.APPDATA || "";
+    const home = process.env.USERPROFILE || os.homedir();
+    return [
+      appData ? path.join(appData, "npm", "codex.cmd") : null,
+      home ? path.join(home, "AppData", "Roaming", "npm", "codex.cmd") : null,
     ].filter(Boolean);
   }
 
@@ -879,7 +901,7 @@ async function fileExists(targetPath) {
 }
 
 function createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService }) {
-  const BUILD_TAG = "copilot-fix-v21";
+  const BUILD_TAG = "v32";
   console.log(`[project-service] loaded — build ${BUILD_TAG}`);
   let eventSender = null;
 
@@ -1026,33 +1048,38 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     }
   }
 
-  // Claude CLI model IDs — used to determine provider from model selection
-  const CLAUDE_CLI_MODEL_IDS = new Set([
-    "sonnet", "opus",
-    "claude-sonnet-4-6", "claude-opus-4-6",
-    "claude-sonnet-4-5", "claude-opus-4-5",
-    "claude-haiku-4-5",
-  ]);
+  // Build model ID sets dynamically from model-catalogs.json
+  // so adding/removing models in the config file automatically updates routing.
+  const _catalogs = toolingService.getModelCatalogs();
+  const CLAUDE_CLI_MODEL_IDS = new Set((_catalogs.claude || []).map(m => m.id));
+  const CODEX_CLI_MODEL_IDS = new Set((_catalogs.codex || []).map(m => m.id));
 
   /**
    * Determine which AI provider to route to based on feature flags and selected model.
-   * Returns "claude" or "copilot".
+   * Returns "claude", "copilot", or "codex".
    */
   function resolveProvider(settings, modelId) {
     const hasClaude = !!settings.featureFlags?.claudeCode;
     const hasCopilot = !!settings.featureFlags?.githubCopilotCli;
+    const hasCodex = !!settings.featureFlags?.codexCli;
 
-    if (hasClaude && !hasCopilot) return "claude";
-    if (hasCopilot && !hasClaude) return "copilot";
-    // Both enabled — determine from model ID
+    // Single provider enabled
+    if (hasClaude && !hasCopilot && !hasCodex) return "claude";
+    if (hasCopilot && !hasClaude && !hasCodex) return "copilot";
+    if (hasCodex && !hasClaude && !hasCopilot) return "codex";
+
+    // Multiple enabled — determine from model ID
     if (CLAUDE_CLI_MODEL_IDS.has(modelId)) return "claude";
-    return "copilot";
+    if (CODEX_CLI_MODEL_IDS.has(modelId)) return "codex";
+    if (hasCopilot) return "copilot";
+    if (hasCodex) return "codex";
+    return "claude";
   }
 
   /**
    * Build the CLI binary + args for a prompt invocation.
    * @param {object} commands — resolved output from readConfiguredCommands()
-   * @param {string} provider — "claude" or "copilot"
+   * @param {string} provider — "claude", "copilot", or "codex"
    * @param {string} prompt — the full prompt text
    * @param {string} selectedModel — model ID to pass via --model
    * @param {object} opts — { agentMode: boolean }  (agent mode adds tool/dir flags)
@@ -1073,6 +1100,21 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       return { cli: commands.claudeCli, args };
     }
 
+    if (provider === "codex") {
+      // codex exec [prompt] --full-auto [--model <model>]
+      // On Windows, long prompts with newlines cause EINVAL when passed as args
+      // to .cmd files (Node.js CVE-2024-27980 security fix). Codex CLI reads
+      // instructions from stdin when piped, so we pass the prompt via stdin.
+      // NOTE: --model only works with API key auth (OPENAI_API_KEY). ChatGPT
+      // OAuth users (codex login) must omit --model and use the server default.
+      // The "default" model ID signals "omit --model".
+      const args = ["exec", "--full-auto"];
+      if (selectedModel && selectedModel !== "auto" && selectedModel !== "default") {
+        args.push("--model", selectedModel);
+      }
+      return { cli: commands.codexCli, args, stdinData: prompt };
+    }
+
     // Copilot
     const args = [...commands.copilotPrefix, "-p", prompt];
     if (agentMode) {
@@ -1083,6 +1125,31 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       args.push("--model", selectedModel);
     }
     return { cli: commands.copilotCli, args };
+  }
+
+  /**
+   * Run a CLI provider with automatic retry for Codex ChatGPT authentication.
+   * When codex fails with "not supported when using Codex with a ChatGPT account",
+   * this retries without --model (letting the server pick its default model).
+   */
+  async function runProviderCli(commands, provider, prompt, selectedModel, opts, cwd, requestMeta) {
+    const { cli, args, stdinData } = buildCliInvocation(commands, provider, prompt, selectedModel, opts);
+    try {
+      return await runProgram(cli, args, cwd, requestMeta, stdinData || null);
+    } catch (err) {
+      const errText = `${err.stderr || ""} ${err.stdout || ""} ${err.message || ""}`;
+      if (provider === "codex" && selectedModel !== "default" && /not supported when using Codex with a ChatGPT account/i.test(errText)) {
+        console.log("[runProviderCli] Codex ChatGPT model error — retrying without --model flag");
+        emitAgentEvent("project:agentOutput", {
+          ...requestMeta,
+          stream: "system",
+          chunk: "\n⚠ Model not available with ChatGPT account — retrying with default model...\n",
+        });
+        const retry = buildCliInvocation(commands, provider, prompt, "default", opts);
+        return await runProgram(retry.cli, retry.args, cwd, requestMeta, retry.stdinData || null);
+      }
+      throw err;
+    }
   }
 
   async function readConfiguredCommands() {
@@ -1143,6 +1210,11 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     const hasClaudeBinary = await fileExists(claudePath);
     console.log("[readConfiguredCommands] claudePath resolved to:", claudePath, "hasClaudeBinary:", hasClaudeBinary);
 
+    // Resolve Codex CLI binary
+    let codexPath = await resolveCommandPath("codex");
+    const hasCodexBinary = await fileExists(codexPath);
+    console.log("[readConfiguredCommands] codexPath resolved to:", codexPath, "hasCodexBinary:", hasCodexBinary);
+
     const resolved = {
       settings,
       git: await resolveCommandPath(configuredGit),
@@ -1151,6 +1223,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       copilotPrefix: hasCopilotBinary ? [] : ["copilot"],
       claudeCli: hasClaudeBinary ? claudePath : "claude",
       hasClaudeBinary,
+      codexCli: hasCodexBinary ? codexPath : "codex",
+      hasCodexBinary,
     };
 
     console.log("[readConfiguredCommands] ghPath:", ghPath);
@@ -1159,6 +1233,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     console.log("[readConfiguredCommands] copilotCli:", resolved.copilotCli);
     console.log("[readConfiguredCommands] copilotPrefix:", resolved.copilotPrefix);
     console.log("[readConfiguredCommands] claudeCli:", resolved.claudeCli);
+    console.log("[readConfiguredCommands] codexCli:", resolved.codexCli);
 
     return resolved;
   }
@@ -1443,11 +1518,12 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     return jailDir;
   }
 
-  async function runProgram(file, args, cwd, requestMeta = null) {
+  async function runProgram(file, args, cwd, requestMeta = null, stdinData = null) {
     console.log("[runProgram] file:", file);
     console.log("[runProgram] args:", args);
     console.log("[runProgram] cwd:", cwd);
     console.log("[runProgram] file exists:", fsSync.existsSync(file));
+    console.log("[runProgram] stdinData:", stdinData ? `${stdinData.length} chars` : "none");
     // Prevent copilot CLI from launching external editors/browsers
     // 1. Filter VS Code directories out of PATH
     // 2. Prepend a jail directory with no-op wrappers for dangerous commands
@@ -1491,9 +1567,19 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       ELECTRON_NO_ATTACH_CONSOLE: "1",
       GIT_TERMINAL_PROMPT: "0", // Prevent git credential popups
     };
-    const child = execFile(file, args, { cwd, windowsHide: true, env: safeEnv }, () => {});
-    // Close stdin immediately so Claude CLI doesn't wait for piped input
-    if (child.stdin) { try { child.stdin.end(); } catch {} }
+    const isCmdFile = process.platform === "win32" && /\.cmd$/i.test(file);
+    const child = isCmdFile
+      ? spawn(file, args, { cwd, windowsHide: true, env: safeEnv, shell: true, stdio: ["pipe", "pipe", "pipe"] })
+      : execFile(file, args, { cwd, windowsHide: true, env: safeEnv }, () => {});
+    // If stdinData is provided (e.g. codex prompt), write it then close stdin.
+    // Otherwise close stdin immediately so Claude CLI doesn't wait for piped input.
+    if (child.stdin) {
+      if (stdinData) {
+        try { child.stdin.write(stdinData); child.stdin.end(); } catch {}
+      } else {
+        try { child.stdin.end(); } catch {}
+      }
+    }
     activeChildProcess = child;
     activeRequestMeta = requestMeta;
     activeRequestOutput = "";  // Reset accumulated output for new request
@@ -2281,25 +2367,26 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: false });
 
     let rawOutput;
     try {
-      rawOutput = await runProgram(cli, cliArgs, project.repoPath, {
+      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: false }, project.repoPath, {
         projectId,
         scope: "project-manager",
         phase: "plan",
         model: selectedModel || "auto",
       });
     } catch (cliErr) {
+      const cliInfo = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: false });
+      const providerLabel = provider === "claude" ? "Claude" : provider === "codex" ? "Codex" : "Copilot";
       const detail = [
-        `${provider === "claude" ? "Claude" : "Copilot"} CLI failed to generate a project plan.`,
+        `${providerLabel} CLI failed to generate a project plan.`,
         ``,
-        `Command: ${cli} ${cliArgs.slice(0, 2).concat(["(prompt omitted)"], cliArgs.slice(3)).join(" ")}`,
+        `Command: ${cliInfo.cli} ${cliInfo.args.join(" ")}`,
         `Exit code: ${cliErr.exitCode ?? "unknown"}`,
         `CWD: ${project.repoPath}`,
-        `CLI path: ${cli}`,
-        `CLI exists: ${fsSync.existsSync(cli)}`,
+        `CLI path: ${cliInfo.cli}`,
+        `CLI exists: ${fsSync.existsSync(cliInfo.cli)}`,
         `Provider: ${provider}`,
         ``,
         `stderr: ${(cliErr.stderr || "").substring(0, 500)}`,
@@ -2309,6 +2396,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         `Troubleshooting:`,
         provider === "claude"
           ? `1. Make sure "claude" is installed: npm install -g @anthropic-ai/claude-code\n2. Open a terminal and run: claude --version\n3. Make sure you're signed in: claude auth status`
+          : provider === "codex"
+          ? `1. Make sure "codex" is installed: npm install -g @openai/codex\n2. Open a terminal and run: codex --version\n3. Make sure you're signed in: codex login`
           : `1. Make sure "copilot" is installed: winget install GitHub.Copilot\n2. Open a terminal and run: copilot --version\n3. If that fails, the binary is not on PATH — restart the app after installing`,
       ].join("\n");
       console.error("[generateProjectPlan]", detail);
@@ -2464,9 +2553,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: false });
 
-    const rawOutput = await runProgram(cli, cliArgs, project.repoPath, {
+    const rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: false }, project.repoPath, {
       projectId,
       scope: "project-manager",
       phase: "chat",
@@ -2611,13 +2699,12 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: true });
 
     let rawOutput;
     try {
       // Ensure we're on the working branch before the agent modifies files
       ensureOnCodebuddyBuild(project.repoPath);
-      rawOutput = await runProgram(cli, cliArgs, project.repoPath, {
+      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true }, project.repoPath, {
         projectId,
         scope: "solo-chat",
         phase: "chat",
@@ -2843,13 +2930,12 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: true });
 
     let rawOutput;
     try {
       // Ensure we're on the working branch before the agent modifies files
       ensureOnCodebuddyBuild(hydratedProject.repoPath);
-      rawOutput = await runProgram(cli, cliArgs, hydratedProject.repoPath, {
+      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true }, hydratedProject.repoPath, {
         projectId,
         taskId,
         threadId: latestThread.id,
@@ -3105,9 +3191,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     ].filter(Boolean).join("\n\n");
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, generationPrompt, selectedModel, { agentMode: false });
 
-    const rawOutput = await runProgram(cli, cliArgs, project.repoPath, {
+    const rawOutput = await runProviderCli(commands, provider, generationPrompt, selectedModel, { agentMode: false }, project.repoPath, {
       projectId,
       taskId,
       threadId: activeThread?.id || null,
@@ -3571,7 +3656,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const provider = resolveProvider(settings, selectedModel);
-    const { cli, args: cliArgs } = buildCliInvocation(commands, provider, launchPrompt, selectedModel, { agentMode: false });
 
     const requestMeta = {
       projectId,
@@ -3592,7 +3676,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       });
 
       const rawOutput = await Promise.race([
-        runProgram(cli, cliArgs, project.repoPath, requestMeta),
+        runProviderCli(commands, provider, launchPrompt, selectedModel, { agentMode: false }, project.repoPath, requestMeta),
         timeoutPromise,
       ]).finally(() => clearTimeout(timeoutHandle));
 

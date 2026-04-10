@@ -123,6 +123,11 @@ function createProcessService({ sendEvent }) {
       windowsHide: true,
     });
 
+    // If stdinData is provided (e.g. codex prompt), write it then close stdin
+    if (options.stdinData) {
+      try { child.stdin.write(options.stdinData); child.stdin.end(); } catch {}
+    }
+
     return runChild(child, {
       label: [file, ...args].join(" "),
       cwd: resolvedCwd,

@@ -86,12 +86,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   tools: {
     listStatus: () => ipcRenderer.invoke("tools:listStatus"),
+    getModelCatalogs: () => ipcRenderer.invoke("tools:getModelCatalogs"),
     installCopilot: () => ipcRenderer.invoke("tools:installCopilot"),
     installClaude: () => ipcRenderer.invoke("tools:installClaude"),
     installNode: () => ipcRenderer.invoke("tools:installNode"),
     installGit: () => ipcRenderer.invoke("tools:installGit"),
     installGh: () => ipcRenderer.invoke("tools:installGh"),
+    installPython: () => ipcRenderer.invoke("tools:installPython"),
+    installCodex: () => ipcRenderer.invoke("tools:installCodex"),
     runCopilotPrompt: (payload) => ipcRenderer.invoke("tools:runCopilotPrompt", payload),
+    runGenericPrompt: (payload) => ipcRenderer.invoke("tools:runGenericPrompt", payload),
     githubAuthStatus: () => ipcRenderer.invoke("tools:githubAuthStatus"),
     githubAuthLogin: () => ipcRenderer.invoke("tools:githubAuthLogin"),
     githubAuthLogout: (username) => ipcRenderer.invoke("tools:githubAuthLogout", username),
@@ -101,6 +105,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     claudeAuthStatus: () => ipcRenderer.invoke("tools:claudeAuthStatus"),
     claudeAuthLogin: () => ipcRenderer.invoke("tools:claudeAuthLogin"),
     onClaudeAuthProgress: (callback) => subscribe("tools:claudeAuthProgress", callback),
+    codexAuthStatus: () => ipcRenderer.invoke("tools:codexAuthStatus"),
+    codexAuthLogin: () => ipcRenderer.invoke("tools:codexAuthLogin"),
+    onCodexAuthProgress: (callback) => subscribe("tools:codexAuthProgress", callback),
   },
 
   sharedState: {

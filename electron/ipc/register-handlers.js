@@ -12,7 +12,7 @@ function safeHandle(channel, handler) {
 }
 
 function registerIpcHandlers({ app, mainWindow, processService, repoService, settingsService, toolingService, activityService, projectService, sharedStateService, p2pService, fileWatcherService }) {
-  const BUILD_TAG = "copilot-fix-v21";
+  const BUILD_TAG = "v32";
   console.log(`[IPC] Registering all handlers... (build: ${BUILD_TAG})`);
   const sendEvent = (channel, payload) => {
     const window = mainWindow();
@@ -519,7 +519,8 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("settings:get", async () => {
-    return settingsService.readSettings();
+    const settings = await settingsService.readSettings();
+    return settings;
   });
 
   safeHandle("settings:update", async (_event, patch) => {
@@ -1042,7 +1043,36 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("tools:listStatus", async () => {
-    return toolingService.getToolStatus();
+    const statuses = await toolingService.getToolStatus();
+
+    // Auto-sync featureFlags based on actual tool availability
+    try {
+      const copilotAvail = statuses.some((s) => s.id === "githubCopilotCli" && s.available);
+      const claudeAvail = statuses.some((s) => s.id === "claudeCode" && s.available);
+      const codexAvail = statuses.some((s) => s.id === "codexCli" && s.available);
+      const current = await settingsService.readSettings();
+      const flags = current.featureFlags ?? {};
+      const needsSync = flags.githubCopilotCli !== copilotAvail || flags.claudeCode !== claudeAvail || flags.codexCli !== codexAvail;
+      if (needsSync) {
+        await settingsService.updateSettings({
+          featureFlags: {
+            githubCopilotCli: copilotAvail,
+            claudeCode: claudeAvail,
+            codexCli: codexAvail,
+          },
+        });
+        const updatedSettings = await settingsService.readSettings();
+        sendEvent("settings:changed", updatedSettings);
+      }
+    } catch (err) {
+      console.warn("[tools:listStatus] Failed to auto-sync featureFlags:", err?.message);
+    }
+
+    return statuses;
+  });
+
+  safeHandle("tools:getModelCatalogs", async () => {
+    return toolingService.getModelCatalogs();
   });
 
   safeHandle("tools:runCopilotPrompt", async (_event, payload) => {
@@ -1054,6 +1084,17 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       actorInitials: "CB",
     });
     return toolingService.runCopilotPrompt(payload);
+  });
+
+  safeHandle("tools:runGenericPrompt", async (_event, payload) => {
+    logActivity({
+      type: "comment",
+      title: "AI prompt started",
+      description: `Running AI CLI in ${payload.cwd}.`,
+      actor: "CodeBuddy",
+      actorInitials: "CB",
+    });
+    return toolingService.runGenericPrompt(payload);
   });
 
   safeHandle("tools:installCopilot", async () => {
@@ -1074,6 +1115,40 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
   safeHandle("tools:installGh", async () => {
     return toolingService.installGithubCli();
+  });
+
+  safeHandle("tools:installPython", async () => {
+    return toolingService.installPython();
+  });
+
+  safeHandle("tools:installCodex", async () => {
+    console.log("[IPC] tools:installCodex called");
+    const result = await toolingService.installCodex();
+    console.log(`[IPC] tools:installCodex result: success=${result.success}, detail="${result.detail}", logLines=${result.log?.length || 0}`);
+    return result;
+  });
+
+  safeHandle("tools:codexAuthStatus", async () => {
+    console.log("[IPC] tools:codexAuthStatus called");
+    const result = await toolingService.getCodexAuthStatus();
+    console.log(`[IPC] tools:codexAuthStatus result: authenticated=${result.authenticated}, detail="${result.detail}"`);
+    return result;
+  });
+
+  safeHandle("tools:codexAuthLogin", async () => {
+    console.log("[IPC] tools:codexAuthLogin called");
+    const result = await toolingService.startCodexAuth(sendEvent);
+    console.log(`[IPC] tools:codexAuthLogin result: success=${result.success}, timedOut=${result.timedOut || false}`);
+    if (result.success) {
+      logActivity({
+        type: "status",
+        title: "Codex CLI connected",
+        description: "Successfully authenticated with OpenAI Codex.",
+        actor: "CodeBuddy",
+        actorInitials: "CB",
+      });
+    }
+    return result;
   });
 
   safeHandle("tools:claudeAuthStatus", async () => {

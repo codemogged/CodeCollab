@@ -194,6 +194,10 @@ export default function SoloChatPage() {
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showSessionManager, setShowSessionManager] = useState(false);
 
+  // Provider / feature-flag state
+  const [featureFlags, setFeatureFlags] = useState<{ githubCopilotCli?: boolean; claudeCode?: boolean; codexCli?: boolean }>({ githubCopilotCli: true });
+  const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">("copilot");
+
   // Right panel
   const [rightPanel, setRightPanel] = useState<"files" | "terminal" | "changes" | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(420);
@@ -245,34 +249,57 @@ export default function SoloChatPage() {
     warning?: string;
   };
 
-  const modelCatalog: ModelCatalogEntry[] = useMemo(() => [
+  // ── Default model catalogs (fallback when IPC is unavailable) ──
+  const DEFAULT_copilotModels: ModelCatalogEntry[] = useMemo(() => [
     { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
     { id: "claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
     { id: "claude-sonnet-4.6", label: "Claude Sonnet 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
     { id: "gpt-5.4", label: "GPT-5.4", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
-    { id: "claude-haiku-4.5", label: "Claude Haiku 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "0.33x", group: "other" },
-    { id: "claude-opus-4.5", label: "Claude Opus 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "other" },
-    { id: "claude-sonnet-4", label: "Claude Sonnet 4", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
-    { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other" },
-    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "0.33x", group: "other" },
-    { id: "gemini-3-pro-preview", label: "Gemini 3 Pro (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other", warning: "Preview model" },
-    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other", warning: "Preview model" },
-    { id: "gpt-5.2", label: "GPT-5.2", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "other" },
-    { id: "gpt-5.1", label: "GPT-5.1", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "other" },
-    { id: "o3", label: "o3", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
   ], []);
+  const DEFAULT_claudeModels: ModelCatalogEntry[] = useMemo(() => [
+    { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+    { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+  ], []);
+  const DEFAULT_codexModels: ModelCatalogEntry[] = useMemo(() => [
+    { id: "default", label: "Default (ChatGPT)", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+    { id: "o4-mini", label: "o4-mini", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+  ], []);
+
+  const [catalogSources, setCatalogSources] = useState<{ copilot: ModelCatalogEntry[]; claude: ModelCatalogEntry[]; codex: ModelCatalogEntry[] }>({
+    copilot: DEFAULT_copilotModels, claude: DEFAULT_claudeModels, codex: DEFAULT_codexModels,
+  });
+
+  // Merged catalog for lookup (all enabled providers)
+  const modelCatalog = useMemo(() => {
+    const entries: ModelCatalogEntry[] = [];
+    if (featureFlags?.claudeCode) entries.push(...catalogSources.claude);
+    if (featureFlags?.githubCopilotCli) entries.push(...catalogSources.copilot);
+    if (featureFlags?.codexCli) entries.push(...catalogSources.codex);
+    return entries.length > 0 ? entries : catalogSources.copilot;
+  }, [featureFlags, catalogSources, DEFAULT_copilotModels]);
 
   const selectedModelMeta = useMemo(
     () => modelCatalog.find((m) => m.id === selectedModel) ?? modelCatalog[0],
     [selectedModel, modelCatalog]
   );
 
+  const enabledProviderCount = [!!featureFlags?.githubCopilotCli, !!featureFlags?.claudeCode, !!featureFlags?.codexCli].filter(Boolean).length;
+  const hasMultipleProviders = enabledProviderCount > 1;
+
   const filteredModels = useMemo(() => {
-    if (!modelSearch.trim()) return modelCatalog;
-    const q = modelSearch.toLowerCase();
-    return modelCatalog.filter((m) => m.label.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q));
-  }, [modelSearch, modelCatalog]);
+    // Filter by provider tab using the per-provider catalog (not providerTag field)
+    let models: ModelCatalogEntry[];
+    if (hasMultipleProviders) {
+      models = providerTab === "claude" ? catalogSources.claude : providerTab === "codex" ? catalogSources.codex : catalogSources.copilot;
+    } else {
+      models = modelCatalog;
+    }
+    if (modelSearch.trim()) {
+      const q = modelSearch.toLowerCase();
+      models = models.filter((m) => m.label.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q));
+    }
+    return models;
+  }, [modelSearch, modelCatalog, catalogSources, hasMultipleProviders, providerTab]);
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) ?? null,
@@ -292,6 +319,63 @@ export default function SoloChatPage() {
       setActiveSessionId(latestId);
     }
   }, [activeProject?.dashboard]);
+
+  /* --- load featureFlags & model catalogs: settings.get() first (instant), then listStatus in background --- */
+  useEffect(() => {
+    let cancelled = false;
+    // 1) Read settings instantly — featureFlags are already synced from prior listStatus calls
+    async function loadFlagsInstant() {
+      try {
+        const settings = await window.electronAPI?.settings?.get?.();
+        if (!cancelled && settings?.featureFlags) {
+          setFeatureFlags(settings.featureFlags);
+          if (settings.featureFlags.claudeCode) {
+            setProviderTab("claude");
+            setSelectedModel("sonnet");
+          } else if (settings.featureFlags.codexCli) {
+            setProviderTab("codex");
+            setSelectedModel("default");
+          } else {
+            setProviderTab("copilot");
+          }
+        }
+        // Load dynamic model catalogs from config file
+        try {
+          const catalogs = await window.electronAPI?.tools?.getModelCatalogs?.();
+          if (!cancelled && catalogs) {
+            setCatalogSources({
+              copilot: catalogs.copilot?.length ? catalogs.copilot : DEFAULT_copilotModels,
+              claude: catalogs.claude?.length ? catalogs.claude : DEFAULT_claudeModels,
+              codex: catalogs.codex?.length ? catalogs.codex : DEFAULT_codexModels,
+            });
+          }
+        } catch { /* keep defaults */ }
+      } catch (err) {
+        console.error("[Freestyle] loadFlagsInstant error:", err);
+      }
+    }
+    // 2) Trigger listStatus in background to refresh tool availability (slow ~10s)
+    async function refreshToolStatus() {
+      try {
+        if (window.electronAPI?.tools?.listStatus) {
+          await window.electronAPI.tools.listStatus();
+        }
+        // Re-read settings after listStatus completes (auto-sync may have updated flags)
+        const settings = await window.electronAPI?.settings?.get?.();
+        if (!cancelled && settings?.featureFlags) {
+          setFeatureFlags(settings.featureFlags);
+        }
+      } catch { /* background refresh — ignore errors */ }
+    }
+    void loadFlagsInstant();
+    void refreshToolStatus();
+    const stopListening = window.electronAPI?.settings?.onChanged?.((s: { featureFlags?: { githubCopilotCli?: boolean; claudeCode?: boolean; codexCli?: boolean } }) => {
+      if (!cancelled && s?.featureFlags) {
+        setFeatureFlags(s.featureFlags);
+      }
+    });
+    return () => { cancelled = true; stopListening?.(); };
+  }, []);
 
   /* --- auto-scroll chat --- */
   useEffect(() => {
@@ -1460,6 +1544,26 @@ export default function SoloChatPage() {
               className="w-full bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted"
             />
           </div>
+          {hasMultipleProviders ? (
+            <div className="flex gap-1 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
+              {(["claude", "copilot", "codex"] as const)
+                .filter((tab) => {
+                  if (tab === "claude") return !!featureFlags?.claudeCode;
+                  if (tab === "copilot") return !!featureFlags?.githubCopilotCli;
+                  return !!featureFlags?.codexCli;
+                })
+                .map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setProviderTab(tab)}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold transition ${providerTab === tab ? "bg-[#0078d4] text-white" : "theme-muted hover:theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                >
+                  {tab === "claude" ? "Claude Code" : tab === "codex" ? "Codex CLI" : "GitHub Copilot"}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="custom-scroll max-h-[370px] overflow-y-auto py-1">
             {(["featured", "other"] as const).map((group) => {
               const groupModels = filteredModels.filter((entry) => entry.group === group);

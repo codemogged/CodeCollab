@@ -327,72 +327,65 @@ const quickPromptMeta: Record<QuickPromptType, { label: string; shortLabel: stri
 
 const chatActionButtonClass = "app-control-rail rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] app-control-idle";
 
-const copilotModelCatalog: ModelCatalogEntry[] = [
+// ── Default model catalogs (fallback when IPC is unavailable) ──
+const DEFAULT_copilotModels: ModelCatalogEntry[] = [
   { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
   { id: "claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
   { id: "claude-sonnet-4.6", label: "Claude Sonnet 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
   { id: "gpt-5.4", label: "GPT-5.4", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
-  { id: "claude-haiku-4.5", label: "Claude Haiku 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "0.33x", group: "other" },
-  { id: "claude-opus-4.5", label: "Claude Opus 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "other" },
-  { id: "claude-sonnet-4", label: "Claude Sonnet 4", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
-  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other" },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "0.33x", group: "other" },
-  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other", warning: "Preview model" },
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview)", provider: "Google", contextWindow: "1M", maxTokens: 1000000, usage: "1x", group: "other", warning: "Preview model" },
-  { id: "gpt-5.2", label: "GPT-5.2", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "other" },
-  { id: "gpt-5.1", label: "GPT-5.1", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "other" },
-  { id: "o3", label: "o3", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "other" },
 ];
-
-const claudeModelCatalog: ModelCatalogEntry[] = [
+const DEFAULT_claudeModels: ModelCatalogEntry[] = [
   { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
   { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
-  { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+];
+const DEFAULT_codexModels: ModelCatalogEntry[] = [
+  { id: "default", label: "Default (ChatGPT)", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+  { id: "o4-mini", label: "o4-mini", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
 ];
 
-const allModelsCatalog: ModelCatalogEntry[] = [
-  ...claudeModelCatalog.map((entry) => ({ ...entry, group: entry.group as "featured" | "other" })),
-  ...copilotModelCatalog.map((entry) => ({ ...entry, group: entry.group as "featured" | "other" })),
-];
+type FeatureFlags = { githubCopilotCli?: boolean; claudeCode?: boolean; codexCli?: boolean };
+type CatalogSources = { copilot: ModelCatalogEntry[]; claude: ModelCatalogEntry[]; codex: ModelCatalogEntry[] };
 
-function getActiveModelCatalog(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }): ModelCatalogEntry[] {
+function getActiveModelCatalog(featureFlags: FeatureFlags, catalogs: CatalogSources): ModelCatalogEntry[] {
   const hasCopilot = !!featureFlags?.githubCopilotCli;
   const hasClaude = !!featureFlags?.claudeCode;
-  if (hasClaude && hasCopilot) return allModelsCatalog;
-  if (hasClaude) return claudeModelCatalog;
-  return copilotModelCatalog;
+  const hasCodex = !!featureFlags?.codexCli;
+  const enabledCatalogs: ModelCatalogEntry[] = [];
+  if (hasClaude) enabledCatalogs.push(...catalogs.claude);
+  if (hasCopilot) enabledCatalogs.push(...catalogs.copilot);
+  if (hasCodex) enabledCatalogs.push(...catalogs.codex);
+  if (enabledCatalogs.length > 0) return enabledCatalogs;
+  return catalogs.copilot;
 }
 
-function getDefaultModelId(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }): string {
+function getDefaultModelId(featureFlags: FeatureFlags): string {
   const hasCopilot = !!featureFlags?.githubCopilotCli;
   const hasClaude = !!featureFlags?.claudeCode;
-  if (hasClaude && !hasCopilot) return "sonnet";
+  const hasCodex = !!featureFlags?.codexCli;
+  if (hasClaude && !hasCopilot && !hasCodex) return "sonnet";
+  if (hasCodex && !hasClaude && !hasCopilot) return "default";
   return "gpt-5.2";
 }
 
-function getModelRecommendation(featureFlags: { githubCopilotCli?: boolean; claudeCode?: boolean }, isTaskChat: boolean): { modelId: string; label: string; reason: string } {
+function getModelRecommendation(featureFlags: FeatureFlags, isTaskChat: boolean): { modelId: string; label: string; reason: string } {
   const hasCopilot = !!featureFlags?.githubCopilotCli;
   const hasClaude = !!featureFlags?.claudeCode;
+  const hasCodex = !!featureFlags?.codexCli;
 
   if (isTaskChat) {
-    // Task implementation — prefer Claude Sonnet for coding, or GPT-5.4 for Copilot-only
     if (hasClaude) return { modelId: "sonnet", label: "Claude Sonnet (Latest)", reason: "Best for implementation tasks" };
+    if (hasCodex) return { modelId: "default", label: "Default (ChatGPT)", reason: "Best for implementation tasks" };
     return { modelId: "gpt-5.4", label: "GPT-5.4", reason: "Best for implementation tasks" };
   }
 
-  // PM chat / planning — prefer Claude Opus for planning depth, or GPT-5.4 on Copilot
   if (hasClaude && hasCopilot) return { modelId: "claude-opus-4.6", label: "Claude Opus 4.6", reason: "Best for planning & architecture" };
   if (hasClaude) return { modelId: "opus", label: "Claude Opus (Latest)", reason: "Best for planning & architecture" };
+  if (hasCodex) return { modelId: "default", label: "Default (ChatGPT)", reason: "Best for planning & architecture" };
   return { modelId: "claude-opus-4.6", label: "Claude Opus 4.6", reason: "Best for planning & architecture" };
 }
 
-function getModelCatalogEntry(modelId: string, catalog?: ModelCatalogEntry[]) {
-  const source = catalog ?? copilotModelCatalog;
-  return source.find((entry) => entry.id === modelId) ?? source[0];
+function getModelCatalogEntry(modelId: string, catalog: ModelCatalogEntry[]) {
+  return catalog.find((entry) => entry.id === modelId) ?? catalog[0];
 }
 
 function estimateTokens(text: string) {
@@ -1299,6 +1292,19 @@ function ProjectChatPageContent() {
   const [hasDesktopApi, setHasDesktopApi] = useState(false);
   const [desktopRepoPath, setDesktopRepoPath] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("gpt-5.2");
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({ githubCopilotCli: true });
+  const [catalogSources, setCatalogSources] = useState<CatalogSources>({
+    copilot: DEFAULT_copilotModels,
+    claude: DEFAULT_claudeModels,
+    codex: DEFAULT_codexModels,
+  });
+  const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">("copilot");
+  const [showModelMenu, setShowModelMenu] = useState(false);
+  const modelCatalog = getActiveModelCatalog(featureFlags, catalogSources);
+  const enabledProviderCount = [!!featureFlags?.githubCopilotCli, !!featureFlags?.claudeCode, !!featureFlags?.codexCli].filter(Boolean).length;
+  const hasMultipleProviders = enabledProviderCount > 1;
+  const modelMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const [desktopToolsLoading, setDesktopToolsLoading] = useState(false);
   const [desktopToolsError, setDesktopToolsError] = useState<string | null>(null);
   const [copilotReady, setCopilotReady] = useState(false);
@@ -1369,6 +1375,17 @@ function ProjectChatPageContent() {
   }, [showPromptMenu]);
 
   useEffect(() => {
+    if (!showModelMenu) return;
+    const handleClick = (e: MouseEvent | globalThis.MouseEvent) => {
+      const target = e.target as Node;
+      if (modelMenuRef.current?.contains(target) || modelMenuBtnRef.current?.contains(target)) return;
+      setShowModelMenu(false);
+    };
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, [showModelMenu]);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 1024px)");
     const syncDesktopLayout = () => setIsDesktopLayout(mediaQuery.matches);
 
@@ -1397,21 +1414,46 @@ function ProjectChatPageContent() {
         setDesktopToolsLoading(true);
         setDesktopToolsError(null);
 
-        const [settings, toolStatuses] = await Promise.all([
-          window.electronAPI!.settings.get(),
-          window.electronAPI!.tools.listStatus(),
-        ]);
+        // listStatus triggers auto-sync of featureFlags on the backend,
+        // so we call it first, then read settings to get the updated flags.
+        const toolStatuses = await window.electronAPI!.tools.listStatus();
+        const settings = await window.electronAPI!.settings.get();
 
         if (cancelled) {
           return;
         }
 
+        const flags = settings.featureFlags ?? { githubCopilotCli: true };
+        setFeatureFlags(flags);
+        const defaultModel = getDefaultModelId(flags);
         setDesktopRepoPath(settings.recentRepositories[0] ?? settings.workspaceRoots[0] ?? null);
-        setSelectedModel(settings.projectDefaults?.copilotModel ?? "gpt-5.2");
+        setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
         setCopilotReady(Boolean(toolStatuses.find((tool) => tool.id === "githubCopilotCli")?.available));
         if ((settings as unknown as Record<string, unknown>).displayName) {
           setDisplayName((settings as unknown as Record<string, unknown>).displayName as string);
         }
+
+        // Determine initial provider tab from the selected model
+        const cs = catalogSources;
+        if (cs.claude.some((m) => m.id === (settings.projectDefaults?.copilotModel ?? defaultModel))) {
+          setProviderTab("claude");
+        } else if (cs.codex.some((m) => m.id === (settings.projectDefaults?.copilotModel ?? defaultModel))) {
+          setProviderTab("codex");
+        } else {
+          setProviderTab("copilot");
+        }
+
+        // Load dynamic model catalogs
+        try {
+          const catalogs = await window.electronAPI?.tools?.getModelCatalogs?.();
+          if (!cancelled && catalogs) {
+            setCatalogSources({
+              copilot: catalogs.copilot?.length ? catalogs.copilot : DEFAULT_copilotModels,
+              claude: catalogs.claude?.length ? catalogs.claude : DEFAULT_claudeModels,
+              codex: catalogs.codex?.length ? catalogs.codex : DEFAULT_codexModels,
+            });
+          }
+        } catch { /* keep defaults */ }
       } catch (error) {
         if (cancelled) {
           return;
@@ -1428,8 +1470,17 @@ function ProjectChatPageContent() {
 
     void loadDesktopWorkspace();
 
+    // Listen for settings changes (e.g. auto-synced featureFlags)
+    const stopSettingsListener = window.electronAPI?.settings?.onChanged?.((s) => {
+      if (!cancelled) {
+        const flags = s.featureFlags ?? { githubCopilotCli: true };
+        setFeatureFlags(flags);
+      }
+    });
+
     return () => {
       cancelled = true;
+      stopSettingsListener?.();
     };
   }, []);
 
@@ -1439,7 +1490,7 @@ function ProjectChatPageContent() {
     }
 
     const stopStarted = window.electronAPI.process.onStarted((event) => {
-      if (pendingCopilotLaunch && event.command?.includes("copilot")) {
+      if (pendingCopilotLaunch && (event.command?.includes("copilot") || event.command?.includes("claude") || event.command?.includes("codex"))) {
         setCopilotProcessId(event.processId);
         setPendingCopilotLaunch(false);
       }
@@ -1600,12 +1651,12 @@ function ProjectChatPageContent() {
     }
 
     if (!window.electronAPI?.tools) {
-      setDesktopToolsError("Open the desktop app to run GitHub Copilot locally.");
+      setDesktopToolsError("Open the desktop app to run AI prompts locally.");
       return;
     }
 
     if (!desktopRepoPath) {
-      setDesktopToolsError("Connect a local repository first from the Files page so Copilot has a working directory.");
+      setDesktopToolsError("Connect a local repository first from the Files page so the AI CLI has a working directory.");
       return;
     }
 
@@ -1618,7 +1669,8 @@ function ProjectChatPageContent() {
     setCopilotExitCode(null);
 
     try {
-      const result = await window.electronAPI.tools.runCopilotPrompt({
+      const runFn = window.electronAPI.tools.runGenericPrompt ?? window.electronAPI.tools.runCopilotPrompt;
+      const result = await runFn({
         prompt,
         cwd: desktopRepoPath,
         timeoutMs: 120000,
@@ -1638,7 +1690,7 @@ function ProjectChatPageContent() {
         }
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "GitHub Copilot CLI failed.";
+      const message = error instanceof Error ? error.message : "AI CLI prompt failed.";
       setDesktopToolsError(message);
       setIsCopilotRunning(false);
       setPendingCopilotLaunch(false);
@@ -1850,21 +1902,74 @@ function ProjectChatPageContent() {
                             {activeQuickPrompt
                               ? `${quickPromptMeta[activeQuickPrompt].label} prompt loaded`
                               : hasDesktopApi
-                                ? copilotReady
+                                ? enabledProviderCount > 0
                                   ? "Send runs through AI CLI"
                                   : "Install an AI CLI to enable prompts"
                                 : "Type or use tools"}
                           </p>
-                          <select
-                            value={selectedModel}
-                            onChange={(event) => setSelectedModel(event.target.value)}
-                            className="h-8 rounded-full bg-black/[0.04] px-3 text-[11px] font-semibold theme-fg outline-none transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-                            title="Model"
-                          >
-                            {copilotModelCatalog.map((model) => (
-                              <option key={model.id} value={model.id}>{model.label}</option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <button
+                              ref={modelMenuBtnRef}
+                              type="button"
+                              onClick={() => setShowModelMenu((v) => !v)}
+                              className="h-8 rounded-full bg-black/[0.04] px-3 text-[11px] font-semibold theme-fg outline-none transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                              title="Model"
+                            >
+                              {modelCatalog.find((m) => m.id === selectedModel)?.label ?? selectedModel}
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="ml-1 inline h-3 w-3">
+                                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            {showModelMenu && (
+                              <div
+                                ref={modelMenuRef}
+                                className="absolute bottom-10 right-0 z-50 w-[260px] overflow-hidden rounded-[1rem] border border-black/[0.06] bg-[rgba(255,255,255,0.96)] shadow-[0_18px_44px_rgba(0,0,0,0.12)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1a1c20]/95 dark:shadow-[0_18px_44px_rgba(0,0,0,0.34)]"
+                              >
+                                {hasMultipleProviders && (
+                                  <div className="flex gap-1 border-b border-black/[0.06] px-2 pt-2 pb-1.5 dark:border-white/[0.08]">
+                                    {featureFlags.claudeCode && (
+                                      <button type="button" onClick={() => setProviderTab("claude")} className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${providerTab === "claude" ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-muted hover:theme-fg"}`}>Claude</button>
+                                    )}
+                                    {featureFlags.githubCopilotCli && (
+                                      <button type="button" onClick={() => setProviderTab("copilot")} className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${providerTab === "copilot" ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-muted hover:theme-fg"}`}>Copilot</button>
+                                    )}
+                                    {featureFlags.codexCli && (
+                                      <button type="button" onClick={() => setProviderTab("codex")} className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${providerTab === "codex" ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-muted hover:theme-fg"}`}>Codex</button>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="max-h-[240px] overflow-y-auto p-1.5">
+                                  {(() => {
+                                    const cs = catalogSources;
+                                    const tabModels = providerTab === "claude" ? cs.claude : providerTab === "codex" ? cs.codex : cs.copilot;
+                                    const featured = tabModels.filter((m) => m.group === "featured");
+                                    const other = tabModels.filter((m) => m.group !== "featured");
+                                    return (
+                                      <>
+                                        {featured.map((m) => (
+                                          <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
+                                            <span>{m.label}</span>
+                                            {m.contextWindow && <span className={`text-[9px] ${m.id === selectedModel ? "text-cream/60 dark:text-[#141414]/60" : "theme-muted"}`}>{m.contextWindow}</span>}
+                                          </button>
+                                        ))}
+                                        {other.length > 0 && (
+                                          <>
+                                            <div className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider theme-muted">Other</div>
+                                            {other.map((m) => (
+                                              <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
+                                                <span>{m.label}</span>
+                                                {(m as Record<string, unknown>).warning ? <span className="text-[9px] text-amber-500">{String((m as Record<string, unknown>).warning)}</span> : null}
+                                              </button>
+                                            ))}
+                                          </>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         <div className={`flex gap-2 ${isTightComposer ? "items-center justify-between" : "items-center"}`}>
@@ -1913,7 +2018,7 @@ function ProjectChatPageContent() {
                             onClick={() => void handleRunCopilot()}
                             disabled={isSendDisabled}
                             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-cream shadow-[0_10px_24px_rgba(0,0,0,0.12)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#141414] ${isTightComposer ? "ml-auto" : ""}`}
-                            title={copilotReady ? "Run with GitHub Copilot CLI" : "GitHub Copilot CLI not ready"}
+                            title={enabledProviderCount > 0 ? "Run with AI CLI" : "No AI CLI available"}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                               <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
@@ -2055,8 +2160,13 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
   const [prompt, setPrompt] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [featureFlags, setFeatureFlags] = useState<{ githubCopilotCli?: boolean; claudeCode?: boolean }>({ githubCopilotCli: true });
-  const modelCatalog = getActiveModelCatalog(featureFlags);
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({ githubCopilotCli: true });
+  const [catalogSources, setCatalogSources] = useState<CatalogSources>({
+    copilot: DEFAULT_copilotModels,
+    claude: DEFAULT_claudeModels,
+    codex: DEFAULT_codexModels,
+  });
+  const modelCatalog = getActiveModelCatalog(featureFlags, catalogSources);
   const [selectedModel, setSelectedModel] = useState(() => getDefaultModelId(featureFlags));
   const [attachedFiles, setAttachedFiles] = useState<ComposerAttachment[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
@@ -3049,6 +3159,21 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         return;
       }
 
+      // Fetch dynamic model catalogs from backend config file
+      try {
+        const catalogs = await window.electronAPI?.tools?.getModelCatalogs?.();
+        if (!cancelled && catalogs) {
+          const next: CatalogSources = {
+            copilot: catalogs.copilot?.length ? catalogs.copilot : DEFAULT_copilotModels,
+            claude: catalogs.claude?.length ? catalogs.claude : DEFAULT_claudeModels,
+            codex: catalogs.codex?.length ? catalogs.codex : DEFAULT_codexModels,
+          };
+          setCatalogSources(next);
+        }
+      } catch {
+        // keep defaults on error
+      }
+
       try {
         const settings = await window.electronAPI.settings.get();
         if (!cancelled) {
@@ -3168,7 +3293,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
   const handleOpenUsagePage = async () => {
     // Determine billing page based on active model's provider
-    const isClaudeModel = claudeModelCatalog.some((m) => m.id === selectedModel);
+    const isClaudeModel = catalogSources.claude.some((m) => m.id === selectedModel);
     // Also check feature flags: if only Claude Code is enabled, always go to Anthropic
     const claudeOnly = !!featureFlags?.claudeCode && !featureFlags?.githubCopilotCli;
     const url = (isClaudeModel || claudeOnly)
@@ -3898,6 +4023,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                   selectedModel={selectedModel}
                   onModelChange={setSelectedModel}
                   modelCatalog={modelCatalog}
+                  catalogSources={catalogSources}
                   attachedFiles={attachedFiles}
                   onAttachFiles={handleAttachFiles}
                   onRemoveAttachment={handleRemoveAttachment}
@@ -4589,6 +4715,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
                 modelCatalog={modelCatalog}
+                catalogSources={catalogSources}
                 attachedFiles={attachedFiles}
                 onAttachFiles={handleAttachFiles}
                 onRemoveAttachment={handleRemoveAttachment}
@@ -5041,7 +5168,8 @@ function RealProjectComposer({
   placeholder,
   selectedModel,
   onModelChange,
-  modelCatalog = copilotModelCatalog,
+  modelCatalog = DEFAULT_copilotModels,
+  catalogSources: catalogs,
   attachedFiles,
   onAttachFiles,
   onRemoveAttachment,
@@ -5068,6 +5196,7 @@ function RealProjectComposer({
   selectedModel: string;
   onModelChange: (model: string) => void;
   modelCatalog?: ModelCatalogEntry[];
+  catalogSources?: CatalogSources;
   attachedFiles: ComposerAttachment[];
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
@@ -5093,7 +5222,7 @@ function RealProjectComposer({
   onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
-  featureFlags?: { githubCopilotCli?: boolean; claudeCode?: boolean };
+  featureFlags?: FeatureFlags;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -5108,10 +5237,12 @@ function RealProjectComposer({
   const [editedContext, setEditedContext] = useState("");
   const [chatMode, setChatMode] = useState<"agent" | "ask" | "plan">("agent");
 
-  const hasBothProviders = !!featureFlags?.githubCopilotCli && !!featureFlags?.claudeCode;
-  const [providerTab, setProviderTab] = useState<"claude" | "copilot">(() => {
-    // Default to whichever provider the current model belongs to
-    if (claudeModelCatalog.some((m) => m.id === selectedModel)) return "claude";
+  const cs = catalogs ?? { copilot: DEFAULT_copilotModels, claude: DEFAULT_claudeModels, codex: DEFAULT_codexModels };
+  const enabledProviderCount = [!!featureFlags?.githubCopilotCli, !!featureFlags?.claudeCode, !!featureFlags?.codexCli].filter(Boolean).length;
+  const hasMultipleProviders = enabledProviderCount > 1;
+  const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">(() => {
+    if (cs.claude.some((m) => m.id === selectedModel)) return "claude";
+    if (cs.codex.some((m) => m.id === selectedModel)) return "codex";
     return "copilot";
   });
 
@@ -5124,10 +5255,10 @@ function RealProjectComposer({
   const filteredModels = modelCatalog.filter((entry) => {
     const haystack = `${entry.label} ${entry.provider} ${entry.id}`.toLowerCase();
     const matchesSearch = haystack.includes(modelSearch.trim().toLowerCase());
-    if (!hasBothProviders || !matchesSearch) return matchesSearch;
-    // When both providers active, also filter by provider tab
-    if (providerTab === "claude") return matchesSearch && claudeModelCatalog.some((m) => m.id === entry.id);
-    return matchesSearch && copilotModelCatalog.some((m) => m.id === entry.id);
+    if (!hasMultipleProviders || !matchesSearch) return matchesSearch;
+    if (providerTab === "claude") return matchesSearch && cs.claude.some((m) => m.id === entry.id);
+    if (providerTab === "codex") return matchesSearch && cs.codex.some((m) => m.id === entry.id);
+    return matchesSearch && cs.copilot.some((m) => m.id === entry.id);
   });
 
   useEffect(() => {
@@ -5399,21 +5530,27 @@ function RealProjectComposer({
                       className="w-full bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted"
                     />
                   </div>
-                  {hasBothProviders ? (
+                  {hasMultipleProviders ? (
                     <div className="flex gap-1 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
-                      {(["claude", "copilot"] as const).map((tab) => (
+                      {(["claude", "copilot", "codex"] as const)
+                        .filter((tab) => {
+                          if (tab === "claude") return !!featureFlags?.claudeCode;
+                          if (tab === "copilot") return !!featureFlags?.githubCopilotCli;
+                          return !!featureFlags?.codexCli;
+                        })
+                        .map((tab) => (
                         <button
                           key={tab}
                           type="button"
                           onClick={() => setProviderTab(tab)}
                           className={`rounded-full px-3 py-1 text-[10px] font-semibold transition ${providerTab === tab ? "bg-[#0078d4] text-white" : "theme-muted hover:theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
                         >
-                          {tab === "claude" ? "Claude Code" : "GitHub Copilot"}
+                          {tab === "claude" ? "Claude Code" : tab === "codex" ? "Codex CLI" : "GitHub Copilot"}
                         </button>
                       ))}
                     </div>
                   ) : null}
-                  <div className={`custom-scroll overflow-y-auto pb-3 pt-1 ${hasBothProviders ? "max-h-[min(330px,calc(70vh-90px))]" : "max-h-[min(370px,calc(70vh-50px))]"}`}>
+                  <div className={`custom-scroll overflow-y-auto pb-3 pt-1 ${hasMultipleProviders ? "max-h-[min(330px,calc(70vh-90px))]" : "max-h-[min(370px,calc(70vh-50px))]"}`}>
                     {(["featured", "other"] as const).map((group) => {
                       const groupModels = filteredModels.filter((entry) => entry.group === group);
                       if (groupModels.length === 0) return null;

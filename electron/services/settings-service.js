@@ -117,6 +117,7 @@ const DEFAULT_SETTINGS = {
   featureFlags: {
     githubCopilotCli: true,
     claudeCode: false,
+    codexCli: false,
     githubCompanion: true,
   },
 };

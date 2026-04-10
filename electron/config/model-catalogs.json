@@ -1,0 +1,40 @@
+{
+  "_version": 1,
+  "_updated": "2025-07-14",
+  "_note": "Edit this file to add/remove models without rebuilding the app. The frontend falls back to built-in defaults if this file is missing.",
+  "copilot": [
+    { "id": "auto", "label": "Auto", "provider": "Best available", "contextWindow": "Auto", "maxTokens": 200000, "usage": "10% discount", "group": "featured" },
+    { "id": "claude-opus-4.6", "label": "Claude Opus 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "featured" },
+    { "id": "claude-sonnet-4.6", "label": "Claude Sonnet 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "featured" },
+    { "id": "gpt-5.4", "label": "GPT-5.4", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
+    { "id": "claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
+    { "id": "claude-opus-4.5", "label": "Claude Opus 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "other" },
+    { "id": "claude-sonnet-4", "label": "Claude Sonnet 4", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
+    { "id": "claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
+    { "id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other" },
+    { "id": "gemini-3-flash-preview", "label": "Gemini 3 Flash (Preview)", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "0.33x", "group": "other" },
+    { "id": "gemini-3-pro-preview", "label": "Gemini 3 Pro (Preview)", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other", "warning": "Preview model" },
+    { "id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro (Preview)", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other", "warning": "Preview model" },
+    { "id": "gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "other" },
+    { "id": "gpt-5.1", "label": "GPT-5.1", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "other" },
+    { "id": "o3", "label": "o3", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" }
+  ],
+  "claude": [
+    { "id": "sonnet", "label": "Claude Sonnet (Latest)", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "featured" },
+    { "id": "opus", "label": "Claude Opus (Latest)", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "featured" },
+    { "id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other" },
+    { "id": "claude-opus-4-6", "label": "Claude Opus 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other" },
+    { "id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other" },
+    { "id": "claude-haiku-4-5", "label": "Claude Haiku 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other" }
+  ],
+  "codex": [
+    { "id": "default", "label": "Default (ChatGPT)", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "featured" },
+    { "id": "o4-mini", "label": "o4-mini", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other", "warning": "Requires API key" },
+    { "id": "o3", "label": "o3", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "Included", "group": "other", "warning": "Requires API key" },
+    { "id": "gpt-4.1", "label": "GPT-4.1", "provider": "OpenAI", "contextWindow": "1M", "maxTokens": 1000000, "usage": "Included", "group": "other", "warning": "Requires API key" },
+    { "id": "gpt-4.1-mini", "label": "GPT-4.1 Mini", "provider": "OpenAI", "contextWindow": "1M", "maxTokens": 1000000, "usage": "Included", "group": "other", "warning": "Requires API key" },
+    { "id": "gpt-4.1-nano", "label": "GPT-4.1 Nano", "provider": "OpenAI", "contextWindow": "1M", "maxTokens": 1000000, "usage": "Included", "group": "other", "warning": "Requires API key" },
+    { "id": "o3-pro", "label": "o3 Pro", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "Premium", "group": "other", "warning": "Requires API key" },
+    { "id": "codex-mini", "label": "Codex Mini", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "API key only", "group": "other", "warning": "Requires API key" }
+  ]
+}

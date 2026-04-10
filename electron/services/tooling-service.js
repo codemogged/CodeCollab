@@ -1,7 +1,29 @@
 const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
+const fs = require("fs");
+const path = require("path");
 
 const execFileAsync = promisify(execFile);
+
+// ── Model catalogs: read from editable JSON, fall back to bundled defaults ──
+const BUNDLED_CATALOGS_PATH = path.join(__dirname, "..", "config", "model-catalogs.json");
+
+function loadModelCatalogs() {
+  try {
+    const raw = fs.readFileSync(BUNDLED_CATALOGS_PATH, "utf-8");
+    const data = JSON.parse(raw);
+    return {
+      copilot: Array.isArray(data.copilot) ? data.copilot : [],
+      claude: Array.isArray(data.claude) ? data.claude : [],
+      codex: Array.isArray(data.codex) ? data.codex : [],
+      _version: data._version || 0,
+      _updated: data._updated || null,
+    };
+  } catch (err) {
+    console.warn("[tooling-service] Failed to load model-catalogs.json, returning empty catalogs:", err.message);
+    return { copilot: [], claude: [], codex: [], _version: 0, _updated: null };
+  }
+}
 
 function createToolingService({ processService, settingsService }) {
   // Extra PATH entries added at runtime (e.g. after installing Claude Code)
@@ -9,8 +31,15 @@ function createToolingService({ processService, settingsService }) {
 
   function getCommandName(command) {
     if (process.platform === "win32") {
-      if (command === "npm") return "npm.cmd";
-      if (command === "npx") return "npx.cmd";
+      // npm-installed global CLIs on Windows are .cmd wrapper scripts
+      const cmdMap = {
+        npm: "npm.cmd",
+        npx: "npx.cmd",
+        codex: "codex.cmd",
+        copilot: "copilot.cmd",
+        claude: "claude.cmd",
+      };
+      if (cmdMap[command]) return cmdMap[command];
     }
 
     return command;
@@ -94,7 +123,9 @@ function createToolingService({ processService, settingsService }) {
 
   async function getToolStatus() {
     // Re-read PATH from registry so newly-installed tools are found
+    console.log("[getToolStatus] Refreshing PATH from registry...");
     await refreshSystemPath();
+    console.log("[getToolStatus] extraPaths:", [...extraPaths]);
 
     const configuredCommands = await getConfiguredCommands();
 
@@ -135,11 +166,57 @@ function createToolingService({ processService, settingsService }) {
         command: resolveClaudeCmd(configuredCommands.claudeCode),
         args: ["--help"],
       },
+      {
+        id: "python",
+        label: "Python",
+        command: configuredCommands.python || getCommandName("python"),
+        args: ["--version"],
+      },
+      {
+        id: "codexCli",
+        label: "Codex CLI",
+        command: configuredCommands.codexCli || getCommandName("codex"),
+        args: ["--version"],
+      },
     ];
 
     const statuses = [];
     for (const definition of definitions) {
-      const result = await tryExec(definition.command, definition.args, process.cwd());
+      let result = await tryExec(definition.command, definition.args, process.cwd());
+      // On Windows, npm-installed CLIs are .cmd files — try explicit .cmd if direct exec fails
+      if (!result.ok && process.platform === "win32" && !definition.command.endsWith(".cmd")) {
+        const cmdResult = await tryExec(definition.command + ".cmd", definition.args, process.cwd());
+        if (cmdResult.ok) result = cmdResult;
+      }
+      // On Windows, winget-installed tools are .exe not .cmd — try bare command name
+      if (!result.ok && process.platform === "win32" && definition.command.endsWith(".cmd")) {
+        const bareName = definition.command.slice(0, -4);
+        const bareResult = await tryExec(bareName, definition.args, process.cwd());
+        if (bareResult.ok) result = bareResult;
+      }
+      // For codexCli specifically, also try the npm bin directory directly
+      if (!result.ok && definition.id === "codexCli") {
+        const path = require("path");
+        const fs = require("fs");
+        const npmBin = process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "";
+        if (npmBin) {
+          const directPath = path.join(npmBin, "codex.cmd");
+          console.log(`[getToolStatus] codexCli fallback: checking ${directPath} exists=${fs.existsSync(directPath)}`);
+          if (fs.existsSync(directPath)) {
+            const directResult = await tryExec(directPath, definition.args, process.cwd());
+            console.log(`[getToolStatus] codexCli direct exec: ok=${directResult.ok}, stdout="${directResult.stdout}"`);
+            if (directResult.ok) {
+              result = directResult;
+              // Make sure this dir stays in PATH
+              extraPaths.add(npmBin);
+              if (!process.env.PATH.includes(npmBin)) {
+                process.env.PATH = npmBin + ";" + process.env.PATH;
+              }
+            }
+          }
+        }
+      }
+      console.log(`[getToolStatus] ${definition.id}: available=${result.ok}, command="${definition.command}", detail="${result.ok ? (result.stdout || result.stderr || "Ready").substring(0, 100) : (result.stderr || result.message || "Not available").substring(0, 100)}"`);
       statuses.push({
         id: definition.id,
         label: definition.label,
@@ -176,6 +253,71 @@ function createToolingService({ processService, settingsService }) {
     }
 
     return processService.runProgram(githubCliCommand, args, cwd, { timeoutMs });
+  }
+
+  /* ─── Generic provider-aware prompt (freestyle chat) ─── */
+
+  // Build model ID sets dynamically from model-catalogs.json
+  const _cats = loadModelCatalogs();
+  const CLAUDE_MODEL_IDS = new Set((_cats.claude || []).map(m => m.id));
+  const CODEX_MODEL_IDS = new Set((_cats.codex || []).map(m => m.id));
+
+  function resolveProviderForPrompt(featureFlags, modelId) {
+    const hasClaude = !!featureFlags?.claudeCode;
+    const hasCopilot = !!featureFlags?.githubCopilotCli;
+    const hasCodex = !!featureFlags?.codexCli;
+    if (hasClaude && !hasCopilot && !hasCodex) return "claude";
+    if (hasCopilot && !hasClaude && !hasCodex) return "copilot";
+    if (hasCodex && !hasClaude && !hasCopilot) return "codex";
+    if (CLAUDE_MODEL_IDS.has(modelId)) return "claude";
+    if (CODEX_MODEL_IDS.has(modelId)) return "codex";
+    if (hasCopilot) return "copilot";
+    if (hasCodex) return "codex";
+    return "claude";
+  }
+
+  async function runGenericPrompt({ prompt, cwd, timeoutMs = 0, model }) {
+    if (typeof prompt !== "string" || !prompt.trim()) {
+      throw new Error("A prompt is required.");
+    }
+    if (typeof cwd !== "string" || !cwd.trim()) {
+      throw new Error("A working directory is required.");
+    }
+
+    const settings = await settingsService.readSettings();
+    const featureFlags = settings.featureFlags ?? {};
+    const selectedModel = (typeof model === "string" && model.trim()) ? model.trim() : "";
+    const provider = resolveProviderForPrompt(featureFlags, selectedModel);
+
+    console.log(`[runGenericPrompt] model="${selectedModel}", provider="${provider}"`);
+
+    if (provider === "claude") {
+      const claudeCmd = resolveClaudeCmd(settings.cliTools?.claudeCode);
+      const args = ["-p", prompt.trim(), "--dangerously-skip-permissions"];
+      if (selectedModel && selectedModel !== "auto") {
+        args.push("--model", selectedModel);
+      }
+      return processService.runProgram(claudeCmd, args, cwd, { timeoutMs });
+    }
+
+    if (provider === "codex") {
+      const codexCmd = settings.cliTools?.codexCli || getCommandName("codex");
+      // Codex needs stdin for the prompt on Windows (EINVAL with long args)
+      const args = ["exec", "--full-auto"];
+      if (selectedModel && selectedModel !== "auto" && selectedModel !== "default") {
+        args.push("--model", selectedModel);
+      }
+      return processService.runProgram(codexCmd, args, cwd, { timeoutMs, stdinData: prompt.trim() });
+    }
+
+    // Copilot (default)
+    const configuredCommands = await getConfiguredCommands();
+    const ghCmd = configuredCommands.githubCli || getCommandName("gh");
+    const args = ["copilot", "-p", prompt.trim()];
+    if (selectedModel && selectedModel !== "auto") {
+      args.push("--model", selectedModel);
+    }
+    return processService.runProgram(ghCmd, args, cwd, { timeoutMs });
   }
 
   /* ─── GitHub Auth ─── */
@@ -607,7 +749,9 @@ function createToolingService({ processService, settingsService }) {
 
   return {
     getToolStatus,
+    getModelCatalogs: loadModelCatalogs,
     runCopilotPrompt,
+    runGenericPrompt,
     installCopilot,
     installClaudeCode,
     getClaudeAuthStatus,
@@ -620,6 +764,10 @@ function createToolingService({ processService, settingsService }) {
     installNodeJs,
     installGitScm,
     installGithubCli,
+    installPython,
+    installCodex,
+    getCodexAuthStatus,
+    startCodexAuth,
   };
 
   /* ─── Node.js install (winget) ─── */
@@ -668,6 +816,191 @@ function createToolingService({ processService, settingsService }) {
     return { success: false, detail: "Install failed. Try manually from nodejs.org", log };
   }
 
+  /* ─── Python install (winget) ─── */
+
+  async function installPython() {
+    const log = [];
+    const addLog = (msg) => { log.push(msg); console.log("[installPython]", msg); };
+
+    await refreshSystemPath();
+
+    addLog("Checking if python is already on PATH...");
+    const existing = await tryExec("python", ["--version"], process.cwd());
+    if (existing.ok) {
+      addLog(`Already installed: ${existing.stdout}`);
+      return { success: true, detail: existing.stdout.trim(), log };
+    }
+
+    addLog("Installing via winget (Python.Python.3.12)...");
+    const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
+    if (!wingetCheck.ok) {
+      return { success: false, detail: "winget not available. Install Python manually from python.org", log };
+    }
+
+    const install = await tryExec("winget", [
+      "install", "Python.Python.3.12",
+      "--accept-source-agreements", "--accept-package-agreements",
+      "--silent",
+    ], process.cwd(), { timeout: 300000 });
+    addLog(`stdout: ${install.stdout}`);
+    addLog(`stderr: ${install.stderr}`);
+
+    if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
+      addLog("winget install succeeded! Refreshing PATH...");
+      await refreshSystemPath();
+      const verify = await tryExec("python", ["--version"], process.cwd());
+      if (verify.ok) {
+        addLog(`Verified: ${verify.stdout}`);
+        return { success: true, detail: `Python ${verify.stdout.trim()} installed`, log };
+      }
+      return { success: true, detail: "Python installed. Restart CodeBuddy for PATH changes.", log };
+    }
+
+    addLog("winget install failed.");
+    return { success: false, detail: "Install failed. Try manually from python.org", log };
+  }
+
+  /* ─── Codex CLI install (npm) ─── */
+
+  async function installCodex() {
+    const log = [];
+    const addLog = (msg) => { log.push(msg); console.log("[installCodex]", msg); };
+    const fs = require("fs");
+    const path = require("path");
+
+    addLog(`Platform: ${process.platform}, arch: ${process.arch}`);
+    addLog(`APPDATA: ${process.env.APPDATA || "(not set)"}`);
+    addLog(`USERPROFILE: ${process.env.USERPROFILE || "(not set)"}`);
+
+    await refreshSystemPath();
+    addLog("PATH refreshed from registry.");
+
+    // ── Step 1: Check if codex is already on PATH ──
+    addLog("Step 1: Checking if codex is already on PATH...");
+    const codexCmd = getCommandName("codex");
+    addLog(`  Using command name: "${codexCmd}"`);
+    const existing = await tryExec(codexCmd, ["--version"], process.cwd());
+    addLog(`  tryExec result: ok=${existing.ok}, stdout="${existing.stdout}", stderr="${existing.stderr}", message="${existing.message || ""}"`);
+    if (existing.ok) {
+      addLog(`Already installed: ${existing.stdout}`);
+      return { success: true, detail: existing.stdout.trim(), log };
+    }
+
+    // Also check npm global bin directory directly
+    const npmBinDir = process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "";
+    if (npmBinDir) {
+      const codexCmdPath = path.join(npmBinDir, "codex.cmd");
+      const codexExePath = path.join(npmBinDir, "codex");
+      addLog(`  Checking npm bin: ${codexCmdPath} exists=${fs.existsSync(codexCmdPath)}`);
+      addLog(`  Checking npm bin: ${codexExePath} exists=${fs.existsSync(codexExePath)}`);
+      if (fs.existsSync(codexCmdPath)) {
+        const directCheck = await tryExec(codexCmdPath, ["--version"], process.cwd());
+        addLog(`  Direct exec of ${codexCmdPath}: ok=${directCheck.ok}, stdout="${directCheck.stdout}"`);
+        if (directCheck.ok) {
+          // Add to PATH for the session
+          extraPaths.add(npmBinDir);
+          if (!process.env.PATH.includes(npmBinDir)) {
+            process.env.PATH = npmBinDir + ";" + process.env.PATH;
+          }
+          addLog(`  Found existing install! Added ${npmBinDir} to PATH.`);
+          return { success: true, detail: `Codex CLI ${directCheck.stdout.trim()} (found in npm global)`, log };
+        }
+      }
+    }
+
+    // ── Step 2: Install via npm ──
+    addLog("Step 2: Installing via npm (npm install -g @openai/codex)...");
+    const npmCmd = getCommandName("npm");
+    addLog(`  npm command: "${npmCmd}"`);
+    const npmCheck = await tryExec(npmCmd, ["--version"], process.cwd());
+    addLog(`  npm check: ok=${npmCheck.ok}, stdout="${npmCheck.stdout}", stderr="${npmCheck.stderr}"`);
+    if (!npmCheck.ok) {
+      addLog("npm not available — cannot auto-install.");
+      return { success: false, detail: "npm not available. Install Node.js first, then run: npm install -g @openai/codex", log };
+    }
+    addLog(`npm available: ${npmCheck.stdout}`);
+
+    // Get npm global prefix for verification later
+    const npmPrefix = await tryExec(npmCmd, ["config", "get", "prefix"], process.cwd());
+    addLog(`  npm prefix: ok=${npmPrefix.ok}, stdout="${npmPrefix.stdout}"`);
+
+    const install = await tryExec(npmCmd, ["install", "-g", "@openai/codex"], process.cwd(), { timeout: 180000 });
+    addLog(`  install stdout: ${install.stdout}`);
+    addLog(`  install stderr: ${install.stderr}`);
+    addLog(`  install ok: ${install.ok}, message: ${install.message || ""}`);
+
+    if (!install.ok) {
+      addLog("npm install failed.");
+      return { success: false, detail: "npm install -g @openai/codex failed. Try manually in a terminal.", log };
+    }
+
+    addLog("npm install succeeded! Refreshing PATH...");
+    await refreshSystemPath();
+
+    // ── Step 3: Verify installation ──
+    addLog("Step 3: Verifying installation...");
+
+    // Add npm global bin to extraPaths so codex is findable this session
+    const npmBin = npmPrefix.ok ? npmPrefix.stdout.trim() : (process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "");
+    addLog(`  npm bin directory: "${npmBin}"`);
+    if (npmBin) {
+      extraPaths.add(npmBin);
+      if (!process.env.PATH.includes(npmBin)) {
+        process.env.PATH = npmBin + ";" + process.env.PATH;
+        addLog(`  Prepended ${npmBin} to PATH`);
+      } else {
+        addLog(`  ${npmBin} already in PATH`);
+      }
+    }
+
+    // List files in npm bin dir for debugging
+    if (npmBin && fs.existsSync(npmBin)) {
+      try {
+        const files = fs.readdirSync(npmBin).filter(f => f.toLowerCase().includes("codex"));
+        addLog(`  codex files in npm bin: ${files.join(", ") || "(none)"}`);
+      } catch (e) {
+        addLog(`  Could not list npm bin dir: ${e.message}`);
+      }
+    }
+
+    // Try the .cmd variant first on Windows (most reliable)
+    const verifyCmdPath = npmBin ? path.join(npmBin, "codex.cmd") : "";
+    if (verifyCmdPath && fs.existsSync(verifyCmdPath)) {
+      addLog(`  Verifying with direct path: ${verifyCmdPath}`);
+      const directVerify = await tryExec(verifyCmdPath, ["--version"], process.cwd());
+      addLog(`  Direct verify: ok=${directVerify.ok}, stdout="${directVerify.stdout}", stderr="${directVerify.stderr}"`);
+      if (directVerify.ok) {
+        addLog(`Verified via direct path: ${directVerify.stdout}`);
+        return { success: true, detail: `Codex CLI ${directVerify.stdout.trim()} installed`, log };
+      }
+    }
+
+    // Try via command name (codex.cmd on Windows)
+    addLog(`  Verifying with getCommandName: "${codexCmd}"`);
+    const verify = await tryExec(codexCmd, ["--version"], process.cwd());
+    addLog(`  verify: ok=${verify.ok}, stdout="${verify.stdout}", stderr="${verify.stderr}", message="${verify.message || ""}"`);
+    if (verify.ok) {
+      addLog(`Verified: ${verify.stdout}`);
+      return { success: true, detail: `Codex CLI ${verify.stdout.trim()} installed`, log };
+    }
+
+    // Last resort: try bare "codex" with shell: true
+    if (process.platform === "win32") {
+      addLog("  Trying bare 'codex' with shell: true...");
+      const shellVerify = await tryExec("codex", ["--version"], process.cwd(), { shell: true });
+      addLog(`  shell verify: ok=${shellVerify.ok}, stdout="${shellVerify.stdout}"`);
+      if (shellVerify.ok) {
+        addLog(`Verified via shell: ${shellVerify.stdout}`);
+        return { success: true, detail: `Codex CLI ${shellVerify.stdout.trim()} installed`, log };
+      }
+    }
+
+    // Still return success — the npm install itself worked
+    addLog("WARNING: npm install succeeded but verification failed. Codex may need a full PATH refresh (restart app).");
+    addLog(`  Current PATH (first 1000): ${(process.env.PATH || "").substring(0, 1000)}`);
+    return { success: true, detail: "Codex CLI installed via npm. Restart the app if not detected.", log };
+  }
+
   /* ─── Git install (winget) ─── */
 
   async function installGitScm() {
@@ -692,7 +1025,8 @@ function createToolingService({ processService, settingsService }) {
     const install = await tryExec("winget", [
       "install", "Git.Git",
       "--accept-source-agreements", "--accept-package-agreements",
-    ], process.cwd(), { timeout: 180000 });
+      "--silent",
+    ], process.cwd(), { timeout: 300000 });
     addLog(`stdout: ${install.stdout}`);
     addLog(`stderr: ${install.stderr}`);
 
@@ -870,20 +1204,47 @@ function createToolingService({ processService, settingsService }) {
   function resolveClaudeCmd(configuredCmd) {
     if (configuredCmd) return configuredCmd;
     const cmd = getCommandName("claude");
-    // If bare "claude" might not be on PATH, try known install location
+    const pathMod = require("path");
+    const fsMod = require("fs");
+    // Check ~/.local/bin (native installer)
     const userProfile = process.env.USERPROFILE || "";
     if (userProfile) {
-      const path = require("path");
-      const fs = require("fs");
-      const localBin = path.join(userProfile, ".local", "bin", "claude.exe");
-      if (fs.existsSync(localBin)) {
-        const binDir = path.dirname(localBin);
+      const localBin = pathMod.join(userProfile, ".local", "bin", "claude.exe");
+      if (fsMod.existsSync(localBin)) {
+        const binDir = pathMod.dirname(localBin);
         if (!process.env.PATH.includes(binDir)) {
           extraPaths.add(binDir);
           process.env.PATH = binDir + ";" + process.env.PATH;
         }
         return localBin;
       }
+    }
+    // Check winget install location
+    const localAppData = process.env.LOCALAPPDATA || "";
+    if (localAppData) {
+      const wingetBase = pathMod.join(localAppData, "Microsoft", "WinGet", "Packages");
+      try {
+        if (fsMod.existsSync(wingetBase)) {
+          const dirs = fsMod.readdirSync(wingetBase).filter(d => d.toLowerCase().includes("claudecode") || d.toLowerCase().includes("claude"));
+          for (const d of dirs) {
+            const claudeExe = pathMod.join(wingetBase, d, "claude.exe");
+            if (fsMod.existsSync(claudeExe)) {
+              const binDir = pathMod.dirname(claudeExe);
+              if (!process.env.PATH.includes(binDir)) {
+                extraPaths.add(binDir);
+                process.env.PATH = binDir + ";" + process.env.PATH;
+              }
+              return claudeExe;
+            }
+          }
+        }
+      } catch { /* skip */ }
+    }
+    // Check npm global bin
+    const appData = process.env.APPDATA || "";
+    if (appData) {
+      const npmCmd = pathMod.join(appData, "npm", "claude.cmd");
+      if (fsMod.existsSync(npmCmd)) return npmCmd;
     }
     return cmd;
   }
@@ -907,9 +1268,11 @@ function createToolingService({ processService, settingsService }) {
     const claudeCmd = resolveClaudeCmd(configuredCommands.claudeCode);
 
     return new Promise((resolve, reject) => {
+      const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(claudeCmd);
       const child = spawn(claudeCmd, ["auth", "login"], {
         cwd: process.cwd(),
         windowsHide: true,
+        shell: needsShell || undefined,
         env: { ...process.env },
       });
 
@@ -946,6 +1309,107 @@ function createToolingService({ processService, settingsService }) {
 
       // Timeout after 5 minutes
       setTimeout(() => {
+        try { child.kill(); } catch {}
+        resolve({ success: false, stdout, stderr, exitCode: null, timedOut: true });
+      }, 300000);
+    });
+  }
+
+  /* ─── Codex CLI auth ─── */
+
+  async function getCodexAuthStatus() {
+    console.log("[codexAuth] getCodexAuthStatus called");
+    await refreshSystemPath();
+    // Check for auth.json in ~/.codex/ — don't gate on codex binary being found
+    const fs = require("fs");
+    const path = require("path");
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const authFile = path.join(home, ".codex", "auth.json");
+    console.log(`[codexAuth] Checking auth file: ${authFile}`);
+    try {
+      const exists = fs.existsSync(authFile);
+      console.log(`[codexAuth] auth.json exists: ${exists}`);
+      if (exists) {
+        const content = fs.readFileSync(authFile, "utf8");
+        console.log(`[codexAuth] auth.json length: ${content.length}, preview: ${content.substring(0, 80)}`);
+        if (content && content.length > 10) {
+          console.log("[codexAuth] → authenticated");
+          return { authenticated: true, detail: "Signed in (auth.json found)" };
+        }
+      }
+    } catch (err) {
+      console.log(`[codexAuth] Error reading auth file: ${err.message}`);
+    }
+    console.log("[codexAuth] → not authenticated");
+    return { authenticated: false, detail: "Not signed in — click to authenticate" };
+  }
+
+  async function startCodexAuth(sendEvent) {
+    console.log("[codexAuth] startCodexAuth called");
+    await refreshSystemPath();
+
+    // Find the codex command
+    const path = require("path");
+    const fs = require("fs");
+    let codexCmd = process.platform === "win32" ? "codex.cmd" : "codex";
+
+    // Also try npm bin directory
+    const npmBin = process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "";
+    const directPath = npmBin ? path.join(npmBin, "codex.cmd") : "";
+    if (directPath && fs.existsSync(directPath)) {
+      codexCmd = directPath;
+      console.log(`[codexAuth] Using direct path: ${codexCmd}`);
+    } else {
+      console.log(`[codexAuth] Using command: ${codexCmd} (direct path ${directPath} not found)`);
+    }
+
+    return new Promise((resolve, reject) => {
+      console.log(`[codexAuth] Spawning: ${codexCmd} login (shell=${process.platform === "win32"})`);
+      const child = spawn(codexCmd, ["login"], {
+        cwd: process.cwd(),
+        windowsHide: true,
+        shell: process.platform === "win32",
+        env: { ...process.env },
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      const processOutput = (text) => {
+        sendEvent("tools:codexAuthProgress", { output: text });
+      };
+
+      child.stdout.on("data", (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        processOutput(text);
+      });
+
+      child.stderr.on("data", (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        processOutput(text);
+      });
+
+      child.on("close", (code) => {
+        console.log(`[codexAuth] Process closed with code: ${code}`);
+        console.log(`[codexAuth] stdout: ${stdout.substring(0, 300)}`);
+        console.log(`[codexAuth] stderr: ${stderr.substring(0, 300)}`);
+        if (code === 0) {
+          resolve({ success: true, stdout, stderr });
+        } else {
+          resolve({ success: false, stdout, stderr, exitCode: code });
+        }
+      });
+
+      child.on("error", (err) => {
+        console.log(`[codexAuth] Process spawn error: ${err.message}`);
+        reject(err);
+      });
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        console.log("[codexAuth] Timed out after 5 minutes");
         try { child.kill(); } catch {}
         resolve({ success: false, stdout, stderr, exitCode: null, timedOut: true });
       }, 300000);
