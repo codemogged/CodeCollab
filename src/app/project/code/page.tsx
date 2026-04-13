@@ -195,7 +195,7 @@ export default function SoloChatPage() {
   const [showSessionManager, setShowSessionManager] = useState(false);
 
   // Provider / feature-flag state
-  const [featureFlags, setFeatureFlags] = useState<{ githubCopilotCli?: boolean; claudeCode?: boolean; codexCli?: boolean }>({ githubCopilotCli: true });
+  const [featureFlags, setFeatureFlags] = useState<{ githubCopilotCli?: boolean; claudeCode?: boolean; codexCli?: boolean }>({});
   const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">("copilot");
 
   // Right panel

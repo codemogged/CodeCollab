@@ -1292,7 +1292,7 @@ function ProjectChatPageContent() {
   const [hasDesktopApi, setHasDesktopApi] = useState(false);
   const [desktopRepoPath, setDesktopRepoPath] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("gpt-5.2");
-  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({ githubCopilotCli: true });
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({});
   const [catalogSources, setCatalogSources] = useState<CatalogSources>({
     copilot: DEFAULT_copilotModels,
     claude: DEFAULT_claudeModels,
@@ -1423,7 +1423,7 @@ function ProjectChatPageContent() {
           return;
         }
 
-        const flags = settings.featureFlags ?? { githubCopilotCli: true };
+        const flags = settings.featureFlags ?? {};
         setFeatureFlags(flags);
         const defaultModel = getDefaultModelId(flags);
         setDesktopRepoPath(settings.recentRepositories[0] ?? settings.workspaceRoots[0] ?? null);
@@ -1473,7 +1473,7 @@ function ProjectChatPageContent() {
     // Listen for settings changes (e.g. auto-synced featureFlags)
     const stopSettingsListener = window.electronAPI?.settings?.onChanged?.((s) => {
       if (!cancelled) {
-        const flags = s.featureFlags ?? { githubCopilotCli: true };
+        const flags = s.featureFlags ?? {};
         setFeatureFlags(flags);
       }
     });
@@ -2160,7 +2160,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
   const [prompt, setPrompt] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({ githubCopilotCli: true });
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({});
   const [catalogSources, setCatalogSources] = useState<CatalogSources>({
     copilot: DEFAULT_copilotModels,
     claude: DEFAULT_claudeModels,
@@ -3177,7 +3177,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       try {
         const settings = await window.electronAPI.settings.get();
         if (!cancelled) {
-          const flags = settings.featureFlags ?? { githubCopilotCli: true };
+          const flags = settings.featureFlags ?? {};
           setFeatureFlags(flags);
           const defaultModel = getDefaultModelId(flags);
           setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
@@ -3196,7 +3196,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
     const stopListening = window.electronAPI?.settings?.onChanged((settings) => {
       if (!cancelled) {
-        const flags = settings.featureFlags ?? { githubCopilotCli: true };
+        const flags = settings.featureFlags ?? {};
         setFeatureFlags(flags);
         if (!pendingModelId) {
           const defaultModel = getDefaultModelId(flags);

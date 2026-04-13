@@ -835,8 +835,6 @@ export default function ProjectPage() {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [inviteRemoteUrl, setInviteRemoteUrl] = useState<string | null>(null);
-  const [syncingWorkspace, setSyncingWorkspace] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; log?: string[] } | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [hasRemote, setHasRemote] = useState(false);
   const syncInFlightRef = useRef(false);
@@ -866,59 +864,18 @@ export default function ProjectPage() {
     }
   };
 
-  // Auto-sync: every 30s + on window focus (only when NOT live P2P connected — P2P handles real-time)
+  // Auto-sync: initial pull-first on project entry (hard pull — remote wins)
+  // After initial sync, P2P handles real-time updates so no interval needed
+  const initialSyncProjectRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeProject?.id || !hasRemote || p2pJoined) return;
+    if (!activeProject?.id || !hasRemote) return;
+    if (initialSyncProjectRef.current === activeProject.id) return;
+    initialSyncProjectRef.current = activeProject.id;
 
-    // Initial sync on mount
+    // Pull-first on project entry — syncWorkspace does git fetch + reset --hard
     doSilentSync();
-
-    // Interval sync
-    const interval = setInterval(doSilentSync, 30_000);
-
-    // Sync on window focus
-    const handleFocus = () => { doSilentSync(); };
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("focus", handleFocus);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProject?.id, hasRemote, p2pJoined]);
-
-  const handleSyncWorkspace = async () => {
-    if (!activeProject?.id) return;
-    setSyncingWorkspace(true);
-    setSyncResult(null);
-    try {
-      const result = await window.electronAPI?.project?.syncWorkspace(activeProject.id);
-      if (!result) {
-        setSyncResult({ success: false, message: "No response from sync", log: [] });
-        return;
-      }
-      console.log("[syncWorkspace] Full log:", result.log);
-      if (result.success) {
-        setLastSyncTime(new Date());
-        setSyncResult({
-          success: true,
-          message: `Synced! Imported ${result.subprojects} subprojects, ${result.tasks} tasks.`,
-          log: result.log,
-        });
-      } else {
-        setSyncResult({
-          success: false,
-          message: "Sync completed but no plan was found. Check the log for details.",
-          log: result.log,
-        });
-      }
-    } catch (err) {
-      console.error("[syncWorkspace] Error:", err);
-      setSyncResult({ success: false, message: err instanceof Error ? err.message : "Sync failed", log: [] });
-    } finally {
-      setSyncingWorkspace(false);
-    }
-  };
+  }, [activeProject?.id, hasRemote]);
 
   const handlePushToGithub = async () => {
     if (!activeProject?.repoPath) return;
@@ -972,36 +929,35 @@ export default function ProjectPage() {
     }
   };
 
-  const handleToggleP2P = async () => {
-    if (p2pJoined) {
-      await window.electronAPI?.p2p?.leave({ projectId: activeProject!.id });
-      setP2pJoined(false);
-      setP2pPeers([]);
+  // Auto-join P2P: opening a project = going live automatically (no manual toggle)
+  const autoJoinProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeProject?.id || !activeProject?.repoPath || !hasRemote) return;
+    if (p2pJoined || p2pJoining) return;
+    if (autoJoinProjectRef.current === activeProject.id) return;
+    autoJoinProjectRef.current = activeProject.id;
+
+    (async () => {
+      setP2pJoining(true);
       setP2pError(null);
-      return;
-    }
-    if (!activeProject?.repoPath) return;
-    setP2pJoining(true);
-    setP2pError(null);
-    try {
-      const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
-      if (!remoteUrl) {
-        setP2pError("Push to GitHub first to enable live collaboration");
-        return;
+      try {
+        const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
+        if (!remoteUrl) return;
+        await window.electronAPI?.p2p?.join({
+          projectId: activeProject.id,
+          repoPath: activeProject.repoPath,
+          remoteUrl,
+          member: { id: "owner", name: currentUserName, initials: currentUserInitials, role: "Owner" },
+        });
+        setP2pJoined(true);
+      } catch (err) {
+        console.warn("[P2P] Auto-join failed:", err);
+        setP2pError(err instanceof Error ? err.message : "Failed to connect");
+      } finally {
+        setP2pJoining(false);
       }
-      await window.electronAPI?.p2p?.join({
-        projectId: activeProject.id,
-        repoPath: activeProject.repoPath,
-        remoteUrl,
-        member: { id: "owner", name: currentUserName, initials: currentUserInitials, role: "Owner" },
-      });
-      setP2pJoined(true);
-    } catch (err) {
-      setP2pError(err instanceof Error ? err.message : "Failed to connect");
-    } finally {
-      setP2pJoining(false);
-    }
-  };
+    })();
+  }, [activeProject?.id, activeProject?.repoPath, hasRemote, p2pJoined, p2pJoining, currentUserName, currentUserInitials]);
 
   /* File watcher: auto-start when project is active, listen for sync events */
   useEffect(() => {
@@ -1130,6 +1086,9 @@ export default function ProjectPage() {
   const savePlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastBroadcastRef = useRef<string>("");
   const lastSavedPlanRef = useRef<string>("");
+  // When true, the next subprojects change came from a task-status-only click
+  // and the individual P2P task message already handled sync — skip full plan broadcast
+  const taskStatusOnlyRef = useRef(false);
 
   useEffect(() => {
     if (!activeProject?.id || !planLoadedRef.current || subprojects.length === 0) {
@@ -1150,7 +1109,10 @@ export default function ProjectPage() {
     }
 
     // P2P broadcast: instant (no debounce) — send to all connected peers immediately
-    if (p2pJoined) {
+    // Skip full plan broadcast when only a task status changed (individual task message handles it)
+    const isTaskStatusOnly = taskStatusOnlyRef.current;
+    taskStatusOnlyRef.current = false;
+    if (p2pJoined && !isTaskStatusOnly) {
       // Only broadcast if plan actually changed (avoid echo loops from incoming P2P updates)
       if (subKey !== lastBroadcastRef.current) {
         lastBroadcastRef.current = subKey;
@@ -1314,6 +1276,7 @@ export default function ProjectPage() {
 
   const handleChangeTaskStatus = (taskId: string, newStatus: BuildTaskStatus) => {
     console.log("[task-change] Status:", taskId, "→", newStatus, "planLoaded:", planLoadedRef.current, "p2p:", p2pJoined);
+    taskStatusOnlyRef.current = true; // suppress full plan broadcast — individual task P2P message is enough
     setSubprojects((cur) =>
       cur.map((sp) => ({
         ...sp,
@@ -1527,16 +1490,17 @@ export default function ProjectPage() {
 
             {/* ─── P2P Live Collaboration Bar ─── */}
             <div className="mt-3 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void handleToggleP2P()}
-                disabled={p2pJoining || !activeProject?.repoPath}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+              {/* Always-on live status indicator (no manual toggle) */}
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
                   p2pJoined
-                    ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25 hover:bg-red-500/10 hover:text-red-400 hover:ring-red-500/20 dark:text-emerald-400"
-                    : "bg-gradient-to-r from-cyan-500/15 to-blue-500/15 text-cyan-600 ring-1 ring-cyan-500/20 hover:from-cyan-500/25 hover:to-blue-500/25 dark:text-cyan-400"
+                    ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25 dark:text-emerald-400"
+                    : p2pJoining
+                    ? "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20 dark:text-amber-400"
+                    : hasRemote
+                    ? "bg-white/5 text-white/40 ring-1 ring-white/10"
+                    : "bg-white/5 text-white/30 ring-1 ring-white/10"
                 }`}
-                title={p2pJoined ? "Disconnect from live collaboration" : "Connect to teammates in real-time (P2P)"}
               >
                 {p2pJoining ? (
                   <>
@@ -1553,14 +1517,11 @@ export default function ProjectPage() {
                   </>
                 ) : (
                   <>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                      <path d="M12.232 4.232a2.5 2.5 0 013.536 3.536l-1.225 1.224a.75.75 0 001.061 1.06l1.224-1.224a4 4 0 00-5.656-5.656l-3 3a4 4 0 00.225 5.865.75.75 0 00.977-1.138 2.5 2.5 0 01-.142-3.667l3-3z" />
-                      <path d="M11.603 7.963a.75.75 0 00-.977 1.138 2.5 2.5 0 01.142 3.667l-3 3a2.5 2.5 0 01-3.536-3.536l1.225-1.224a.75.75 0 00-1.061-1.06l-1.224 1.224a4 4 0 105.656 5.656l3-3a4 4 0 00-.225-5.865z" />
-                    </svg>
-                    Go Live
+                    <span className="inline-flex h-2 w-2 rounded-full bg-white/20" />
+                    {hasRemote ? "Offline" : "No remote"}
                   </>
                 )}
-              </button>
+              </span>
 
               {/* Online peers */}
               {p2pJoined && (
@@ -1619,23 +1580,12 @@ export default function ProjectPage() {
                 </button>
               )}
 
-              {/* Sync Workspace button — visible when project has a remote */}
-              {hasRemote && (
-                <button
-                  type="button"
-                  onClick={() => void handleSyncWorkspace()}
-                  disabled={syncingWorkspace}
-                  className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-600 ring-1 ring-cyan-500/20 transition hover:bg-cyan-500/15 disabled:opacity-50 dark:text-cyan-400"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`h-3 w-3 ${syncingWorkspace ? "animate-spin" : ""}`}><path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.134l.195.194a7 7 0 0011.709-3.14.75.75 0 00-1.44-.424zM4.688 8.576a5.5 5.5 0 019.201-2.466l.312.311H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.537a.75.75 0 00-1.5 0v2.134l-.195-.194A7 7 0 002.75 8.615a.75.75 0 001.44.424z" clipRule="evenodd" /></svg>
-                  {syncingWorkspace ? "Syncing..." : "Sync"}
-                </button>
-              )}
+              {/* Sync Workspace — now runs automatically on project entry, removed manual button */}
 
               {/* Auto-sync indicator */}
-              {hasRemote && !syncingWorkspace && (
+              {hasRemote && (
                 <span className={`text-[10px] ${p2pJoined ? "text-emerald-400/60" : "text-white/30 dark:text-white/25"}`}>
-                  {p2pJoined ? "● live" : lastSyncTime ? `synced ${lastSyncTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                  {p2pJoined ? "" : lastSyncTime ? `synced ${lastSyncTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
                 </span>
               )}
             </div>
@@ -1702,26 +1652,6 @@ export default function ProjectPage() {
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Sync result banner */}
-            {syncResult && (
-              <div className={`mt-3 rounded-xl border px-4 py-3 ${syncResult.success ? "border-emerald-400/20 bg-emerald-500/5" : "border-red-400/20 bg-red-500/5"}`}>
-                <div className="flex items-center justify-between">
-                  <p className={`text-[12px] font-medium ${syncResult.success ? "text-emerald-400" : "text-red-400"}`}>
-                    {syncResult.message}
-                  </p>
-                  <button onClick={() => setSyncResult(null)} className="text-[11px] text-white/40 hover:text-white/60">✕</button>
-                </div>
-                {syncResult.log && syncResult.log.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-[11px] text-white/40 hover:text-white/60">Show sync log ({syncResult.log.length} entries)</summary>
-                    <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-white/50 dark:text-white/50">
-                      {syncResult.log.join("\n")}
-                    </pre>
-                  </details>
-                )}
               </div>
             )}
 

@@ -199,6 +199,55 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
         log("Aborted stuck merge.");
       } catch { /* ignore */ }
     }
+
+    // Clear unmerged files left by failed stash pop or merge
+    try {
+      const status = execSync("git status --porcelain", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 10000 });
+      if (status.match(/^(U[UADM]|[UADM]U|AA|DD) /m)) {
+        execSync("git reset --hard HEAD", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 15000 });
+        log("Reset unmerged files to HEAD.");
+      }
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Ensure git user.name and user.email are configured for the repo.
+   * Without these, `git commit` fails with "Author identity unknown".
+   * Tries: local repo config → global config → `gh api user` → fallback "CodeBuddy".
+   */
+  function ensureGitIdentitySync(cwd) {
+    const { execSync: exec } = require("child_process");
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+    const opts = { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 10000 };
+
+    // Check if identity is already configured (local or global)
+    let hasName = false, hasEmail = false;
+    try { hasName = !!exec("git config user.name", opts).trim(); } catch { /* not set */ }
+    try { hasEmail = !!exec("git config user.email", opts).trim(); } catch { /* not set */ }
+
+    if (hasName && hasEmail) return;
+
+    log("Git identity not configured — setting up...");
+
+    // Try to get GitHub username via gh CLI
+    let name = "CodeBuddy";
+    let email = "codebuddy@local.invalid";
+    try {
+      const login = exec("gh api user --jq .login", opts).trim();
+      if (login) {
+        name = login;
+        email = `${login}@users.noreply.github.com`;
+      }
+    } catch { /* gh not available or not authed */ }
+
+    // Set identity at the local repo level (not global — respects other repos)
+    if (!hasName) {
+      try { exec(`git config user.name "${name}"`, opts); } catch { /* ignore */ }
+    }
+    if (!hasEmail) {
+      try { exec(`git config user.email "${email}"`, opts); } catch { /* ignore */ }
+    }
+    log(`Git identity set: ${name} <${email}>`);
   }
 
   async function doAutoSync() {
@@ -221,6 +270,9 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
 
       // Clean up any stuck git state before attempting sync
       cleanupGitState(cwd);
+
+      // Ensure git user.name/email are configured (prevents "Author identity unknown")
+      ensureGitIdentitySync(cwd);
 
       // Ensure we're on codebuddy-build branch
       let currentBranch;
@@ -304,6 +356,15 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
           return;
         }
         throw commitErr;
+      }
+
+      // Pull before push — always sync with remote before pushing to guarantee no rejections
+      try {
+        execSync("git pull origin codebuddy-build --rebase", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 60000 });
+      } catch (pullErr) {
+        // Pull failed (conflict during rebase) — abort rebase and continue with push attempt
+        log("Pre-push pull --rebase failed, aborting rebase:", pullErr?.message);
+        cleanupGitState(cwd);
       }
 
       // Push to codebuddy-build
@@ -539,8 +600,9 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
           log("Stash popped successfully.");
         } catch (popErr) {
           log("Stash pop conflict — dropping stash and keeping remote version:", popErr?.message);
-          // On conflict, prefer the remote version (just pulled) and drop the stash
-          try { execSync("git checkout -- .", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe" }); } catch { /* ignore */ }
+          // On conflict, reset to HEAD (the just-pulled remote version) and drop the stash
+          // git checkout -- . doesn't work with unmerged files; reset --hard clears them
+          try { execSync("git reset --hard HEAD", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe" }); } catch { /* ignore */ }
           try { execSync("git stash drop", { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe" }); } catch { /* ignore */ }
         }
       }
@@ -562,6 +624,10 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
     log(`Agent active: ${agentActive}`);
   }
 
+  function isAgentActive() {
+    return agentActive;
+  }
+
   return {
     startWatching,
     stopWatching,
@@ -572,6 +638,7 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
     pushToMain,
     autoPull,
     setAgentActive,
+    isAgentActive,
   };
 }
 

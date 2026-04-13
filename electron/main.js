@@ -3,6 +3,21 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 
+// ── Auto-disable GPU in VMs / environments without hardware acceleration ──
+if (process.argv.includes("--disable-gpu")) {
+  app.disableHardwareAcceleration();
+} else {
+  // Detect common VM indicators and auto-disable GPU to prevent crashes
+  try {
+    const { execSync } = require("child_process");
+    const sysInfo = execSync("powershell -NoProfile -Command \"(Get-CimInstance Win32_ComputerSystem).Model\"", { encoding: "utf8", windowsHide: true, timeout: 8000 }).toLowerCase();
+    if (sysInfo.includes("virtualbox") || sysInfo.includes("vmware") || sysInfo.includes("virtual machine") || sysInfo.includes("kvm") || sysInfo.includes("hyper-v")) {
+      console.log("[startup] VM detected — disabling hardware GPU acceleration");
+      app.disableHardwareAcceleration();
+    }
+  } catch { /* not critical — keep GPU enabled */ }
+}
+
 // ── Diagnostic file logger ──
 const logFile = path.join(app.getPath("userData"), "codebuddy-debug.log");
 const originalConsoleLog = console.log;
@@ -238,18 +253,32 @@ app.whenReady().then(async () => {
   await createWindow();
 });
 
-app.on("window-all-closed", () => {
-  // Clean up file watcher
-  fileWatcherService.stopWatching().catch(() => {});
-  // Clean up P2P connections
-  p2pService.leaveProject().catch(() => {});
+// Track whether cleanup has already run to prevent double-cleanup
+let cleanedUp = false;
 
+async function cleanupBeforeQuit() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  console.log("[shutdown] Cleaning up file watcher and P2P...");
+  try { await fileWatcherService.stopWatching(); } catch {}
+  try { await p2pService.leaveProject(); } catch {}
   if (staticServer) {
     staticServer.close();
     staticServer = null;
     staticServerUrl = null;
   }
+  console.log("[shutdown] Cleanup complete.");
+}
 
+// Block quit until cleanup finishes (prevents background git pulls after close)
+app.on("before-quit", (e) => {
+  if (!cleanedUp) {
+    e.preventDefault();
+    cleanupBeforeQuit().finally(() => app.quit());
+  }
+});
+
+app.on("window-all-closed", () => {
   // On macOS, apps typically stay open until Cmd+Q
   if (process.platform !== "darwin") app.quit();
 });

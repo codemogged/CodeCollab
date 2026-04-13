@@ -741,6 +741,7 @@ export interface ElectronAPI {
     installGh: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installPython: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installCodex: () => Promise<{ success: boolean; detail: string; log: string[] }>;
+    setupGit: () => Promise<{ success: boolean; detail: string }>;
     runCopilotPrompt: (payload: CopilotPromptPayload) => Promise<TerminalResult>;
     runGenericPrompt: (payload: CopilotPromptPayload) => Promise<TerminalResult>;
     githubAuthStatus: () => Promise<{ authenticated: boolean; username: string | null; detail: string }>;

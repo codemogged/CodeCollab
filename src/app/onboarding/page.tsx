@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 /* ─── Types ─── */
@@ -19,6 +19,47 @@ const defaultTool: ToolCheckState = { checking: false, installing: false, status
 /* ─── Helpers ─── */
 const canUseElectron = () => typeof window !== "undefined" && !!window.electronAPI;
 
+/** Truncate long detail strings to just the version / first line */
+function truncateDetail(detail: string): string {
+  if (!detail) return "";
+  const firstLine = detail.split("\n")[0].trim();
+  return firstLine.length > 60 ? firstLine.slice(0, 57) + "…" : firstLine;
+}
+
+/* ─── Step metadata ─── */
+const STEPS: Step[] = ["welcome", "tools", "github", "provider", "profile", "done"];
+const STEP_LABELS: Record<Step, string> = {
+  welcome: "Welcome",
+  tools: "Dev Tools",
+  github: "GitHub",
+  provider: "AI Assistants",
+  profile: "Your Profile",
+  done: "Ready",
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   Typewriter hook — reveals text character-by-character
+   ═══════════════════════════════════════════════════════════════════ */
+function useTypewriter(text: string, speed = 28) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    setDisplayed("");
+    setDone(false);
+    let i = 0;
+    const id = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) { clearInterval(id); setDone(true); }
+    }, speed);
+    return () => clearInterval(id);
+  }, [text, speed]);
+  return { displayed, done };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Main Component
+   ═══════════════════════════════════════════════════════════════════ */
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("welcome");
@@ -32,8 +73,8 @@ export default function OnboardingPage() {
   const [codex, setCodex] = useState<ToolCheckState>(defaultTool);
   const [selectedProviders, setSelectedProviders] = useState<Set<ProviderKey>>(new Set(["copilot"]));
   const [finishing, setFinishing] = useState(false);
-  const [inviteCode, setInviteCode] = useState("");
   const [installLog, setInstallLog] = useState<string>("");
+  const [installingAll, setInstallingAll] = useState(false);
 
   /* GitHub auth state */
   const [ghAuthStatus, setGhAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
@@ -50,7 +91,7 @@ export default function OnboardingPage() {
   const [codexAuthStatus, setCodexAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
   const [codexAuthError, setCodexAuthError] = useState<string | null>(null);
 
-  /* Install progress animation — generic for any tool */
+  /* Install progress animation */
   const installPhasesMap: Record<string, string[]> = {
     git: ["Downloading Git…", "Running installer…", "Configuring Git…", "Almost there…"],
     node: ["Downloading Node.js…", "Running installer…", "Setting up npm…", "Almost there…"],
@@ -86,7 +127,7 @@ export default function OnboardingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  async function checkAllTools() {
+  const checkAllTools = useCallback(async function checkAllTools() {
     if (!canUseElectron()) return;
     setGit((s) => ({ ...s, checking: true }));
     setGh((s) => ({ ...s, checking: true }));
@@ -106,13 +147,13 @@ export default function OnboardingPage() {
       const pythonTool = find("python");
       const codexTool = find("codexCli");
 
-      setGit({ checking: false, installing: false, status: gitTool?.available ? "ready" : "missing", detail: gitTool?.detail || "" });
-      setGh({ checking: false, installing: false, status: ghTool?.available ? "ready" : "missing", detail: ghTool?.detail || "" });
-      setCopilot({ checking: false, installing: false, status: copilotTool?.available ? "ready" : "missing", detail: copilotTool?.detail || "" });
-      setClaude({ checking: false, installing: false, status: claudeTool?.available ? "ready" : "missing", detail: claudeTool?.detail || "" });
-      setNode({ checking: false, installing: false, status: nodeTool?.available ? "ready" : "missing", detail: nodeTool?.detail || "" });
-      setPython({ checking: false, installing: false, status: pythonTool?.available ? "ready" : "missing", detail: pythonTool?.detail || "" });
-      setCodex({ checking: false, installing: false, status: codexTool?.available ? "ready" : "missing", detail: codexTool?.detail || "" });
+      setGit({ checking: false, installing: false, status: gitTool?.available ? "ready" : "missing", detail: truncateDetail(gitTool?.detail || "") });
+      setGh({ checking: false, installing: false, status: ghTool?.available ? "ready" : "missing", detail: truncateDetail(ghTool?.detail || "") });
+      setCopilot({ checking: false, installing: false, status: copilotTool?.available ? "ready" : "missing", detail: truncateDetail(copilotTool?.detail || "") });
+      setClaude({ checking: false, installing: false, status: claudeTool?.available ? "ready" : "missing", detail: truncateDetail(claudeTool?.detail || "") });
+      setNode({ checking: false, installing: false, status: nodeTool?.available ? "ready" : "missing", detail: truncateDetail(nodeTool?.detail || "") });
+      setPython({ checking: false, installing: false, status: pythonTool?.available ? "ready" : "missing", detail: truncateDetail(pythonTool?.detail || "") });
+      setCodex({ checking: false, installing: false, status: codexTool?.available ? "ready" : "missing", detail: truncateDetail(codexTool?.detail || "") });
     } catch {
       setGit({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setGh({ checking: false, installing: false, status: "error", detail: "Check failed" });
@@ -122,234 +163,150 @@ export default function OnboardingPage() {
       setPython({ checking: false, installing: false, status: "error", detail: "Check failed" });
       setCodex({ checking: false, installing: false, status: "error", detail: "Check failed" });
     }
-  }
+  }, []);
+
+  /* ─── Install functions ─── */
 
   async function installCopilotExtension() {
-    console.log("[install] installCopilotExtension called");
-    if (!canUseElectron()) {
-      console.log("[install] no electronAPI — aborting");
-      setInstallLog("Error: Electron API not available. This button only works in the desktop app.");
-      return;
-    }
+    if (!canUseElectron()) return;
     setCopilot((s) => ({ ...s, installing: true }));
-    setInstallLog("Starting Copilot CLI installation (trying multiple strategies)...");
+    setInstallLog("Installing Copilot CLI…");
     try {
       const result = await window.electronAPI!.tools.installCopilot();
-      console.log("[install] installCopilot result:", result);
-
-      // Show full log
-      const fullLog = (result.log || []).join("\n");
       if (result.success) {
-        setCopilot({ checking: false, installing: false, status: "ready", detail: result.detail || "Copilot CLI installed" });
-        setInstallLog("Success: " + (result.detail || "Copilot CLI installed") + "\n\nFull log:\n" + fullLog);
+        setCopilot({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Copilot CLI installed") });
+        setInstallLog("");
       } else {
-        setCopilot({ checking: false, installing: false, status: "error", detail: result.detail || "All install strategies failed" });
-        setInstallLog(
-          "INSTALLATION FAILED\n\n" +
-          (result.detail || "All strategies failed") + "\n\n" +
-          "──── Detailed Log ────\n" + fullLog + "\n\n" +
-          "──── Manual Install Options ────\n" +
-          "1. Install winget: https://aka.ms/getwinget then run: winget install GitHub.Copilot\n" +
-          "2. Install VS Code + GitHub Copilot Chat extension\n" +
-          "3. Install Node.js + run: npm install -g @githubnext/github-copilot-cli\n" +
-          "4. After installing, click Re-check below"
-        );
+        setCopilot({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
+        setInstallLog("Install failed. Try manually:\n• winget install GitHub.Copilot\n• npm install -g @githubnext/github-copilot-cli");
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      const errStack = err instanceof Error ? err.stack : "";
-      console.error("[install] exception:", err);
-      setCopilot({ checking: false, installing: false, status: "error", detail: "Install crashed: " + errMsg });
-      setInstallLog(
-        "INSTALL CRASHED\n\n" +
-        "Error: " + errMsg + "\n" +
-        (errStack ? "Stack: " + errStack + "\n" : "") +
-        "\nThis is a bug — please report to the developer."
-      );
+      setCopilot({ checking: false, installing: false, status: "error", detail: "Install crashed" });
+      setInstallLog("Error: " + errMsg);
     }
   }
 
   async function installClaudeExtension() {
-    console.log("[install] installClaudeExtension called");
-    if (!canUseElectron()) {
-      setInstallLog("Error: Electron API not available.");
-      return;
-    }
+    if (!canUseElectron()) return;
     setClaude((s) => ({ ...s, installing: true }));
-    setInstallLog("Starting Claude Code installation (trying multiple strategies)...");
+    setInstallLog("Installing Claude Code…");
     try {
       const result = await window.electronAPI!.tools.installClaude();
-      console.log("[install] installClaude result:", result);
-      const fullLog = (result.log || []).join("\n");
       if (result.success) {
-        setClaude({ checking: false, installing: false, status: "ready", detail: result.detail || "Claude Code installed" });
+        setClaude({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Claude Code installed") });
         setInstallLog("");
-        // Auto-check and trigger OAuth after successful install
         try {
           const authResult = await window.electronAPI!.tools.claudeAuthStatus();
           if (authResult.authenticated) {
             setClaudeAuthStatus("authenticated");
           } else {
-            // Auto-trigger OAuth sign-in
             setClaudeAuthStatus("authenticating");
             try {
               const loginResult = await window.electronAPI!.tools.claudeAuthLogin();
-              if (loginResult.success) {
-                setClaudeAuthStatus("authenticated");
-              } else {
-                setClaudeAuthStatus("not-authenticated");
-                setClaudeAuthError(loginResult.timedOut ? "Authentication timed out. Click below to try again." : "Sign-in was not completed. Click below to try again.");
-              }
+              setClaudeAuthStatus(loginResult.success ? "authenticated" : "not-authenticated");
+              if (!loginResult.success) setClaudeAuthError(loginResult.timedOut ? "Timed out. Try again." : "Not completed. Try again.");
             } catch {
               setClaudeAuthStatus("not-authenticated");
-              setClaudeAuthError("Something went wrong. Click below to try again.");
+              setClaudeAuthError("Something went wrong. Try again.");
             }
           }
-        } catch {
-          setClaudeAuthStatus("not-authenticated");
-        }
+        } catch { setClaudeAuthStatus("not-authenticated"); }
       } else {
-        setClaude({ checking: false, installing: false, status: "error", detail: result.detail || "All install strategies failed" });
-        setInstallLog(
-          "INSTALLATION FAILED\n\n" +
-          (result.detail || "All strategies failed") + "\n\n" +
-          "──── Detailed Log ────\n" + fullLog + "\n\n" +
-          "──── Manual Install ────\n" +
-          "Open PowerShell and run:\n  irm https://claude.ai/install.ps1 | iex\n" +
-          "Then click Re-check below."
-        );
+        setClaude({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
+        setInstallLog("Install failed. Try: irm https://claude.ai/install.ps1 | iex");
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[install] claude exception:", err);
-      setClaude({ checking: false, installing: false, status: "error", detail: "Install crashed: " + errMsg });
-      setInstallLog("INSTALL CRASHED\n\nError: " + errMsg);
+      setClaude({ checking: false, installing: false, status: "error", detail: "Install crashed" });
+      setInstallLog("Error: " + errMsg);
     }
   }
 
   async function installCodexCli() {
-    console.log("[install] installCodexCli called");
-    if (!canUseElectron()) {
-      setInstallLog("Error: Electron API not available.");
-      return;
-    }
+    if (!canUseElectron()) return;
     setCodex((s) => ({ ...s, installing: true }));
-    setInstallLog("Starting Codex CLI installation via npm...");
+    setInstallLog("Installing Codex CLI…");
     try {
       const result = await window.electronAPI!.tools.installCodex();
-      console.log("[install] installCodex result:", JSON.stringify({ success: result.success, detail: result.detail, logLines: result.log?.length }));
-      const fullLog = (result.log || []).join("\n");
       if (result.success) {
-        console.log("[install] Codex install succeeded, setting status to ready");
-        setCodex({ checking: false, installing: false, status: "ready", detail: result.detail || "Codex CLI installed" });
+        setCodex({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Codex CLI installed") });
         setInstallLog("");
-        // Auto-check and trigger OAuth after successful install
         try {
-          console.log("[install] Checking Codex auth status...");
           const authResult = await window.electronAPI!.tools.codexAuthStatus();
-          console.log("[install] Codex auth status:", JSON.stringify(authResult));
           if (authResult.authenticated) {
             setCodexAuthStatus("authenticated");
           } else {
-            // Auto-trigger ChatGPT sign-in
-            console.log("[install] Auto-triggering Codex auth login...");
             setCodexAuthStatus("authenticating");
             try {
               const loginResult = await window.electronAPI!.tools.codexAuthLogin();
-              console.log("[install] Codex auth login result:", JSON.stringify({ success: loginResult.success, timedOut: loginResult.timedOut }));
-              if (loginResult.success) {
-                setCodexAuthStatus("authenticated");
-              } else {
-                setCodexAuthStatus("not-authenticated");
-                setCodexAuthError(loginResult.timedOut ? "Authentication timed out. Click below to try again." : "Sign-in was not completed. Click below to try again.");
-              }
-            } catch (authErr) {
-              console.error("[install] Codex auth login exception:", authErr);
+              setCodexAuthStatus(loginResult.success ? "authenticated" : "not-authenticated");
+              if (!loginResult.success) setCodexAuthError(loginResult.timedOut ? "Timed out. Try again." : "Not completed. Try again.");
+            } catch {
               setCodexAuthStatus("not-authenticated");
-              setCodexAuthError("Something went wrong. Click below to try again.");
+              setCodexAuthError("Something went wrong. Try again.");
             }
           }
-        } catch (authCheckErr) {
-          console.error("[install] Codex auth status check exception:", authCheckErr);
-          setCodexAuthStatus("not-authenticated");
-        }
+        } catch { setCodexAuthStatus("not-authenticated"); }
       } else {
-        setCodex({ checking: false, installing: false, status: "error", detail: result.detail || "Install failed" });
-        setInstallLog(
-          "INSTALLATION FAILED\n\n" +
-          (result.detail || "Install failed") + "\n\n" +
-          "──── Detailed Log ────\n" + fullLog + "\n\n" +
-          "──── Manual Install ────\n" +
-          "Open a terminal and run:\n  npm install -g @openai/codex\n" +
-          "Then click Re-check below."
-        );
+        setCodex({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
+        setInstallLog("Install failed. Try: npm install -g @openai/codex");
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[install] codex exception:", err);
-      setCodex({ checking: false, installing: false, status: "error", detail: "Install crashed: " + errMsg });
-      setInstallLog("INSTALL CRASHED\n\nError: " + errMsg);
+      setCodex({ checking: false, installing: false, status: "error", detail: "Install crashed" });
+      setInstallLog("Error: " + errMsg);
     }
   }
 
   async function installNodeJs() {
     if (!canUseElectron()) return;
-    setNode((s) => ({ ...s, installing: true, detail: "Installing Node.js via winget…" }));
+    setNode((s) => ({ ...s, installing: true }));
     try {
       const result = await window.electronAPI!.tools.installNode();
-      if (result.success) {
-        setNode({ checking: false, installing: false, status: "ready", detail: result.detail });
-      } else {
-        setNode({ checking: false, installing: false, status: "missing", detail: result.detail || "Install failed" });
-      }
-    } catch {
-      setNode({ checking: false, installing: false, status: "error", detail: "Install crashed" });
-    }
+      setNode({ checking: false, installing: false, status: result.success ? "ready" : "missing", detail: truncateDetail(result.detail || (result.success ? "" : "Install failed")) });
+    } catch { setNode({ checking: false, installing: false, status: "error", detail: "Install crashed" }); }
   }
 
   async function installGitScm() {
     if (!canUseElectron()) return;
-    setGit((s) => ({ ...s, installing: true, detail: "Installing Git via winget…" }));
+    setGit((s) => ({ ...s, installing: true }));
     try {
       const result = await window.electronAPI!.tools.installGit();
-      if (result.success) {
-        setGit({ checking: false, installing: false, status: "ready", detail: result.detail });
-      } else {
-        setGit({ checking: false, installing: false, status: "missing", detail: result.detail || "Install failed" });
-      }
-    } catch {
-      setGit({ checking: false, installing: false, status: "error", detail: "Install crashed" });
-    }
+      setGit({ checking: false, installing: false, status: result.success ? "ready" : "missing", detail: truncateDetail(result.detail || (result.success ? "" : "Install failed")) });
+    } catch { setGit({ checking: false, installing: false, status: "error", detail: "Install crashed" }); }
   }
 
   async function installPython() {
     if (!canUseElectron()) return;
-    setPython((s) => ({ ...s, installing: true, detail: "Installing Python via winget…" }));
+    setPython((s) => ({ ...s, installing: true }));
     try {
       const result = await window.electronAPI!.tools.installPython();
-      if (result.success) {
-        setPython({ checking: false, installing: false, status: "ready", detail: result.detail });
-      } else {
-        setPython({ checking: false, installing: false, status: "missing", detail: result.detail || "Install failed" });
-      }
-    } catch {
-      setPython({ checking: false, installing: false, status: "error", detail: "Install crashed" });
-    }
+      setPython({ checking: false, installing: false, status: result.success ? "ready" : "missing", detail: truncateDetail(result.detail || (result.success ? "" : "Install failed")) });
+    } catch { setPython({ checking: false, installing: false, status: "error", detail: "Install crashed" }); }
   }
 
   async function installGhCli() {
     if (!canUseElectron()) return;
-    setGh((s) => ({ ...s, installing: true, detail: "Installing GitHub CLI via winget…" }));
+    setGh((s) => ({ ...s, installing: true }));
     try {
       const result = await window.electronAPI!.tools.installGh();
-      if (result.success) {
-        setGh({ checking: false, installing: false, status: "ready", detail: result.detail });
-      } else {
-        setGh({ checking: false, installing: false, status: "missing", detail: result.detail || "Install failed" });
-      }
-    } catch {
-      setGh({ checking: false, installing: false, status: "error", detail: "Install crashed" });
-    }
+      setGh({ checking: false, installing: false, status: result.success ? "ready" : "missing", detail: truncateDetail(result.detail || (result.success ? "" : "Install failed")) });
+    } catch { setGh({ checking: false, installing: false, status: "error", detail: "Install crashed" }); }
+  }
+
+  async function installAllMissing() {
+    if (!canUseElectron()) return;
+    setInstallingAll(true);
+    setInstallLog("");
+    const tasks: Promise<void>[] = [];
+    if (git.status !== "ready" && !git.installing) tasks.push(installGitScm());
+    if (node.status !== "ready" && !node.installing) tasks.push(installNodeJs());
+    if (python.status !== "ready" && !python.installing) tasks.push(installPython());
+    if (gh.status !== "ready" && !gh.installing) tasks.push(installGhCli());
+    if (tasks.length > 0) await Promise.allSettled(tasks);
+    setInstallingAll(false);
+    await checkAllTools();
   }
 
   /* ── Claude auth ── */
@@ -360,9 +317,7 @@ export default function OnboardingPage() {
     try {
       const result = await window.electronAPI!.tools.claudeAuthStatus();
       setClaudeAuthStatus(result.authenticated ? "authenticated" : "not-authenticated");
-    } catch {
-      setClaudeAuthStatus("not-authenticated");
-    }
+    } catch { setClaudeAuthStatus("not-authenticated"); }
   }
 
   async function startClaudeAuth() {
@@ -371,27 +326,14 @@ export default function OnboardingPage() {
     setClaudeAuthError(null);
     try {
       const result = await window.electronAPI!.tools.claudeAuthLogin();
-      if (result.success) {
-        setClaudeAuthStatus("authenticated");
-      } else if (result.timedOut) {
-        setClaudeAuthStatus("not-authenticated");
-        setClaudeAuthError("Authentication timed out. Try again.");
-      } else {
-        setClaudeAuthStatus("not-authenticated");
-        setClaudeAuthError("Authentication was not completed. Try again.");
-      }
-    } catch {
-      setClaudeAuthStatus("error");
-      setClaudeAuthError("Something went wrong. Make sure Claude Code is installed.");
-    }
+      if (result.success) setClaudeAuthStatus("authenticated");
+      else { setClaudeAuthStatus("not-authenticated"); setClaudeAuthError(result.timedOut ? "Timed out. Try again." : "Not completed. Try again."); }
+    } catch { setClaudeAuthStatus("error"); setClaudeAuthError("Something went wrong."); }
   }
 
-  /* ── Check Claude auth when provider step loads and Claude is installed ── */
   useEffect(() => {
     if (step !== "provider" || !canUseElectron()) return;
-    if (claude.status === "ready" && selectedProviders.has("claude")) {
-      checkClaudeAuth();
-    }
+    if (claude.status === "ready" && selectedProviders.has("claude")) checkClaudeAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, claude.status, selectedProviders]);
 
@@ -403,9 +345,7 @@ export default function OnboardingPage() {
     try {
       const result = await window.electronAPI!.tools.codexAuthStatus();
       setCodexAuthStatus(result.authenticated ? "authenticated" : "not-authenticated");
-    } catch {
-      setCodexAuthStatus("not-authenticated");
-    }
+    } catch { setCodexAuthStatus("not-authenticated"); }
   }
 
   async function startCodexAuth() {
@@ -414,27 +354,14 @@ export default function OnboardingPage() {
     setCodexAuthError(null);
     try {
       const result = await window.electronAPI!.tools.codexAuthLogin();
-      if (result.success) {
-        setCodexAuthStatus("authenticated");
-      } else if (result.timedOut) {
-        setCodexAuthStatus("not-authenticated");
-        setCodexAuthError("Authentication timed out. Try again.");
-      } else {
-        setCodexAuthStatus("not-authenticated");
-        setCodexAuthError("Authentication was not completed. Try again.");
-      }
-    } catch {
-      setCodexAuthStatus("error");
-      setCodexAuthError("Something went wrong. Make sure Codex CLI is installed.");
-    }
+      if (result.success) setCodexAuthStatus("authenticated");
+      else { setCodexAuthStatus("not-authenticated"); setCodexAuthError(result.timedOut ? "Timed out. Try again." : "Not completed. Try again."); }
+    } catch { setCodexAuthStatus("error"); setCodexAuthError("Something went wrong."); }
   }
 
-  /* ── Check Codex auth when provider step loads and Codex is installed ── */
   useEffect(() => {
     if (step !== "provider" || !canUseElectron()) return;
-    if (codex.status === "ready" && selectedProviders.has("codex")) {
-      checkCodexAuth();
-    }
+    if (codex.status === "ready" && selectedProviders.has("codex")) checkCodexAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, codex.status, selectedProviders]);
 
@@ -451,16 +378,9 @@ export default function OnboardingPage() {
     setGhAuthError(null);
     try {
       const result = await window.electronAPI!.tools.githubAuthStatus();
-      if (result.authenticated) {
-        setGhAuthStatus("authenticated");
-        setGhAuthUsername(result.username);
-      } else {
-        setGhAuthStatus("not-authenticated");
-        setGhAuthUsername(null);
-      }
-    } catch {
-      setGhAuthStatus("not-authenticated");
-    }
+      if (result.authenticated) { setGhAuthStatus("authenticated"); setGhAuthUsername(result.username); }
+      else { setGhAuthStatus("not-authenticated"); setGhAuthUsername(null); }
+    } catch { setGhAuthStatus("not-authenticated"); }
   }
 
   async function startGithubAuth() {
@@ -469,40 +389,27 @@ export default function OnboardingPage() {
     setGhAuthDeviceCode(null);
     setGhAuthUrl(null);
     setGhAuthError(null);
-
-    // Listen for progress events (device code + URL)
     const unsub = window.electronAPI!.tools.onGithubAuthProgress((event) => {
       if (event.deviceCode) setGhAuthDeviceCode(event.deviceCode);
       if (event.verificationUrl) setGhAuthUrl(event.verificationUrl);
     });
-
     try {
       const result = await window.electronAPI!.tools.githubAuthLogin();
       unsub();
       if (result.success) {
         setGhAuthStatus("authenticated");
-        // Re-check to get username
         const status = await window.electronAPI!.tools.githubAuthStatus();
         setGhAuthUsername(status.username);
-      } else if (result.timedOut) {
-        setGhAuthStatus("not-authenticated");
-        setGhAuthError("Authentication timed out. Try again.");
-      } else {
-        setGhAuthStatus("not-authenticated");
-        setGhAuthError("Authentication was not completed. Try again.");
-      }
-    } catch {
-      unsub();
-      setGhAuthStatus("error");
-      setGhAuthError("Something went wrong. Make sure GitHub CLI is installed.");
-    }
+        try { await window.electronAPI!.tools.setupGit(); } catch { /* non-critical */ }
+      } else if (result.timedOut) { setGhAuthStatus("not-authenticated"); setGhAuthError("Timed out. Try again."); }
+      else { setGhAuthStatus("not-authenticated"); setGhAuthError("Not completed. Try again."); }
+    } catch { unsub(); setGhAuthStatus("error"); setGhAuthError("Something went wrong."); }
   }
 
   async function handleFinish() {
     setFinishing(true);
     try {
       if (canUseElectron()) {
-        // Save display name + AI provider choice into settings
         const updates: Record<string, unknown> = {
           featureFlags: {
             githubCopilotCli: selectedProviders.has("copilot"),
@@ -513,652 +420,688 @@ export default function OnboardingPage() {
         };
         if (displayName.trim()) updates.displayName = displayName.trim();
         await window.electronAPI!.settings.update(updates);
-        // Mark onboarding as complete
         await window.electronAPI!.settings.completeOnboarding();
       }
       router.push("/home");
-    } catch {
-      router.push("/home");
-    }
+    } catch { router.push("/home"); }
   }
 
-  /* Navigation helper: what comes after provider step */
-  function handleProviderContinue() {
-    setStep("profile");
-  }
+  /* ── Navigation ── */
+  const stepIndex = STEPS.indexOf(step);
+  const canGoBack = stepIndex > 0 && step !== "done";
+  const goBack = () => { if (canGoBack) setStep(STEPS[stepIndex - 1]); };
+  const goNext = (target?: Step) => { setStep(target || STEPS[Math.min(stepIndex + 1, STEPS.length - 1)]); };
 
-  /* ── Step renderers ── */
-  const steps: Step[] = ["welcome", "tools", "github", "provider", "profile", "done"];
-  const stepIndex = steps.indexOf(step);
-  const totalSteps = steps.length;
-
+  /* ═══════════════════════════════════════════════════════════════════
+     RENDER — Clean centered single-step layout
+     Light mode · typing animation · step dots · back/forward nav
+     ═══════════════════════════════════════════════════════════════════ */
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 px-6">
-      {/* Ambient glow */}
-      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500/10 blur-[120px]" />
+    <div className="flex min-h-screen flex-col bg-[#fafafa]">
 
-      {/* Progress dots */}
-      <div className="absolute top-8 flex gap-2">
-        {Array.from({ length: totalSteps }).map((_, i) => (
-          <div
-            key={i}
-            className={`h-2 rounded-full transition-all duration-500 ${
-              i <= stepIndex ? "w-8 bg-indigo-400" : "w-2 bg-white/20"
+      {/* ── Top bar: logo + step counter ── */}
+      <header className="flex items-center justify-between px-8 pt-6">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 text-[10px] font-bold text-white">
+            CB
+          </div>
+          <span className="text-sm font-semibold text-gray-800">CodeBuddy</span>
+        </div>
+        <p className="text-xs font-medium text-gray-400">
+          {stepIndex + 1} of {STEPS.length}
+        </p>
+      </header>
+
+      {/* ── Step dots ── */}
+      <div className="flex justify-center gap-2 pt-6">
+        {STEPS.map((s, i) => (
+          <button
+            key={s}
+            onClick={() => { if (i <= stepIndex) setStep(STEPS[i]); }}
+            className={`h-1.5 rounded-full transition-all duration-400 ${
+              i === stepIndex
+                ? "w-8 bg-indigo-500"
+                : i < stepIndex
+                  ? "w-1.5 cursor-pointer bg-indigo-300 hover:bg-indigo-400"
+                  : "w-1.5 bg-gray-200"
             }`}
+            aria-label={STEP_LABELS[s]}
           />
         ))}
       </div>
 
-      <div className="relative z-10 flex w-full max-w-lg flex-col items-center text-center">
-        {/* ── STEP 1: Welcome ── */}
-        {step === "welcome" && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-lg font-bold text-white shadow-lg shadow-indigo-500/30">
-              CB
-            </div>
-            <h1 className="mt-8 text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Welcome to CodeBuddy
-            </h1>
-            <p className="mt-4 text-lg text-indigo-200/70">
-              Build software with your friends. No coding experience needed.
-            </p>
-            <p className="mt-2 text-sm text-indigo-300/50">
-              Free forever. No credit card. Everything runs on your machine.
-            </p>
+      {/* ── Centered content area ── */}
+      <main className="flex flex-1 flex-col items-center justify-center px-8 pb-24">
+        <div className="w-full max-w-md">
 
-            {/* Invite code input */}
-            <div className="mt-10 w-full">
-              <label className="block text-left text-xs font-semibold uppercase tracking-widest text-indigo-300/60">
-                Have an invite code?
-              </label>
-              <div className="mt-2 flex gap-2">
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  placeholder="Paste your friend's invite code"
-                  className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-indigo-400/50 focus:ring-1 focus:ring-indigo-400/30"
-                />
-              </div>
-              <p className="mt-1.5 text-left text-xs text-indigo-300/40">
-                Skip this if you&apos;re starting fresh — you can join projects later.
+          {/* ═══ WELCOME ═══ */}
+          {step === "welcome" && <WelcomeStep onContinue={() => goNext()} />}
+
+          {/* ═══ TOOLS ═══ */}
+          {step === "tools" && (
+            <FadeIn key="tools">
+              <StepHeading text="Checking your tools" />
+              <p className="mt-2 text-center text-sm text-gray-400">
+                CodeBuddy needs a few things installed on your machine.
               </p>
-            </div>
 
-            <button
-              onClick={() => setStep("tools")}
-              className="mt-8 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-8 py-4 text-[15px] font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl hover:shadow-indigo-500/30"
-            >
-              Let&apos;s set up
-            </button>
-          </div>
-        )}
+              <div className="mt-8 space-y-1">
+                <ToolRow label="Git" state={git} onInstall={installGitScm} phaseText={installPhases.git[activeInstallPhases.git || 0]} />
+                <ToolRow label="Node.js" state={node} onInstall={installNodeJs} phaseText={installPhases.node[activeInstallPhases.node || 0]} />
+                <ToolRow label="Python" state={python} onInstall={installPython} phaseText={installPhases.python[activeInstallPhases.python || 0]} />
+                <ToolRow label="GitHub CLI" state={gh} onInstall={installGhCli} phaseText={installPhases.gh[activeInstallPhases.gh || 0]} />
+              </div>
 
-        {/* ── STEP 2: Tools Check ── */}
-        {step === "tools" && (
-          <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-3xl font-bold tracking-tight text-white">Check your tools</h2>
-            <p className="mt-3 text-sm text-indigo-200/60">
-              CodeBuddy needs Git, Node.js, Python, and GitHub CLI installed on your machine.
-            </p>
+              {/* Install all / missing count */}
+              {(() => {
+                const anyInstalling = git.installing || node.installing || python.installing || gh.installing;
+                const missing = [git, node, python, gh].filter((t) => t.status === "missing" || t.status === "error");
+                const readyCount = [git, node, python, gh].filter((t) => t.status === "ready").length;
 
-            <div className="mt-8 space-y-3">
-              <ToolRow label="Git" state={git} required onInstall={installGitScm} helpUrl="https://git-scm.com/downloads" installPhaseText={installPhases.git[activeInstallPhases.git || 0]} />
-              <ToolRow label="Node.js" state={node} required onInstall={installNodeJs} helpUrl="https://nodejs.org" installPhaseText={installPhases.node[activeInstallPhases.node || 0]} />
-              <ToolRow label="Python" state={python} required onInstall={installPython} helpUrl="https://python.org" installPhaseText={installPhases.python[activeInstallPhases.python || 0]} />
-              <ToolRow label="GitHub CLI" state={gh} required onInstall={installGhCli} helpUrl="https://cli.github.com" installPhaseText={installPhases.gh[activeInstallPhases.gh || 0]} />
-            </div>
-
-            <p className="mt-4 text-xs text-indigo-300/40">
-              Just installed something? Hit Re-check — we&apos;ll pick it up without restarting.
-            </p>
-
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setStep("welcome")}
-                className="flex-1 rounded-xl border border-white/10 px-6 py-3.5 text-sm font-medium text-white/70 transition hover:bg-white/5"
-              >
-                Back
-              </button>
-              <button
-                onClick={checkAllTools}
-                className="rounded-xl border border-indigo-400/30 px-5 py-3.5 text-sm font-medium text-indigo-300 transition hover:bg-indigo-500/10"
-              >
-                Re-check
-              </button>
-              <button
-                onClick={() => setStep("github")}
-                className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP 3: AI Provider ── */}
-        {step === "provider" && (
-          <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-3xl font-bold tracking-tight text-white">Choose your AI</h2>
-            <p className="mt-3 text-sm text-indigo-200/60">
-              Select one or more AI assistants. We&apos;ll install each and handle sign-in automatically.
-            </p>
-
-            {/* Multi-select checkboxes */}
-            <div className="mt-8 space-y-2">
-              {([
-                { key: "copilot" as ProviderKey, label: "GitHub Copilot", desc: "free with GitHub account", activeBorder: "border-indigo-400/40 bg-indigo-500/10 ring-1 ring-indigo-400/30", activeDot: "border-indigo-400", fill: "bg-indigo-400" },
-                { key: "claude" as ProviderKey, label: "Claude Code", desc: "Anthropic\u2019s CLI agent", activeBorder: "border-amber-400/40 bg-amber-500/10 ring-1 ring-amber-400/30", activeDot: "border-amber-400", fill: "bg-amber-400" },
-                { key: "codex" as ProviderKey, label: "Codex CLI", desc: "OpenAI\u2019s coding agent", activeBorder: "border-green-400/40 bg-green-500/10 ring-1 ring-green-400/30", activeDot: "border-green-400", fill: "bg-green-400" },
-              ]).map(({ key, label, desc, activeBorder, activeDot, fill }) => {
-                const checked = selectedProviders.has(key);
-                return (
-                  <div
-                    key={key}
-                    onClick={() => {
-                      setSelectedProviders((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(key)) { next.delete(key); } else { next.add(key); }
-                        return next;
-                      });
-                    }}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${checked ? activeBorder : "border-white/10 bg-white/5 hover:bg-white/[0.07]"}`}
-                  >
-                    <div className={`flex h-4 w-4 items-center justify-center rounded border-2 ${checked ? activeDot : "border-white/30"}`}>
-                      {checked && <div className={`h-2 w-2 rounded-sm ${fill}`} />}
+                if (anyInstalling) {
+                  return (
+                    <div className="mt-6 flex flex-col items-center gap-3">
+                      <div className="relative flex h-12 w-12 items-center justify-center">
+                        <div className="absolute inset-0 rounded-full border-2 border-indigo-100" />
+                        <div className="absolute inset-0 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-indigo-500"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
+                      </div>
+                      <p className="text-sm font-medium text-gray-500">Installing… {readyCount}/4</p>
                     </div>
-                    <span className="text-sm font-semibold text-white">{label}</span>
-                    <span className="text-xs text-white/40">— {desc}</span>
+                  );
+                }
+                if (missing.length > 0 && !anyInstalling) {
+                  return (
+                    <div className="mt-6 flex justify-center gap-3">
+                      <button
+                        onClick={installAllMissing}
+                        disabled={installingAll}
+                        className="inline-flex items-center gap-2 rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-50"
+                      >
+                        Install all ({missing.length})
+                      </button>
+                      <button
+                        onClick={checkAllTools}
+                        className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600"
+                      >
+                        Re-check
+                      </button>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <NavButtons onBack={goBack} onNext={() => goNext()} nextLabel="Continue" backLabel="Back" />
+            </FadeIn>
+          )}
+
+          {/* ═══ GITHUB ═══ */}
+          {step === "github" && (
+            <FadeIn key="github">
+              <StepHeading text="Connect GitHub" />
+              <p className="mt-2 text-center text-sm text-gray-400">
+                This is how we store projects and collaborate with friends.
+              </p>
+
+              <div className="mt-8 space-y-4">
+                {ghAuthStatus === "checking" && (
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <Spinner className="text-indigo-400" />
+                    <span className="text-sm text-gray-400">Checking GitHub…</span>
                   </div>
-                );
-              })}
-              {/* All option */}
-              <div
-                onClick={() => {
-                  const allSelected = selectedProviders.size === 3;
-                  setSelectedProviders(allSelected ? new Set(["copilot"]) : new Set(["copilot", "claude", "codex"]));
-                }}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-5 py-3.5 transition ${
-                  selectedProviders.size === 3
-                    ? "border-emerald-400/40 bg-emerald-500/10 ring-1 ring-emerald-400/30"
-                    : "border-white/10 bg-white/5 hover:bg-white/[0.07]"
-                }`}
-              >
-                <div className={`flex h-4 w-4 items-center justify-center rounded border-2 ${selectedProviders.size === 3 ? "border-emerald-400" : "border-white/30"}`}>
-                  {selectedProviders.size === 3 && <div className="h-2 w-2 rounded-sm bg-emerald-400" />}
-                </div>
-                <span className="text-sm font-semibold text-white">All</span>
-                <span className="text-xs text-white/40">— install everything</span>
-              </div>
-            </div>
-
-            {/* Required tools — show install/auth for each selected provider */}
-            {selectedProviders.size > 0 && (
-              <div className="mt-6 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-widest text-indigo-300/50">Required tools</p>
-
-                {/* Copilot */}
-                {selectedProviders.has("copilot") && (
-                  <ToolRow label="Copilot Extension" state={copilot} required onInstall={gh.status === "ready" ? installCopilotExtension : undefined} installPhaseText={installPhases.copilot[activeInstallPhases.copilot || 0]} />
                 )}
 
-                {/* Claude */}
-                {selectedProviders.has("claude") && (
+                {ghAuthStatus === "authenticated" && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                    <GreenCheck />
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-700">Connected</p>
+                      <p className="text-xs text-emerald-600/70">Signed in as <span className="font-semibold">{ghAuthUsername}</span></p>
+                    </div>
+                  </div>
+                )}
+
+                {(ghAuthStatus === "not-authenticated" || ghAuthStatus === "error" || ghAuthStatus === "unknown") && (
                   <>
-                    <ToolRow label="Claude Code" state={claude} required onInstall={installClaudeExtension} accentColor="amber" installPhaseText={installPhases.claude[activeInstallPhases.claude || 0]} />
-                    {claude.status === "ready" && (
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-                        {claudeAuthStatus === "checking" && (
-                          <div className="flex items-center gap-3">
-                            <svg className="h-4 w-4 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            <span className="text-sm text-white/60">Checking Claude login...</span>
-                          </div>
-                        )}
-                        {claudeAuthStatus === "authenticated" && (
-                          <div className="flex items-center gap-2 text-emerald-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
-                            <span className="text-sm font-semibold">Signed in to Claude</span>
-                          </div>
-                        )}
-                        {(claudeAuthStatus === "not-authenticated" || claudeAuthStatus === "error" || claudeAuthStatus === "unknown") && (
-                          <div className="space-y-2">
-                            <p className="text-xs text-white/50">Claude Code is installed. Sign in to activate it.</p>
-                            <button
-                              onClick={startClaudeAuth}
-                              className="w-full rounded-lg bg-amber-500/20 px-4 py-2.5 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/30"
-                            >
-                              Sign in to Claude
-                            </button>
-                          </div>
-                        )}
-                        {claudeAuthStatus === "authenticating" && (
-                          <div className="flex flex-col items-center gap-3 py-2">
-                            <svg className="h-6 w-6 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            <p className="text-sm font-semibold text-amber-300">Log in to Claude Code</p>
-                            <p className="text-xs text-white/50">A browser window should open — complete sign-in there.</p>
-                          </div>
-                        )}
-                        {claudeAuthError && (
-                          <p className="mt-2 text-xs text-red-400">{claudeAuthError}</p>
-                        )}
+                    {gh.status !== "ready" ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center">
+                        <p className="text-sm font-medium text-amber-700">GitHub CLI is required.</p>
+                        <p className="mt-1 text-xs text-amber-600/70">Go back and install it first.</p>
+                        <button onClick={goBack} className="mt-3 text-xs font-semibold text-amber-600 hover:text-amber-800">← Back to tools</button>
                       </div>
-                    )}
-                  </>
-                )}
-
-                {/* Codex */}
-                {selectedProviders.has("codex") && (
-                  <>
-                    <ToolRow label="Codex CLI" state={codex} required onInstall={node.status === "ready" ? installCodexCli : undefined} accentColor="green" installPhaseText={installPhases.codex[activeInstallPhases.codex || 0]} />
-                    {codex.status === "ready" && (
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-                        {codexAuthStatus === "checking" && (
-                          <div className="flex items-center gap-3">
-                            <svg className="h-4 w-4 animate-spin text-green-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            <span className="text-sm text-white/60">Checking Codex login...</span>
-                          </div>
-                        )}
-                        {codexAuthStatus === "authenticated" && (
-                          <div className="flex items-center gap-2 text-emerald-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
-                            <span className="text-sm font-semibold">Signed in to Codex</span>
-                          </div>
-                        )}
-                        {(codexAuthStatus === "not-authenticated" || codexAuthStatus === "error" || codexAuthStatus === "unknown") && (
-                          <div className="space-y-2">
-                            <p className="text-xs text-white/50">Codex CLI is installed. Sign in with your ChatGPT account to activate it.</p>
-                            <button
-                              onClick={startCodexAuth}
-                              className="w-full rounded-lg bg-green-500/20 px-4 py-2.5 text-sm font-semibold text-green-300 transition hover:bg-green-500/30"
-                            >
-                              Sign in to Codex
-                            </button>
-                          </div>
-                        )}
-                        {codexAuthStatus === "authenticating" && (
-                          <div className="flex flex-col items-center gap-3 py-2">
-                            <svg className="h-6 w-6 animate-spin text-green-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            <p className="text-sm font-semibold text-green-300">Log in to Codex CLI</p>
-                            <p className="text-xs text-white/50">A browser window should open — sign in with your ChatGPT account.</p>
-                          </div>
-                        )}
-                        {codexAuthError && (
-                          <p className="mt-2 text-xs text-red-400">{codexAuthError}</p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {installLog && (
-              <div className={`mt-4 rounded-lg border px-4 py-3 max-h-60 overflow-y-auto ${
-                installLog.includes("FAILED") || installLog.includes("CRASHED")
-                  ? "border-red-400/30 bg-red-500/10"
-                  : installLog.includes("Success")
-                    ? "border-green-400/30 bg-green-500/10"
-                    : "border-indigo-400/30 bg-indigo-500/10"
-              }`}>
-                <pre className="text-xs font-mono text-indigo-200 whitespace-pre-wrap break-words">{installLog}</pre>
-              </div>
-            )}
-
-            <p className="mt-4 text-xs text-indigo-300/40">
-              Just installed something? Hit Re-check — we&apos;ll pick it up without restarting.
-            </p>
-
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setStep("github")}
-                className="flex-1 rounded-xl border border-white/10 px-6 py-3.5 text-sm font-medium text-white/70 transition hover:bg-white/5"
-              >
-                Back
-              </button>
-              <button
-                onClick={checkAllTools}
-                className="rounded-xl border border-indigo-400/30 px-5 py-3.5 text-sm font-medium text-indigo-300 transition hover:bg-indigo-500/10"
-              >
-                Re-check
-              </button>
-              <button
-                onClick={handleProviderContinue}
-                className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP 3: GitHub Account ── */}
-        {step === "github" && (
-          <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-3xl font-bold tracking-tight text-white">Connect your GitHub</h2>
-            <p className="mt-3 text-sm text-indigo-200/60">
-              CodeBuddy uses GitHub to store your projects and collaborate with friends.
-            </p>
-
-            <div className="mt-8">
-              {ghAuthStatus === "checking" && (
-                <div className="flex items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 px-5 py-6">
-                  <svg className="h-5 w-5 animate-spin text-indigo-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                  <span className="text-sm text-white/60">Checking GitHub status...</span>
-                </div>
-              )}
-
-              {ghAuthStatus === "authenticated" && (
-                <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-5 py-6 text-center">
-                  <div className="flex items-center justify-center gap-2 text-emerald-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-6 w-6"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
-                    <span className="text-lg font-semibold">Connected</span>
-                  </div>
-                  <p className="mt-2 text-sm text-emerald-300/70">
-                    Signed in as <span className="font-semibold text-emerald-300">{ghAuthUsername}</span>
-                  </p>
-                </div>
-              )}
-
-              {(ghAuthStatus === "not-authenticated" || ghAuthStatus === "error" || ghAuthStatus === "unknown") && (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-6 text-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="mx-auto h-10 w-10 text-white/30"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" /></svg>
-                    <p className="mt-4 text-sm text-white/60">Not connected to GitHub yet</p>
-                  </div>
-
-                  <button
-                    onClick={startGithubAuth}
-                    className="w-full rounded-xl bg-white px-6 py-4 text-[15px] font-semibold text-gray-900 shadow-lg transition hover:bg-gray-100"
-                  >
-                    <span className="flex items-center justify-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" /></svg>
-                      Sign in with GitHub
-                    </span>
-                  </button>
-                </div>
-              )}
-
-              {ghAuthStatus === "authenticating" && (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 px-5 py-6 text-center">
-                    {ghAuthDeviceCode ? (
-                      <>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-amber-300/60">Step 1: Copy this code</p>
-                        <p className="mt-3 select-all font-mono text-3xl font-bold tracking-[0.2em] text-amber-300">{ghAuthDeviceCode}</p>
-                        <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-amber-300/60">Step 2: Open this link and paste the code</p>
-                        <button
-                          onClick={() => {
-                            if (ghAuthUrl) window.electronAPI?.system?.openExternal(ghAuthUrl);
-                          }}
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/30"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5z" clipRule="evenodd" /><path fillRule="evenodd" d="M6.194 12.753a.75.75 0 001.06.053L16.5 4.44v2.81a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.553l-9.056 8.194a.75.75 0 00-.053 1.06z" clipRule="evenodd" /></svg>
-                          Open github.com/login/device
-                        </button>
-                        <p className="mt-4 text-xs text-amber-300/40">Step 3: Authorize the app, then come back here — it&apos;ll update automatically.</p>
-                      </>
                     ) : (
-                      <div className="flex items-center justify-center gap-3">
-                        <svg className="h-5 w-5 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        <span className="text-sm text-amber-300/70">Starting GitHub authentication...</span>
+                      <div className="flex justify-center gap-3">
+                        <button
+                          onClick={startGithubAuth}
+                          className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800 active:scale-[0.97]"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                            <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+                          </svg>
+                          Sign in with GitHub
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {ghAuthStatus === "authenticating" && (
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 px-6 py-6">
+                    {ghAuthDeviceCode ? (
+                      <div className="space-y-4 text-center">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-indigo-400">Copy this code</p>
+                          <p className="mt-2 select-all font-mono text-2xl font-bold tracking-[0.15em] text-indigo-600">{ghAuthDeviceCode}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-indigo-400">Then open</p>
+                          <button
+                            onClick={() => { if (ghAuthUrl) window.electronAPI?.system?.openExternal(ghAuthUrl); }}
+                            className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:bg-indigo-200"
+                          >
+                            github.com/login/device ↗
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-gray-400">Authorize the app, then come back.</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-3 py-2">
+                        <Spinner className="text-indigo-400" />
+                        <span className="text-sm text-gray-400">Starting authentication…</span>
                       </div>
                     )}
                   </div>
+                )}
+
+                {ghAuthError && (
+                  <p className="rounded-xl bg-red-50 px-4 py-2 text-center text-sm text-red-500">{ghAuthError}</p>
+                )}
+              </div>
+
+              <NavButtons
+                onBack={goBack}
+                onNext={() => goNext()}
+                nextLabel={ghAuthStatus === "authenticated" ? "Continue" : "Skip for now"}
+                backLabel="Back"
+              />
+            </FadeIn>
+          )}
+
+          {/* ═══ PROVIDER ═══ */}
+          {step === "provider" && (
+            <FadeIn key="provider">
+              <StepHeading text="Choose your AI assistant" />
+              <p className="mt-2 text-center text-sm text-gray-400">
+                Pick one or more. We&apos;ll install and connect them.
+              </p>
+
+              <div className="mt-8 space-y-2">
+                {([
+                  { key: "copilot" as ProviderKey, label: "GitHub Copilot", desc: "Free with GitHub" },
+                  { key: "claude" as ProviderKey, label: "Claude Code", desc: "Anthropic CLI" },
+                  { key: "codex" as ProviderKey, label: "Codex CLI", desc: "OpenAI agent" },
+                ] as const).map(({ key, label, desc }) => {
+                  const checked = selectedProviders.has(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setSelectedProviders((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key); else next.add(key);
+                          return next;
+                        });
+                      }}
+                      className={`flex w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
+                        checked
+                          ? "border-indigo-200 bg-indigo-50"
+                          : "border-gray-100 bg-white hover:border-gray-200"
+                      }`}
+                    >
+                      <ProviderIcon provider={key} />
+                      <div className="flex-1">
+                        <span className="text-sm font-semibold text-gray-800">{label}</span>
+                        <span className="ml-2 text-xs text-gray-400">{desc}</span>
+                      </div>
+                      <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${checked ? "border-indigo-500 bg-indigo-500" : "border-gray-300"}`}>
+                        {checked && (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3 text-white">
+                            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Provider install/auth status */}
+              {selectedProviders.size > 0 && (
+                <div className="mt-5 rounded-2xl border border-gray-100 bg-white overflow-hidden divide-y divide-gray-50">
+                  {selectedProviders.has("copilot") && (
+                    <ProviderStatusRow
+                      provider="copilot"
+                      toolState={copilot}
+                      authStatus={ghAuthStatus === "authenticated" ? "authenticated" : copilot.status === "ready" ? "ready" : undefined}
+                      authLabel={ghAuthUsername || undefined}
+                      onInstall={gh.status === "ready" ? installCopilotExtension : undefined}
+                      phaseText={installPhases.copilot[activeInstallPhases.copilot || 0]}
+                    />
+                  )}
+                  {selectedProviders.has("claude") && (
+                    <ProviderStatusRow
+                      provider="claude"
+                      toolState={claude}
+                      authStatus={claude.status === "ready" ? claudeAuthStatus : undefined}
+                      onInstall={installClaudeExtension}
+                      onSignIn={startClaudeAuth}
+                      authError={claudeAuthError}
+                      phaseText={installPhases.claude[activeInstallPhases.claude || 0]}
+                    />
+                  )}
+                  {selectedProviders.has("codex") && (
+                    <ProviderStatusRow
+                      provider="codex"
+                      toolState={codex}
+                      authStatus={codex.status === "ready" ? codexAuthStatus : undefined}
+                      onInstall={node.status === "ready" ? installCodexCli : undefined}
+                      onSignIn={startCodexAuth}
+                      authError={codexAuthError}
+                      phaseText={installPhases.codex[activeInstallPhases.codex || 0]}
+                    />
+                  )}
                 </div>
               )}
 
-              {ghAuthError && (
-                <p className="mt-3 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">{ghAuthError}</p>
+              {installLog && (
+                <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                  <pre className="whitespace-pre-wrap break-words text-xs text-gray-500">{installLog}</pre>
+                </div>
               )}
-            </div>
 
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setStep("tools")}
-                className="flex-1 rounded-xl border border-white/10 px-6 py-3.5 text-sm font-medium text-white/70 transition hover:bg-white/5"
-              >
-                Back
-              </button>
-              <button
-                onClick={() => setStep("provider")}
-                className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl"
-              >
-                {ghAuthStatus === "authenticated" ? "Continue" : "Skip for now"}
-              </button>
-            </div>
-          </div>
-        )}
+              <NavButtons onBack={goBack} onNext={() => goNext()} nextLabel="Continue" backLabel="Back" showRecheck recheckFn={checkAllTools} />
+            </FadeIn>
+          )}
 
-        {/* ── STEP 5: Profile ── */}
-        {step === "profile" && (
-          <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-3xl font-bold tracking-tight text-white">What should we call you?</h2>
-            <p className="mt-3 text-sm text-indigo-200/60">
-              This is how you&apos;ll appear to friends in shared projects.
-            </p>
+          {/* ═══ PROFILE ═══ */}
+          {step === "profile" && (
+            <FadeIn key="profile">
+              <StepHeading text="What should we call you?" />
+              <p className="mt-2 text-center text-sm text-gray-400">
+                This is how you&apos;ll appear to friends.
+              </p>
 
-            <div className="mt-8">
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-center text-lg font-medium text-white placeholder-white/30 outline-none focus:border-indigo-400/50 focus:ring-1 focus:ring-indigo-400/30"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && displayName.trim()) setStep("done");
-                }}
-              />
-              {displayName.trim() && (
-                <div className="mt-4 flex items-center justify-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
+              <div className="mt-8 flex flex-col items-center gap-5">
+                {displayName.trim() && (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-indigo-500 text-lg font-bold text-white">
                     {displayName.trim().slice(0, 2).toUpperCase()}
                   </div>
-                  <span className="text-sm text-indigo-200/70">
-                    Your avatar in shared projects
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-8 flex gap-3">
-              <button
-                onClick={() => setStep("provider")}
-                className="flex-1 rounded-xl border border-white/10 px-6 py-3.5 text-sm font-medium text-white/70 transition hover:bg-white/5"
-              >
-                Back
-              </button>
-              <button
-                onClick={() => setStep("done")}
-                disabled={!displayName.trim()}
-                className="flex-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl disabled:opacity-40 disabled:shadow-none"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Done ── */}
-        {step === "done" && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
-              ✓
-            </div>
-            <h2 className="mt-6 text-3xl font-bold tracking-tight text-white">You&apos;re all set!</h2>
-            <p className="mt-3 text-sm text-indigo-200/60">
-              Start a project, invite friends, and build something amazing together.
-            </p>
-
-            {inviteCode.trim() && (
-              <div className="mt-6 rounded-xl border border-indigo-400/20 bg-indigo-500/5 px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-widest text-indigo-300/60">Invite code saved</p>
-                <p className="mt-1 text-sm text-indigo-200/80">
-                  We&apos;ll connect you to your friend&apos;s project after setup.
-                </p>
+                )}
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full rounded-2xl border border-gray-200 bg-white px-5 py-3.5 text-center text-sm text-gray-800 placeholder-gray-300 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter" && displayName.trim()) goNext(); }}
+                />
               </div>
-            )}
 
-            <button
-              onClick={handleFinish}
-              disabled={finishing}
-              className="mt-8 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-8 py-4 text-[15px] font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-xl disabled:opacity-60"
-            >
-              {finishing ? "Setting up..." : "Open CodeBuddy"}
-            </button>
-          </div>
-        )}
-      </div>
+              <NavButtons onBack={goBack} onNext={() => goNext()} nextLabel="Continue" backLabel="Back" nextDisabled={!displayName.trim()} />
+            </FadeIn>
+          )}
 
-      <footer className="absolute bottom-6 text-xs text-indigo-300/30">
-        CodeBuddy — free forever
+          {/* ═══ DONE ═══ */}
+          {step === "done" && (
+            <FadeIn key="done">
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-indigo-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-9 w-9 text-white"><path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" /></svg>
+                </div>
+                <h1 className="mt-6 text-2xl font-bold text-gray-800">
+                  You&apos;re all set, {displayName || "friend"}!
+                </h1>
+                <p className="mt-2 text-sm text-gray-400">
+                  Start a project, invite friends, and build something amazing.
+                </p>
+                <button
+                  onClick={handleFinish}
+                  disabled={finishing}
+                  className="mt-8 rounded-full bg-indigo-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-50"
+                >
+                  {finishing ? "Setting up…" : "Open CodeBuddy"}
+                </button>
+              </div>
+            </FadeIn>
+          )}
+
+        </div>
+      </main>
+
+      {/* ── Footer ── */}
+      <footer className="pb-6 text-center text-[11px] text-gray-300">
+        free forever
       </footer>
     </div>
   );
 }
 
-/* ─── Tool status row ─── */
+/* ═══════════════════════════════════════════════════════════════════
+   SUB-COMPONENTS
+   ═══════════════════════════════════════════════════════════════════ */
+
+/** Provider icon with real brand logos */
+function ProviderIcon({ provider }: { provider: ProviderKey }) {
+  const base = "flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden";
+  if (provider === "copilot") return (
+    <div className={`${base} bg-gray-900`}>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 text-white">
+        <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
+      </svg>
+    </div>
+  );
+  if (provider === "claude") return (
+    <div className={`${base} bg-[#f5e6df]`}>
+      <svg viewBox="0 6.603 1192.672 1193.397" className="h-5 w-5" xmlns="http://www.w3.org/2000/svg">
+        <path d="m233.96 800.215 234.684-131.678 3.947-11.436-3.947-6.363h-11.436l-39.221-2.416-134.094-3.624-116.296-4.832-112.67-6.04-28.35-6.04-26.577-35.035 2.738-17.477 23.84-16.027 34.147 2.98 75.463 5.155 113.235 7.812 82.147 4.832 121.692 12.644h19.329l2.738-7.812-6.604-4.832-5.154-4.832-117.182-79.41-126.845-83.92-66.443-48.321-35.92-24.484-18.12-22.953-7.813-50.093 32.618-35.92 43.812 2.98 11.195 2.98 44.375 34.147 94.792 73.37 123.786 91.167 18.12 15.06 7.249-5.154.886-3.624-8.135-13.61-67.329-121.692-71.838-123.785-31.974-51.302-8.456-30.765c-2.98-12.645-5.154-23.275-5.154-36.242l37.127-50.416 20.537-6.604 49.53 6.604 20.86 18.121 30.765 70.39 49.852 110.818 77.315 150.684 22.631 44.698 12.08 41.396 4.51 12.645h7.813v-7.248l6.362-84.886 11.759-104.215 11.436-134.094 3.946-37.772 18.685-45.262 37.127-24.482 28.994 13.852 23.839 34.148-3.303 22.067-14.174 92.134-27.785 144.323-18.121 96.644h10.55l12.08-12.08 48.887-64.913 82.147-102.685 36.242-40.752 42.282-45.02 27.14-21.423h51.303l37.772 56.135-16.913 57.986-52.832 67.007-43.812 56.779-62.82 84.563-39.22 67.651 3.623 5.396 9.343-.886 141.906-30.201 76.671-13.852 91.49-15.705 41.396 19.329 4.51 19.65-16.269 40.189-97.852 24.16-114.764 22.954-170.9 40.43-2.093 1.53 2.416 2.98 76.993 7.248 32.94 1.771h80.617l150.12 11.195 39.222 25.933 23.517 31.732-3.946 24.16-60.403 30.766-81.503-19.33-190.228-45.26-65.235-16.27h-9.02v5.397l54.362 53.154 99.624 89.96 124.752 115.973 6.362 28.671-16.027 22.63-16.912-2.415-109.611-82.47-42.282-37.127-95.758-80.618h-6.363v8.456l22.067 32.296 116.537 175.167 6.04 53.719-8.456 17.476-30.201 10.55-33.181-6.04-68.215-95.758-70.39-107.84-56.778-96.644-6.926 3.947-33.503 360.886-15.705 18.443-36.243 13.852-30.201-22.953-16.027-37.127 16.027-73.37 19.329-95.758 15.704-76.107 14.175-94.55 8.456-31.41-.563-2.094-6.927.886-71.275 97.852-108.402 146.497-85.772 91.812-20.537 8.134-35.597-18.443 3.301-32.94 19.893-29.315 118.712-151.007 71.597-93.583 46.228-54.04-.322-7.813h-2.738l-315.302 204.725-56.135 7.248-24.16-22.63 2.98-37.128 11.435-12.08 94.792-65.236-.322.323z" fill="#d97757"/>
+      </svg>
+    </div>
+  );
+  return (
+    <div className={`${base} bg-[#f5f5f5]`}>
+      <img src="/openai-logo.png" alt="OpenAI" className="h-5 w-5 object-contain" />
+    </div>
+  );
+}
+
+/** Welcome step with typing animation */
+function WelcomeStep({ onContinue }: { onContinue: () => void }) {
+  const { displayed, done } = useTypewriter("Let's get you set up.", 35);
+  return (
+    <FadeIn>
+      <div className="flex flex-col items-center text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500 text-xl font-bold text-white">
+          CB
+        </div>
+        <h1 className="mt-8 text-2xl font-bold text-gray-800">
+          {displayed}
+          {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-indigo-500 align-text-bottom animate-pulse" />}
+        </h1>
+        <p className={`mt-3 text-sm text-gray-400 transition-opacity duration-700 ${done ? "opacity-100" : "opacity-0"}`}>
+          This takes about 2 minutes. We&apos;ll check a few tools and connect your GitHub.
+        </p>
+        <button
+          onClick={onContinue}
+          className={`mt-8 rounded-full bg-indigo-500 px-8 py-3 text-sm font-semibold text-white transition-all duration-500 hover:bg-indigo-600 active:scale-[0.97] ${done ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}
+        >
+          Let&apos;s go
+        </button>
+      </div>
+    </FadeIn>
+  );
+}
+
+/** Step heading with typing animation */
+function StepHeading({ text }: { text: string }) {
+  const { displayed, done } = useTypewriter(text, 30);
+  return (
+    <h1 className="text-center text-2xl font-bold text-gray-800">
+      {displayed}
+      {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-indigo-500 align-text-bottom animate-pulse" />}
+    </h1>
+  );
+}
+
+/** Fade-in wrapper */
+function FadeIn({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
+      {children}
+    </div>
+  );
+}
+
+/** Navigation buttons */
+function NavButtons({
+  onBack,
+  onNext,
+  nextLabel = "Continue",
+  backLabel = "Back",
+  nextDisabled = false,
+  showRecheck = false,
+  recheckFn,
+}: {
+  onBack?: () => void;
+  onNext: () => void;
+  nextLabel?: string;
+  backLabel?: string;
+  nextDisabled?: boolean;
+  showRecheck?: boolean;
+  recheckFn?: () => void;
+}) {
+  return (
+    <div className="mt-10 flex items-center justify-center gap-3">
+      {onBack && (
+        <button onClick={onBack} className="rounded-full border border-gray-200 px-5 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600">
+          {backLabel}
+        </button>
+      )}
+      {showRecheck && recheckFn && (
+        <button onClick={recheckFn} className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600">
+          Re-check
+        </button>
+      )}
+      <button
+        onClick={onNext}
+        disabled={nextDisabled}
+        className="rounded-full bg-indigo-500 px-7 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-30"
+      >
+        {nextLabel}
+      </button>
+    </div>
+  );
+}
+
+/** Tool check row */
 function ToolRow({
   label,
   state,
-  required,
-  helpUrl,
   onInstall,
-  installPhaseText,
-  accentColor = "indigo",
+  phaseText,
 }: {
   label: string;
   state: ToolCheckState;
-  required?: boolean;
-  helpUrl?: string;
   onInstall?: () => void;
-  installPhaseText?: string;
-  accentColor?: "indigo" | "amber" | "green";
+  phaseText?: string;
 }) {
-  const statusIcon =
-    state.checking
-      ? "⟳"
-      : state.status === "ready"
-        ? "✓"
-        : state.status === "missing"
-          ? "✗"
-          : state.status === "error"
-            ? "!"
-            : "?";
-
-  const statusColor =
-    state.status === "ready"
-      ? "text-emerald-400"
-      : state.status === "missing"
-        ? "text-amber-400"
-        : state.status === "error"
-          ? "text-red-400"
-          : "text-white/40";
-
-  const accentColors = {
-    indigo: { border: "border-indigo-400/20", bg: "bg-indigo-500/5", ring: "border-indigo-400", ringBg: "border-indigo-400/20", text: "text-indigo-300", dot: "bg-indigo-400" },
-    amber: { border: "border-amber-400/20", bg: "bg-amber-500/5", ring: "border-amber-400", ringBg: "border-amber-400/20", text: "text-amber-300", dot: "bg-amber-400" },
-    green: { border: "border-green-400/20", bg: "bg-green-500/5", ring: "border-green-400", ringBg: "border-green-400/20", text: "text-green-300", dot: "bg-green-400" },
-  };
-  const ac = accentColors[accentColor];
-
-  // Animated wrench + progress ring install graphic
-  if (state.installing && installPhaseText) {
+  if (state.installing && phaseText) {
     return (
-      <div className={`rounded-xl border ${ac.border} ${ac.bg} px-5 py-6 animate-in fade-in duration-300`}>
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative flex h-12 w-12 items-center justify-center">
-            <div className={`absolute inset-0 rounded-full border-2 ${ac.ringBg}`} />
-            <div className={`absolute inset-0 rounded-full border-2 ${ac.ring} border-t-transparent animate-spin`} />
-            <span className="text-lg">🔧</span>
-          </div>
-          <div className="text-center">
-            <p className={`text-sm font-semibold ${ac.text}`}>{installPhaseText}</p>
-            <p className="mt-1 text-xs text-white/40">This may take a minute — hang tight!</p>
-          </div>
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className={`h-1.5 w-1.5 rounded-full ${ac.dot}`} style={{ animation: `install-dot-pulse 1.4s ease-in-out ${i * 0.2}s infinite` }} />
-            ))}
-          </div>
+      <div className="flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+          <div className="absolute inset-0 rounded-full border-2 border-indigo-200" />
+          <div className="absolute inset-0 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-indigo-500"><path fillRule="evenodd" d="M14.5 10a4.5 4.5 0 004.284-5.882c-.105-.324-.51-.391-.752-.15L15.34 6.66a.454.454 0 01-.493.101 3.046 3.046 0 01-1.608-1.607.454.454 0 01.1-.493l2.693-2.692c.24-.241.174-.647-.15-.752a4.5 4.5 0 00-5.873 4.575c.055.873-.128 1.808-.8 2.368l-7.23 6.024a2.724 2.724 0 103.837 3.837l6.024-7.23c.56-.672 1.495-.855 2.368-.8.096.007.193.01.291.01zM5 16a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" /></svg>
         </div>
+        <p className="text-sm font-medium text-indigo-600">{phaseText}</p>
       </div>
     );
   }
 
+  const icon = state.checking ? (
+    <Spinner className="text-gray-300" size={16} />
+  ) : state.status === "ready" ? (
+    <GreenCheck small />
+  ) : state.status === "missing" ? (
+    <div className="h-4 w-4 rounded-full border-2 border-amber-400" />
+  ) : state.status === "error" ? (
+    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-red-100 text-[9px] font-bold text-red-500">!</div>
+  ) : (
+    <div className="h-4 w-4 rounded-full border-2 border-gray-200" />
+  );
+
+  const statusText = state.checking ? "Checking…"
+    : state.status === "ready" ? (state.detail || "Installed")
+      : state.status === "missing" ? "Not found"
+        : state.status === "error" ? (state.detail || "Error")
+          : "";
+
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-      <span className={`flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-sm font-bold ${statusColor}`}>
-        {state.checking ? (
-          <span className="animate-spin">⟳</span>
-        ) : (
-          statusIcon
-        )}
-      </span>
-      <div className="flex-1 text-left">
-        <p className="text-sm font-medium text-white">
-          {label}
-          {required && <span className="ml-1.5 text-[10px] font-semibold uppercase text-amber-400/60">Required</span>}
-        </p>
-        {state.detail && (
-          <p className={`mt-0.5 text-xs line-clamp-2 ${state.status === "error" ? "text-red-400" : state.status === "missing" ? "text-amber-400/70" : "text-white/40"}`}>{state.detail}</p>
-        )}
-      </div>
+    <div className="flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm">
+      {icon}
+      <span className="font-medium text-gray-700">{label}</span>
+      <span className={`ml-auto text-xs ${
+        state.status === "ready" ? "text-gray-400" : state.status === "missing" ? "text-amber-500" : state.status === "error" ? "text-red-500" : "text-gray-300"
+      }`}>{statusText}</span>
       {state.status !== "ready" && !state.checking && onInstall && (
         <button
           onClick={onInstall}
           disabled={state.installing}
-          className="rounded-lg bg-indigo-500/20 px-3 py-1.5 text-xs font-semibold text-indigo-300 transition hover:bg-indigo-500/30 disabled:opacity-50"
+          className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100 disabled:opacity-50"
         >
-          {state.installing ? "Installing..." : "Install"}
+          Install
         </button>
-      )}
-      {state.status !== "ready" && !state.checking && helpUrl && !onInstall && (
-        <a
-          href={helpUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => {
-            e.preventDefault();
-            if (typeof window !== "undefined" && window.electronAPI) {
-              window.electronAPI.system.openExternal(helpUrl);
-            }
-          }}
-          className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/50 transition hover:bg-white/10 hover:text-white/70"
-        >
-          Get it
-        </a>
       )}
     </div>
   );
 }
 
-/* ─── Small pill showing tool status (for provider cards) ─── */
-function ToolPill({ label, state }: { label: string; state: ToolCheckState }) {
-  const color =
-    state.checking
-      ? "border-white/10 text-white/40"
-      : state.installing
-        ? "border-indigo-400/30 text-indigo-400"
-        : state.status === "ready"
-          ? "border-emerald-400/30 text-emerald-400"
-          : state.status === "missing"
-            ? "border-amber-400/30 text-amber-400"
-            : "border-white/10 text-white/40";
+/** Compact provider status row — replaces ToolRow+AuthRow for provider step */
+function ProviderStatusRow({
+  provider,
+  toolState,
+  authStatus,
+  authLabel,
+  onInstall,
+  onSignIn,
+  authError,
+  phaseText,
+}: {
+  provider: ProviderKey;
+  toolState: ToolCheckState;
+  authStatus?: string;
+  authLabel?: string;
+  onInstall?: () => void;
+  onSignIn?: () => void;
+  authError?: string | null;
+  phaseText?: string;
+}) {
+  const names: Record<ProviderKey, string> = { copilot: "GitHub Copilot", claude: "Claude Code", codex: "Codex CLI" };
+  const label = names[provider];
 
-  const icon = state.checking ? "…" : state.installing ? "⟳" : state.status === "ready" ? "✓" : state.status === "missing" ? "✗" : "?";
+  // Installing state
+  if (toolState.installing && phaseText) {
+    return (
+      <div className="flex items-center gap-3 px-5 py-4">
+        <ProviderIcon provider={provider} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800">{label}</p>
+          <p className="text-xs text-indigo-500 mt-0.5">{phaseText}</p>
+        </div>
+        <Spinner className="text-indigo-400" size={16} />
+      </div>
+    );
+  }
+
+  // Checking state
+  if (toolState.checking) {
+    return (
+      <div className="flex items-center gap-3 px-5 py-4">
+        <ProviderIcon provider={provider} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800">{label}</p>
+          <p className="text-xs text-gray-400 mt-0.5">Checking…</p>
+        </div>
+        <Spinner className="text-gray-300" size={16} />
+      </div>
+    );
+  }
+
+  // Not installed
+  if (toolState.status !== "ready") {
+    return (
+      <div className="flex items-center gap-3 px-5 py-4">
+        <ProviderIcon provider={provider} />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800">{label}</p>
+          <p className="text-xs text-gray-400 mt-0.5">Not installed</p>
+        </div>
+        {onInstall && (
+          <button onClick={onInstall} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">
+            Install
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Installed — show auth status
+  const isAuthed = authStatus === "authenticated";
+  const isAuthing = authStatus === "authenticating";
+  const isChecking = authStatus === "checking";
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${color}`}>
-      {state.installing ? <span className="animate-spin">⟳</span> : icon} {label}
-    </span>
+    <div className="flex items-center gap-3 px-5 py-4">
+      <ProviderIcon provider={provider} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800">{label}</p>
+        {isAuthed ? (
+          <p className="text-xs text-emerald-600 mt-0.5 flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm3.844-8.791a.75.75 0 00-1.188-.918l-3.7 4.79-1.649-1.833a.75.75 0 10-1.114 1.004l2.25 2.5a.75.75 0 001.15-.043l4.25-5.5z" clipRule="evenodd" /></svg>
+            Ready{authLabel ? ` · ${authLabel}` : ""}
+          </p>
+        ) : isAuthing ? (
+          <p className="text-xs text-indigo-500 mt-0.5">Signing in… complete in browser</p>
+        ) : isChecking ? (
+          <p className="text-xs text-gray-400 mt-0.5">Checking auth…</p>
+        ) : (
+          <p className="text-xs text-gray-400 mt-0.5">Installed · sign in needed</p>
+        )}
+        {authError && <p className="text-xs text-red-500 mt-0.5">{authError}</p>}
+      </div>
+      {isAuthed ? (
+        <GreenCheck small />
+      ) : isAuthing || isChecking ? (
+        <Spinner className="text-indigo-400" size={16} />
+      ) : onSignIn ? (
+        <button onClick={onSignIn} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">
+          Sign in
+        </button>
+      ) : (
+        <GreenCheck small />
+      )}
+    </div>
   );
 }
 
-/* ─── Check circle icon for selected provider ─── */
-function CheckCircle() {
+/** Auth row */
+function AuthRowLight({ label, status, error, onSignIn }: { label: string; status: string; error: string | null; onSignIn: () => void }) {
+  if (status === "checking") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-gray-300" size={14} /><span className="text-gray-400">Checking {label}…</span></div>;
+  if (status === "authenticated") return <div className="flex items-center gap-2 px-4 py-2 text-sm text-emerald-600"><GreenCheck small /><span className="font-medium">Signed in to {label}</span></div>;
+  if (status === "authenticating") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-indigo-400" size={14} /><span className="text-indigo-600">Signing in…</span><span className="text-xs text-gray-400">Complete in browser</span></div>;
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400">
+    <div className="px-4 py-1.5 space-y-1">
+      <button onClick={onSignIn} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">Sign in to {label}</button>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+/** Spinner */
+function Spinner({ className = "", size = 18 }: { className?: string; size?: number }) {
+  return (
+    <svg className={`animate-spin ${className}`} width={size} height={size} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+/** Green check */
+function GreenCheck({ small = false }: { small?: boolean }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`${small ? "h-4 w-4" : "h-5 w-5"} shrink-0 text-emerald-500`}>
       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
     </svg>
   );

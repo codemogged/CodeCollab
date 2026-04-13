@@ -29,6 +29,44 @@ function createToolingService({ processService, settingsService }) {
   // Extra PATH entries added at runtime (e.g. after installing Claude Code)
   const extraPaths = new Set();
 
+  // Known default install directories for winget-installed tools.
+  // Used to probe directly when PATH hasn't updated yet (e.g. UAC-elevated installers).
+  const KNOWN_INSTALL_PATHS = {
+    git: [
+      "C:\\Program Files\\Git\\cmd",
+      "C:\\Program Files (x86)\\Git\\cmd",
+    ],
+    gh: [
+      "C:\\Program Files\\GitHub CLI",
+      "C:\\Program Files (x86)\\GitHub CLI",
+    ],
+    node: [
+      "C:\\Program Files\\nodejs",
+      "C:\\Program Files (x86)\\nodejs",
+    ],
+    python: [
+      // winget installs Python to LocalAppData by default
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python313"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python313", "Scripts"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python312"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python312", "Scripts"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python311"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Python", "Python311", "Scripts"),
+      "C:\\Python313",
+      "C:\\Python312",
+      "C:\\Python311",
+    ],
+  };
+
+  // Winget serialization lock — only one winget install can run at a time.
+  // Without this, parallel installs hit winget's exclusive mutex and fail
+  // with "Waiting for another install/uninstall to complete..." then timeout.
+  let _wingetQueue = Promise.resolve();
+  function serializedWingetInstall(fn) {
+    _wingetQueue = _wingetQueue.then(fn, fn);
+    return _wingetQueue;
+  }
+
   function getCommandName(command) {
     if (process.platform === "win32") {
       // npm-installed global CLIs on Windows are .cmd wrapper scripts
@@ -116,6 +154,60 @@ function createToolingService({ processService, settingsService }) {
     }
   }
 
+  /**
+   * Poll for a tool to become available after installation.
+   * Handles the common case where winget returns before the actual installer
+   * finishes (e.g., EXE installers that spawn an elevated/UAC process).
+   *
+   * Strategy on each attempt:
+   *   1. Re-read HKLM + HKCU PATH from the registry
+   *   2. Try the command on PATH
+   *   3. Probe known default install directories directly
+   */
+  async function waitForToolOnPath({ command, args, knownPaths = [], maxWaitMs = 60000, intervalMs = 3000, addLog }) {
+    const startTime = Date.now();
+    let attempt = 0;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      attempt++;
+      addLog(`  Poll #${attempt} (${Math.round((Date.now() - startTime) / 1000)}s elapsed)...`);
+
+      // 1. Refresh PATH from registry (installer may have updated HKLM\...\Path)
+      await refreshSystemPath();
+
+      // 2. Try the command on the refreshed PATH
+      const result = await tryExec(command, args, process.cwd());
+      if (result.ok) {
+        addLog(`  Found on PATH after poll #${attempt}: ${result.stdout}`);
+        return { found: true, stdout: result.stdout, addedPath: null };
+      }
+
+      // 3. Probe known install directories directly (bypass PATH)
+      for (const knownDir of knownPaths) {
+        if (!knownDir || !fs.existsSync(knownDir)) continue;
+        const exeName = `${command}.exe`;
+        const fullPath = path.join(knownDir, exeName);
+        if (fs.existsSync(fullPath)) {
+          const probeResult = await tryExec(fullPath, args, process.cwd());
+          if (probeResult.ok) {
+            addLog(`  Found at known path ${fullPath}: ${probeResult.stdout}`);
+            extraPaths.add(knownDir);
+            if (!process.env.PATH.includes(knownDir)) {
+              process.env.PATH = knownDir + ";" + process.env.PATH;
+            }
+            return { found: true, stdout: probeResult.stdout, addedPath: knownDir };
+          }
+        }
+      }
+
+      // 4. Wait before next attempt
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    addLog(`  Tool "${command}" not found after ${maxWaitMs / 1000}s of polling.`);
+    return { found: false, stdout: "", addedPath: null };
+  }
+
   async function getConfiguredCommands() {
     const settings = await settingsService.readSettings();
     return settings.cliTools ?? {};
@@ -193,6 +285,29 @@ function createToolingService({ processService, settingsService }) {
         const bareName = definition.command.slice(0, -4);
         const bareResult = await tryExec(bareName, definition.args, process.cwd());
         if (bareResult.ok) result = bareResult;
+      }
+      // Probe known install directories for winget-installed tools that aren't on PATH yet
+      if (!result.ok && process.platform === "win32") {
+        const knownPathKey = { git: "git", githubCli: "gh", node: "node", python: "python" }[definition.id];
+        const exeName = { git: "git.exe", githubCli: "gh.exe", node: "node.exe", python: "python.exe" }[definition.id];
+        if (knownPathKey && KNOWN_INSTALL_PATHS[knownPathKey]) {
+          for (const dir of KNOWN_INSTALL_PATHS[knownPathKey]) {
+            if (!dir || !fs.existsSync(dir)) continue;
+            const fullPath = path.join(dir, exeName);
+            if (fs.existsSync(fullPath)) {
+              const probeResult = await tryExec(fullPath, definition.args, process.cwd());
+              if (probeResult.ok) {
+                console.log(`[getToolStatus] ${definition.id}: found at known path ${fullPath}`);
+                result = probeResult;
+                extraPaths.add(dir);
+                if (!process.env.PATH.includes(dir)) {
+                  process.env.PATH = dir + ";" + process.env.PATH;
+                }
+                break;
+              }
+            }
+          }
+        }
       }
       // For codexCli specifically, also try the npm bin directory directly
       if (!result.ok && definition.id === "codexCli") {
@@ -768,7 +883,21 @@ function createToolingService({ processService, settingsService }) {
     installCodex,
     getCodexAuthStatus,
     startCodexAuth,
+    setupGitCredentialHelper,
   };
+
+  /* ─── Configure git credential helper globally via gh auth setup-git ─── */
+
+  async function setupGitCredentialHelper() {
+    await refreshSystemPath();
+    const result = await tryExec("gh", ["auth", "setup-git"], process.cwd());
+    if (result.ok) {
+      console.log("[tooling] gh auth setup-git succeeded");
+      return { success: true, detail: "Git credential helper configured" };
+    }
+    console.warn("[tooling] gh auth setup-git failed:", result.stderr || result.message);
+    return { success: false, detail: result.stderr || result.message || "Failed to configure credential helper" };
+  }
 
   /* ─── Node.js install (winget) ─── */
 
@@ -786,7 +915,23 @@ function createToolingService({ processService, settingsService }) {
       return { success: true, detail: existing.stdout.trim(), log };
     }
 
-    // Try winget
+    // Check known install dirs before installing
+    for (const dir of KNOWN_INSTALL_PATHS.node) {
+      const nodeExe = path.join(dir, "node.exe");
+      if (fs.existsSync(nodeExe)) {
+        const check = await tryExec(nodeExe, ["--version"], process.cwd());
+        if (check.ok) {
+          addLog(`Found at ${nodeExe} (not on PATH): ${check.stdout}`);
+          extraPaths.add(dir);
+          if (!process.env.PATH.includes(dir)) {
+            process.env.PATH = dir + ";" + process.env.PATH;
+          }
+          return { success: true, detail: check.stdout.trim(), log };
+        }
+      }
+    }
+
+    // Try winget (serialized — only one winget install at a time)
     addLog("Installing via winget (OpenJS.NodeJS.LTS)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
@@ -794,25 +939,38 @@ function createToolingService({ processService, settingsService }) {
       return { success: false, detail: "winget not available. Install Node.js manually from nodejs.org", log };
     }
 
-    const install = await tryExec("winget", [
+    addLog("Waiting for winget lock (other installs may be in progress)...");
+    const install = await serializedWingetInstall(() => tryExec("winget", [
       "install", "OpenJS.NodeJS.LTS",
+      "--source", "winget",
       "--accept-source-agreements", "--accept-package-agreements",
-    ], process.cwd(), { timeout: 180000 });
+    ], process.cwd(), { timeout: 300000 }));
     addLog(`stdout: ${install.stdout}`);
     addLog(`stderr: ${install.stderr}`);
+    addLog(`exit ok: ${install.ok}`);
+
+    // ALWAYS poll — even on failure, the tool may have installed
+    // (winget can exit non-zero due to mutex contention, UAC, etc.)
+    addLog("Polling for node to become available...");
+    const pollResult = await waitForToolOnPath({
+      command: "node",
+      args: ["--version"],
+      knownPaths: KNOWN_INSTALL_PATHS.node,
+      maxWaitMs: 60000,
+      intervalMs: 3000,
+      addLog,
+    });
+
+    if (pollResult.found) {
+      addLog(`Verified after polling: ${pollResult.stdout}`);
+      return { success: true, detail: `Node.js ${pollResult.stdout.trim()} installed`, log };
+    }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      addLog("winget install succeeded! Refreshing PATH...");
-      await refreshSystemPath();
-      const verify = await tryExec("node", ["--version"], process.cwd());
-      if (verify.ok) {
-        addLog(`Verified: ${verify.stdout}`);
-        return { success: true, detail: `Node.js ${verify.stdout.trim()} installed`, log };
-      }
       return { success: true, detail: "Node.js installed. Restart CodeBuddy for PATH changes.", log };
     }
 
-    addLog("winget install failed.");
+    addLog("winget install failed and tool not found.");
     return { success: false, detail: "Install failed. Try manually from nodejs.org", log };
   }
 
@@ -831,32 +989,61 @@ function createToolingService({ processService, settingsService }) {
       return { success: true, detail: existing.stdout.trim(), log };
     }
 
+    // Check known install dirs before installing
+    for (const dir of KNOWN_INSTALL_PATHS.python) {
+      if (!dir) continue;
+      const pythonExe = path.join(dir, "python.exe");
+      if (fs.existsSync(pythonExe)) {
+        const check = await tryExec(pythonExe, ["--version"], process.cwd());
+        if (check.ok) {
+          addLog(`Found at ${pythonExe} (not on PATH): ${check.stdout}`);
+          extraPaths.add(dir);
+          if (!process.env.PATH.includes(dir)) {
+            process.env.PATH = dir + ";" + process.env.PATH;
+          }
+          return { success: true, detail: check.stdout.trim(), log };
+        }
+      }
+    }
+
     addLog("Installing via winget (Python.Python.3.12)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
       return { success: false, detail: "winget not available. Install Python manually from python.org", log };
     }
 
-    const install = await tryExec("winget", [
+    addLog("Waiting for winget lock (other installs may be in progress)...");
+    const install = await serializedWingetInstall(() => tryExec("winget", [
       "install", "Python.Python.3.12",
+      "--source", "winget",
       "--accept-source-agreements", "--accept-package-agreements",
       "--silent",
-    ], process.cwd(), { timeout: 300000 });
+    ], process.cwd(), { timeout: 300000 }));
     addLog(`stdout: ${install.stdout}`);
     addLog(`stderr: ${install.stderr}`);
+    addLog(`exit ok: ${install.ok}`);
+
+    // ALWAYS poll — even on failure, the tool may have installed
+    addLog("Polling for python to become available...");
+    const pollResult = await waitForToolOnPath({
+      command: "python",
+      args: ["--version"],
+      knownPaths: KNOWN_INSTALL_PATHS.python,
+      maxWaitMs: 60000,
+      intervalMs: 3000,
+      addLog,
+    });
+
+    if (pollResult.found) {
+      addLog(`Verified after polling: ${pollResult.stdout}`);
+      return { success: true, detail: `Python ${pollResult.stdout.trim()} installed`, log };
+    }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      addLog("winget install succeeded! Refreshing PATH...");
-      await refreshSystemPath();
-      const verify = await tryExec("python", ["--version"], process.cwd());
-      if (verify.ok) {
-        addLog(`Verified: ${verify.stdout}`);
-        return { success: true, detail: `Python ${verify.stdout.trim()} installed`, log };
-      }
       return { success: true, detail: "Python installed. Restart CodeBuddy for PATH changes.", log };
     }
 
-    addLog("winget install failed.");
+    addLog("winget install failed and tool not found.");
     return { success: false, detail: "Install failed. Try manually from python.org", log };
   }
 
@@ -1016,31 +1203,61 @@ function createToolingService({ processService, settingsService }) {
       return { success: true, detail: existing.stdout.trim(), log };
     }
 
+    // Check known install dirs before installing (may already be present but not on PATH)
+    for (const dir of KNOWN_INSTALL_PATHS.git) {
+      const gitExe = path.join(dir, "git.exe");
+      if (fs.existsSync(gitExe)) {
+        const check = await tryExec(gitExe, ["--version"], process.cwd());
+        if (check.ok) {
+          addLog(`Found at ${gitExe} (not on PATH): ${check.stdout}`);
+          extraPaths.add(dir);
+          if (!process.env.PATH.includes(dir)) {
+            process.env.PATH = dir + ";" + process.env.PATH;
+          }
+          return { success: true, detail: check.stdout.trim(), log };
+        }
+      }
+    }
+
     addLog("Installing via winget (Git.Git)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
       return { success: false, detail: "winget not available. Install Git manually from git-scm.com", log };
     }
 
-    const install = await tryExec("winget", [
+    addLog("Waiting for winget lock (other installs may be in progress)...");
+    const install = await serializedWingetInstall(() => tryExec("winget", [
       "install", "Git.Git",
+      "--source", "winget",
       "--accept-source-agreements", "--accept-package-agreements",
       "--silent",
-    ], process.cwd(), { timeout: 300000 });
+    ], process.cwd(), { timeout: 300000 }));
     addLog(`stdout: ${install.stdout}`);
     addLog(`stderr: ${install.stderr}`);
+    addLog(`exit ok: ${install.ok}`);
+
+    // ALWAYS poll — even on failure, the tool may have installed
+    addLog("Polling for git to become available...");
+    const pollResult = await waitForToolOnPath({
+      command: "git",
+      args: ["--version"],
+      knownPaths: KNOWN_INSTALL_PATHS.git,
+      maxWaitMs: 90000,
+      intervalMs: 3000,
+      addLog,
+    });
+
+    if (pollResult.found) {
+      addLog(`Verified after polling: ${pollResult.stdout}`);
+      return { success: true, detail: pollResult.stdout.trim(), log };
+    }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      addLog("winget install succeeded! Refreshing PATH...");
-      await refreshSystemPath();
-      const verify = await tryExec("git", ["--version"], process.cwd());
-      if (verify.ok) {
-        addLog(`Verified: ${verify.stdout}`);
-        return { success: true, detail: verify.stdout.trim(), log };
-      }
+      addLog("WARNING: Polling exhausted. Git may still be installing in an elevated process.");
       return { success: true, detail: "Git installed. Restart CodeBuddy for PATH changes.", log };
     }
 
+    addLog("winget install failed and tool not found.");
     return { success: false, detail: "Install failed. Try manually from git-scm.com", log };
   }
 
@@ -1059,30 +1276,59 @@ function createToolingService({ processService, settingsService }) {
       return { success: true, detail: existing.stdout.trim(), log };
     }
 
+    // Check known install dirs before installing
+    for (const dir of KNOWN_INSTALL_PATHS.gh) {
+      const ghExe = path.join(dir, "gh.exe");
+      if (fs.existsSync(ghExe)) {
+        const check = await tryExec(ghExe, ["--version"], process.cwd());
+        if (check.ok) {
+          addLog(`Found at ${ghExe} (not on PATH): ${check.stdout}`);
+          extraPaths.add(dir);
+          if (!process.env.PATH.includes(dir)) {
+            process.env.PATH = dir + ";" + process.env.PATH;
+          }
+          return { success: true, detail: check.stdout.trim(), log };
+        }
+      }
+    }
+
     addLog("Installing via winget (GitHub.cli)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
       return { success: false, detail: "winget not available. Install GitHub CLI from cli.github.com", log };
     }
 
-    const install = await tryExec("winget", [
+    addLog("Waiting for winget lock (other installs may be in progress)...");
+    const install = await serializedWingetInstall(() => tryExec("winget", [
       "install", "GitHub.cli",
+      "--source", "winget",
       "--accept-source-agreements", "--accept-package-agreements",
-    ], process.cwd(), { timeout: 180000 });
+    ], process.cwd(), { timeout: 300000 }));
     addLog(`stdout: ${install.stdout}`);
     addLog(`stderr: ${install.stderr}`);
+    addLog(`exit ok: ${install.ok}`);
+
+    // ALWAYS poll — even on failure, the tool may have installed
+    addLog("Polling for gh to become available...");
+    const pollResult = await waitForToolOnPath({
+      command: "gh",
+      args: ["--version"],
+      knownPaths: KNOWN_INSTALL_PATHS.gh,
+      maxWaitMs: 60000,
+      intervalMs: 3000,
+      addLog,
+    });
+
+    if (pollResult.found) {
+      addLog(`Verified after polling: ${pollResult.stdout}`);
+      return { success: true, detail: pollResult.stdout.trim(), log };
+    }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      addLog("winget install succeeded! Refreshing PATH...");
-      await refreshSystemPath();
-      const verify = await tryExec("gh", ["--version"], process.cwd());
-      if (verify.ok) {
-        addLog(`Verified: ${verify.stdout}`);
-        return { success: true, detail: verify.stdout.trim(), log };
-      }
       return { success: true, detail: "GitHub CLI installed. Restart CodeBuddy for PATH changes.", log };
     }
 
+    addLog("winget install failed and tool not found.");
     return { success: false, detail: "Install failed. Try manually from cli.github.com", log };
   }
 
@@ -1364,8 +1610,10 @@ function createToolingService({ processService, settingsService }) {
     }
 
     return new Promise((resolve, reject) => {
-      console.log(`[codexAuth] Spawning: ${codexCmd} login (shell=${process.platform === "win32"})`);
-      const child = spawn(codexCmd, ["login"], {
+      // Quote the command path if it contains spaces (e.g. "C:\Users\Valued Customer\...")
+      const quotedCmd = codexCmd.includes(" ") ? `"${codexCmd}"` : codexCmd;
+      console.log(`[codexAuth] Spawning: ${quotedCmd} login (shell=${process.platform === "win32"})`);
+      const child = spawn(quotedCmd, ["login"], {
         cwd: process.cwd(),
         windowsHide: true,
         shell: process.platform === "win32",

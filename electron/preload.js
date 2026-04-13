@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     installGh: () => ipcRenderer.invoke("tools:installGh"),
     installPython: () => ipcRenderer.invoke("tools:installPython"),
     installCodex: () => ipcRenderer.invoke("tools:installCodex"),
+    setupGit: () => ipcRenderer.invoke("tools:setupGit"),
     runCopilotPrompt: (payload) => ipcRenderer.invoke("tools:runCopilotPrompt", payload),
     runGenericPrompt: (payload) => ipcRenderer.invoke("tools:runGenericPrompt", payload),
     githubAuthStatus: () => ipcRenderer.invoke("tools:githubAuthStatus"),

@@ -901,7 +901,7 @@ async function fileExists(targetPath) {
 }
 
 function createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService }) {
-  const BUILD_TAG = "v32";
+  const BUILD_TAG = "v37";
   console.log(`[project-service] loaded — build ${BUILD_TAG}`);
   let eventSender = null;
 
