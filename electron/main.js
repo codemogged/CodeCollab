@@ -164,10 +164,15 @@ function buildApplicationMenu() {
 if (process.argv.includes("--disable-gpu")) {
   app.disableHardwareAcceleration();
 } else {
-  // Detect common VM indicators and auto-disable GPU to prevent crashes
+  // Detect common VM indicators and auto-disable GPU to prevent crashes.
+  // Uses the platform abstraction so this works on Windows, macOS, and Linux.
   try {
-    const { execSync } = require("child_process");
-    const sysInfo = execSync("powershell -NoProfile -Command \"(Get-CimInstance Win32_ComputerSystem).Model\"", { encoding: "utf8", windowsHide: true, timeout: 8000 }).toLowerCase();
+    const platform = require("./services/platform");
+    // Call augmentMacPath early on macOS so subsequent spawns find Homebrew tools.
+    if (platform.isMac) {
+      require("./services/platform/mac").augmentMacPath();
+    }
+    const sysInfo = platform.getSystemModelSync().toLowerCase();
     if (sysInfo.includes("virtualbox") || sysInfo.includes("vmware") || sysInfo.includes("virtual machine") || sysInfo.includes("kvm") || sysInfo.includes("hyper-v")) {
       console.log("[startup] VM detected — disabling hardware GPU acceleration");
       app.disableHardwareAcceleration();
