@@ -12,14 +12,14 @@
 - [x] Install Required Extensions
   No extensions were specified by the setup information.
 
-- [ ] Compile the Project
-  Blocked by missing Node.js and npm in the environment. Dependencies could not be installed, so compile validation could not be completed.
+- [x] Compile the Project
+  All 17 routes compile cleanly via `npm run build`. TypeScript passes, static export generates successfully.
 
-- [ ] Create and Run Task
-  Deferred until Node.js and npm are available.
+- [x] Create and Run Task
+  `npm run build:electron` builds Next.js + packages via electron-builder. `npm run deploy` builds and deploys to install folder.
 
-- [ ] Launch the Project
-  Deferred pending compile success and user confirmation.
+- [x] Launch the Project
+  App runs via `npm run dev:electron` (dev mode) or `debug-start.bat` / `FRESH-START.bat` (production exe).
 
 - [x] Ensure Documentation is Complete
   README.md exists, this file has been updated to reflect current project state, and the HTML comments were removed.

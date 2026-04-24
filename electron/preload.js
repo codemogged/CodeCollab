@@ -12,7 +12,11 @@ function subscribe(channel, callback) {
 contextBridge.exposeInMainWorld("electronAPI", {
   system: {
     openDirectory: () => ipcRenderer.invoke("system:openDirectory"),
+    openFiles: () => ipcRenderer.invoke("system:openFiles"),
+    readFileAsDataUrl: (filePath) => ipcRenderer.invoke("system:readFileAsDataUrl", filePath),
+    saveUploadedFile: (opts) => ipcRenderer.invoke("system:saveUploadedFile", opts),
     openExternal: (url) => ipcRenderer.invoke("system:openExternal", url),
+    openTerminal: (payload) => ipcRenderer.invoke("system:openTerminal", payload),
     getCommonPaths: () => ipcRenderer.invoke("system:getCommonPaths"),
     getBuildTag: () => ipcRenderer.invoke("system:getBuildTag"),
     platform: process.platform,
@@ -73,15 +77,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     sendPMMessage: (payload) => ipcRenderer.invoke("project:sendPMMessage", payload),
     sendSoloMessage: (payload) => ipcRenderer.invoke("project:sendSoloMessage", payload),
     cancelActiveRequest: () => ipcRenderer.invoke("project:cancelActiveRequest"),
+    approveToolCall: (payload) => ipcRenderer.invoke("project:approveToolCall", payload),
     forceResetAgent: (payload) => ipcRenderer.invoke("project:forceResetAgent", payload),
     getActiveRequest: () => ipcRenderer.invoke("project:getActiveRequest"),
+    getPendingApproval: () => ipcRenderer.invoke("project:getPendingApproval"),
     launchDevServer: (payload) => ipcRenderer.invoke("project:launchDevServer", payload),
     restoreCheckpoint: (payload) => ipcRenderer.invoke("project:restoreCheckpoint", payload),
+    compactConversation: (payload) => ipcRenderer.invoke("project:compactConversation", payload),
     onAgentStarted: (callback) => subscribe("project:agentStarted", callback),
     onAgentOutput: (callback) => subscribe("project:agentOutput", callback),
     onAgentCompleted: (callback) => subscribe("project:agentCompleted", callback),
     onAgentError: (callback) => subscribe("project:agentError", callback),
     onAgentCancelled: (callback) => subscribe("project:agentCancelled", callback),
+    onAgentApprovalRequest: (callback) => subscribe("project:agentApprovalRequest", callback),
   },
 
   tools: {
@@ -169,6 +177,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   openDirectory: () => ipcRenderer.invoke("system:openDirectory"),
   openExternal: (url) => ipcRenderer.invoke("system:openExternal", url),
+  openTerminal: (payload) => ipcRenderer.invoke("system:openTerminal", payload),
   runCommand: (command, cwd) => ipcRenderer.invoke("process:run", { command, cwd }),
   onTerminalOutput: (callback) => subscribe("process:output", (payload) => callback(payload.chunk)),
   platform: process.platform,

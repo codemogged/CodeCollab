@@ -63,6 +63,13 @@ No VS Code. No terminal knowledge. No browser tabs. Everything happens inside on
 
 ### Frontend (Next.js + React + TypeScript)
 
+The UI follows the **"Pulse"** design system with a left-side navigation rail (`LeftRail`) and a content wrapper (`MonolithPanel`). Light and dark modes are supported via CSS custom properties and Tailwind's `darkMode: "class"` strategy.
+
+**Layout Components:**
+- **LeftRail** — Collapsible left-side nav rail (52px collapsed, 200px expanded). Context-aware: shows project-specific links when on `/project/*` routes.
+- **MonolithPanel** — Content area wrapper with 4 modes: `standard` (680px), `wide` (900px), `full` (100%), and `onboarding` (520px centered).
+
+**Routes:**
 - **Home** — Project dashboard, create/import projects
 - **Project** — Task board, plan viewer, P2P controls, subproject navigation
 - **Chat** — Send prompts to AI agents, view streaming responses, P2P message relay
@@ -72,6 +79,11 @@ No VS Code. No terminal knowledge. No browser tabs. Everything happens inside on
 - **People** — Manage collaborators, send P2P invites
 - **Settings** — Tool installation status, model selection, GitHub auth
 - **Onboarding** — First-run setup wizard
+
+**Design Tokens:**
+- Fonts: Inter (body), Space Grotesk (display headings), JetBrains Mono (code)
+- Colors: void/stage/edge surfaces, accent palette (sun, coral, aqua, violet, mint, sky, gold)
+- Per-project color DNA with breathing orb animation
 
 ### P2P Protocol
 
@@ -152,7 +164,7 @@ CodeBuddy/
 │   └── services/             # Backend service modules
 ├── src/
 │   ├── app/                  # Next.js pages and routes
-│   ├── components/           # Shared React components
+│   ├── components/           # Shared React components (LeftRail, MonolithPanel, etc.)
 │   ├── hooks/                # Custom React hooks
 │   └── lib/                  # Types, mock data, utilities
 ├── docs/                     # Product strategy and architecture docs
@@ -163,8 +175,7 @@ CodeBuddy/
 
 ## Current Build
 
-**Tag:** `copilot-fix-v21`
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 ## License
 

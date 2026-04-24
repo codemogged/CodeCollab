@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import ProjectSidebar from "@/components/project-sidebar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
+import ActivityStream from "@/components/activity-stream-v2";
+import { useStreamEvents } from "@/hooks/use-stream-events";
+import { RunInTerminalButton } from "@/components/run-in-terminal-button";
 
 type BuildTaskStatus = "planned" | "building" | "review" | "done";
 
@@ -62,10 +65,10 @@ type ProjectPlan = {
 /* ─── visual constants ─── */
 
 const statusColor: Record<BuildTaskStatus, string> = {
-  planned: "#d4cfc7",
-  building: "#a78bfa",
-  review: "#fbbf24",
-  done: "#34d399",
+  planned: "var(--text-ghost)",
+  building: "var(--violet)",
+  review: "var(--sun)",
+  done: "var(--mint)",
 };
 
 const statusLabel: Record<BuildTaskStatus, string> = {
@@ -84,6 +87,13 @@ const cardAccents = [
 ];
 
 const allStatuses: BuildTaskStatus[] = ["planned", "building", "review", "done"];
+
+// Module-scoped set of project ids we've already done an initial git-sync for
+// during this app session. The workspace page remounts on every navigation, so
+// a per-component ref would trigger a fresh git fetch on every visit — that's
+// the main cause of the 5-10 s freeze the user was seeing. P2P keeps things
+// live once the first sync completes, so we only need to run it once.
+const SYNCED_PROJECTS = new Set<string>();
 
 /* ─── helpers ─── */
 
@@ -207,7 +217,10 @@ function RenderMarkdown({ text }: { text: string }) {
               {lang ? (
                 <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#161b22] px-4 py-2">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">{lang}</span>
-                  <button type="button" onClick={() => { try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[10px] font-medium text-white/30 transition hover:text-white/60">Copy</button>
+                  <div className="flex items-center gap-2">
+                    <RunInTerminalButton code={code} lang={lang} variant="muted" />
+                    <button type="button" onClick={() => { try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[10px] font-medium text-white/30 transition hover:text-white/60">Copy</button>
+                  </div>
                 </div>
               ) : null}
               <pre className="overflow-x-auto px-4 py-3 font-mono text-[12px] leading-[1.7] text-green-300/90 selection:bg-green-600/30"><code>{code}</code></pre>
@@ -295,6 +308,7 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
   const [newItemTask, setNewItemTask] = useState("");
   const helpStreamRef = useRef("");
   const scanStreamRef = useRef("");
+  const { events: helpEvents, processChunk: helpProcessChunk, startStreaming: helpStartStreaming, finalize: helpFinalize, reset: helpResetEvents, getRawText: helpGetRawText } = useStreamEvents();
   const [isCheckingItems, setIsCheckingItems] = useState(false);
 
   const handleCheckForItems = async () => {
@@ -390,18 +404,19 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
   // Listen for streaming output when help is loading
   useEffect(() => {
     if (!helpStreaming || !window.electronAPI?.project) return;
-    const itemId = helpStreaming;
     helpStreamRef.current = "";
+    helpStartStreaming();
+
     const stop = window.electronAPI.project.onAgentOutput((event) => {
       if (event.scope !== "solo-chat") return;
       const chunk = event.chunk ?? "";
       if (chunk) {
         helpStreamRef.current += chunk;
-        setHelpResponses((prev) => ({ ...prev, [itemId]: helpStreamRef.current }));
+        helpProcessChunk(chunk);
       }
     });
-    return () => stop();
-  }, [helpStreaming]);
+    return () => { stop(); };
+  }, [helpStreaming, helpStartStreaming, helpProcessChunk]);
 
   const handleAskForHelp = async (item: ActionItem) => {
     setHelpLoading(item.id);
@@ -416,6 +431,9 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
         });
       }
     } catch { /* */ }
+    await helpFinalize();
+    setHelpResponses((prev) => ({ ...prev, [item.id]: helpGetRawText() || helpStreamRef.current || "Done." }));
+    helpResetEvents();
     setHelpLoading(null);
     setHelpStreaming(null);
   };
@@ -439,14 +457,17 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
         });
       }
     } catch { /* */ }
+    await helpFinalize();
     // Save streaming response to chat history
-    const finalResponse = helpStreamRef.current;
+    const finalResponse = helpGetRawText() || helpStreamRef.current;
+    setHelpResponses((prev) => ({ ...prev, [item.id]: finalResponse || "Done." }));
     if (finalResponse) {
       setChatHistories((prev) => ({
         ...prev,
         [item.id]: [...(prev[item.id] ?? []), { role: "agent", text: finalResponse }],
       }));
     }
+    helpResetEvents();
     setHelpLoading(null);
     setHelpStreaming(null);
   };
@@ -722,12 +743,16 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
                         {isStreaming ? <span className="animate-pulse text-[10px] text-violet-400">Thinking...</span> : null}
                       </div>
                       <div className="app-surface rounded-2xl px-4 py-3 ring-1 ring-black/[0.06] dark:ring-white/[0.08]">
-                        {helpResponses[item.id] ? (
-                          isStreaming ? (
-                            <div className="whitespace-pre-wrap text-[13px] leading-[1.7] theme-fg">{helpResponses[item.id]}</div>
-                          ) : (
-                            <RenderMarkdown text={helpResponses[item.id]} />
-                          )
+                        {isStreaming && helpEvents.length > 0 ? (
+                          <ActivityStream
+                            events={helpEvents}
+                            rawText={helpGetRawText()}
+                            isStreaming={isStreaming}
+                          />
+                        ) : helpResponses[item.id] ? (
+                          <ActivityStream
+                            text={helpResponses[item.id]}
+                          />
                         ) : isStreaming ? (
                           <div className="flex items-center gap-1.5 py-2">
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400/60 [animation-delay:0ms]" />
@@ -772,16 +797,106 @@ function ActionItemsSection({ projectId }: { projectId: string }) {
   );
 }
 
+/* ─── status dropdown ─── */
+
+function StatusDropdown({
+  value,
+  onChange,
+  size = "sm",
+  className = "",
+}: {
+  value: BuildTaskStatus;
+  onChange: (next: BuildTaskStatus) => void;
+  size?: "sm" | "md";
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const tone = (status: BuildTaskStatus) => (
+    status === "done" ? "bg-mint/15 text-mint ring-mint/30" :
+    status === "building" ? "bg-violet/15 text-violet ring-violet/30" :
+    status === "review" ? "bg-sun/15 text-sun ring-sun/30" :
+    "bg-text-ghost/10 text-text-dim ring-text-ghost/20"
+  );
+
+  const sizeCls = size === "md"
+    ? "px-3 py-1.5 text-[11px]"
+    : "px-2 py-0.5 text-[9.5px]";
+
+  return (
+    <div ref={rootRef} className={`relative inline-block ${className}`}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={`inline-flex items-center gap-1 rounded-full font-semibold uppercase tracking-[0.08em] ring-1 transition ${tone(value)} ${sizeCls}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor[value] }} />
+        {statusLabel[value]}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-2.5 w-2.5 opacity-70"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+      </button>
+      {open ? (
+        <div role="listbox" className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-xl border border-edge bg-stage shadow-[0_16px_36px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.04]">
+          {allStatuses.map((s) => {
+            const active = s === value;
+            return (
+              <button
+                key={s}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={(e) => { e.stopPropagation(); onChange(s); setOpen(false); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[11.5px] font-medium transition ${active ? "bg-text-ghost/10 text-text" : "text-text-mid hover:bg-text-ghost/[0.06] hover:text-text"}`}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: statusColor[s] }} />
+                <span className="flex-1">{statusLabel[s]}</span>
+                {active ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3 text-text-dim"><path fillRule="evenodd" d="M16.704 5.296a1 1 0 010 1.408l-8 8a1 1 0 01-1.408 0l-4-4a1 1 0 011.408-1.408L8 12.584l7.296-7.296a1 1 0 011.408 0z" clipRule="evenodd" /></svg>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /* ─── page ─── */
 
 export default function ProjectPage() {
   const { activeProject, canUseDesktopProject } = useActiveDesktopProject();
+  const router = useRouter();
   const plan = (activeProject?.dashboard.plan ?? null) as ProjectPlan | null;
   const taskConversationThreads = (activeProject?.dashboard.taskThreads ?? []) as ProjectTaskThread[];
-  const suggestedSubprojectOrder = plan?.buildOrder?.map((step) => step.subprojectId) ?? [];
-  const suggestedTaskOrder = plan?.buildOrder?.flatMap((step) => step.taskIds) ?? [];
-  const initialSubprojectOrder = [...new Set([...suggestedSubprojectOrder, ...(plan?.subprojects.map((sp) => sp.id) ?? [])])];
-  const initialTaskOrder = [...new Set([...suggestedTaskOrder, ...(plan?.subprojects.flatMap((sp) => sp.tasks.map((task) => task.id)) ?? [])])];
+  // Order arrays derived from plan — only recompute when the plan reference changes.
+  const { initialSubprojectOrder, initialTaskOrder } = useMemo(() => {
+    const ssp = plan?.buildOrder?.map((step) => step.subprojectId) ?? [];
+    const sto = plan?.buildOrder?.flatMap((step) => step.taskIds) ?? [];
+    const isp = [...new Set([...ssp, ...(plan?.subprojects.map((sp) => sp.id) ?? [])])];
+    const ito = [...new Set([...sto, ...(plan?.subprojects.flatMap((sp) => sp.tasks.map((task) => task.id)) ?? [])])];
+    return {
+      initialSubprojectOrder: isp,
+      initialTaskOrder: ito,
+    };
+  }, [plan]);
   const [displayName, setDisplayName] = useState("");
   useEffect(() => {
     if (typeof window !== "undefined" && window.electronAPI?.settings) {
@@ -793,10 +908,6 @@ export default function ProjectPage() {
   }, []);
   const currentUserName = displayName || "You";
   const currentUserInitials = displayName ? displayName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") : "CB";
-  const assignablePeople = [
-    { name: currentUserName, initials: currentUserInitials },
-    { name: "Project Manager", initials: "✦" },
-  ];
 
   /* state */
   const [subprojects, setSubprojects] = useState<ProjectSubproject[]>(plan?.subprojects ?? []);
@@ -815,6 +926,18 @@ export default function ProjectPage() {
   const [selectedTaskId, setSelectedTaskId] = useState(plan?.subprojects[0]?.tasks[0]?.id ?? "");
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
   const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [inlineAssignTaskId, setInlineAssignTaskId] = useState<string | null>(null);
+  const [inlineNotesTaskId, setInlineNotesTaskId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [inlineSpDetailsId, setInlineSpDetailsId] = useState<string | null>(null);
+  const [inlineSpAssignId, setInlineSpAssignId] = useState<string | null>(null);
+  const [editingSpGoalText, setEditingSpGoalText] = useState("");
+  // Drag & drop state
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [draggedSpId, setDraggedSpId] = useState<string | null>(null);
+  const [dragOverSpId, setDragOverSpId] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState(1);
   const [showVersionConfirm, setShowVersionConfirm] = useState(false);
   const [pushingToGithub, setPushingToGithub] = useState(false);
@@ -838,6 +961,44 @@ export default function ProjectPage() {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [hasRemote, setHasRemote] = useState(false);
   const syncInFlightRef = useRef(false);
+
+  // People you can assign a task to: yourself + the AI + anyone currently
+  // connected as a P2P peer on this project + any historical assignee stored
+  // in the plan (so teammates who are offline stay assignable).
+  const assignablePeople = useMemo(() => {
+    const base: Array<{ name: string; initials: string }> = [
+      { name: currentUserName, initials: currentUserInitials },
+      { name: "Project Manager", initials: "✦" },
+    ];
+    const seen = new Set(base.map((p) => p.name.toLowerCase()));
+    for (const peer of p2pPeers) {
+      const key = (peer.name || "").toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      base.push({ name: peer.name, initials: peer.initials || peer.name.slice(0, 2).toUpperCase() });
+    }
+    // Historical roster: harvest every owner name that has ever been saved
+    // into the plan. This makes offline teammates appear in the picker.
+    for (const sp of subprojects) {
+      const spAgent = (sp.agentName || "").trim();
+      if (spAgent) {
+        const key = spAgent.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          base.push({ name: spAgent, initials: spAgent.slice(0, 2).toUpperCase() });
+        }
+      }
+      for (const t of sp.tasks) {
+        const owner = (t.owner || "").trim();
+        if (!owner) continue;
+        const key = owner.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        base.push({ name: owner, initials: owner.slice(0, 2).toUpperCase() });
+      }
+    }
+    return base;
+  }, [currentUserName, currentUserInitials, p2pPeers, subprojects]);
 
   // Check if project has a remote URL (enables auto-sync)
   useEffect(() => {
@@ -865,15 +1026,25 @@ export default function ProjectPage() {
   };
 
   // Auto-sync: initial pull-first on project entry (hard pull — remote wins)
-  // After initial sync, P2P handles real-time updates so no interval needed
-  const initialSyncProjectRef = useRef<string | null>(null);
+  // After initial sync, P2P handles real-time updates so no interval needed.
+  // Deferred to idle time so it doesn't fight the first paint / hover responsiveness.
+  //
+  // Module-scoped guard (not a ref): the workspace page unmounts and remounts
+  // on every navigation to /project. A per-instance ref would re-run the
+  // expensive git fetch on every visit, re-blocking the main process for
+  // several seconds each time. We only want to silent-sync once per project
+  // per app session (P2P keeps us live after that). See SYNCED_PROJECTS below.
   useEffect(() => {
     if (!activeProject?.id || !hasRemote) return;
-    if (initialSyncProjectRef.current === activeProject.id) return;
-    initialSyncProjectRef.current = activeProject.id;
+    if (SYNCED_PROJECTS.has(activeProject.id)) return;
+    SYNCED_PROJECTS.add(activeProject.id);
 
-    // Pull-first on project entry — syncWorkspace does git fetch + reset --hard
-    doSilentSync();
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void };
+    const schedule = (cb: () => void) => {
+      if (typeof w.requestIdleCallback === "function") w.requestIdleCallback(cb, { timeout: 2500 });
+      else setTimeout(cb, 250);
+    };
+    schedule(() => { void doSilentSync(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.id, hasRemote]);
 
@@ -1039,6 +1210,16 @@ export default function ProjectPage() {
           lastSavedPlanRef.current = subKey;
         } catch { /* ignore */ }
       }
+
+      // Apply drag/drop reorder events from peers. Reorders are pure UI
+      // state on top of the plan, so we don't round-trip them through the
+      // plan save — just set our local order arrays directly.
+      if (event.category === "task-order" && Array.isArray(event.data?.taskOrder)) {
+        setTaskOrder(event.data.taskOrder as string[]);
+      }
+      if (event.category === "subproject-order" && Array.isArray(event.data?.subprojectOrder)) {
+        setSubprojectOrder(event.data.subprojectOrder as string[]);
+      }
     }));
 
     // Check initial status for THIS project
@@ -1151,21 +1332,29 @@ export default function ProjectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subprojects, activeProject?.id, p2pJoined]);
 
-  // Auto-import synced plan from .codebuddy/plan.json if the project has no plan yet
+  // Auto-import synced plan from .codebuddy/plan.json if the project has no plan yet.
+  // Guarded so it runs at most once per project after mount and doesn't block the first paint.
+  const importAttemptedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeProject?.id || plan) return;
+    if (importAttemptedRef.current === activeProject.id) return;
+    importAttemptedRef.current = activeProject.id;
     let cancelled = false;
-    (async () => {
+    const schedule = (cb: () => void) => {
+      const w = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void };
+      if (typeof w.requestIdleCallback === "function") w.requestIdleCallback(cb, { timeout: 1500 });
+      else setTimeout(cb, 120);
+    };
+    schedule(async () => {
       try {
         const result = await window.electronAPI?.project?.importSyncedPlan(activeProject.id);
         if (result?.imported && !cancelled) {
           console.log("[workspace] Auto-imported synced plan:", result.subprojects, "subprojects");
-          // The IPC handler sends settings:changed which will trigger a re-render
         }
       } catch (err) {
         console.warn("[workspace] Plan auto-import failed:", err);
       }
-    })();
+    });
     return () => { cancelled = true; };
   }, [activeProject?.id, plan]);
 
@@ -1174,35 +1363,76 @@ export default function ProjectPage() {
   const hasRealProjectWithoutPlan = Boolean(activeProject && !plan);
   const hasNoActiveDesktopProject = Boolean(canUseDesktopProject && !activeProject);
 
-  /* derived */
-  const orderedSubprojects = subprojectOrder
-    .map((id) => subprojects.find((sp) => sp.id === id))
-    .filter((sp): sp is NonNullable<typeof sp> => Boolean(sp));
-  const allTasks = orderedSubprojects.flatMap((sp) =>
-    [...sp.tasks].sort((left, right) => taskOrder.indexOf(left.id) - taskOrder.indexOf(right.id))
-  );
-  const overallProgress = allTasks.length > 0
-    ? Math.round((allTasks.filter((t) => t.status === "done").length / allTasks.length) * 100)
-    : 0;
+  /* derived — memoized so we don't redo O(n²) sorts on every render
+     (every settings:changed / P2P tick / drag-over used to refire these). */
+  const taskIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < taskOrder.length; i++) m.set(taskOrder[i], i);
+    return m;
+  }, [taskOrder]);
+  const subprojectIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < subprojectOrder.length; i++) m.set(subprojectOrder[i], i);
+    return m;
+  }, [subprojectOrder]);
+  const subprojectById = useMemo(() => {
+    const m = new Map<string, ProjectSubproject>();
+    for (const sp of subprojects) m.set(sp.id, sp);
+    return m;
+  }, [subprojects]);
+
+  const orderedSubprojects = useMemo(() => {
+    const out: ProjectSubproject[] = [];
+    for (const id of subprojectOrder) {
+      const sp = subprojectById.get(id);
+      if (sp) out.push(sp);
+    }
+    return out;
+  }, [subprojectOrder, subprojectById]);
+
+  const allTasks = useMemo(() => {
+    const out: ProjectTask[] = [];
+    for (const sp of orderedSubprojects) {
+      const sorted = [...sp.tasks].sort(
+        (a, b) => (taskIndex.get(a.id) ?? 0) - (taskIndex.get(b.id) ?? 0),
+      );
+      for (const t of sorted) out.push(t);
+    }
+    return out;
+  }, [orderedSubprojects, taskIndex]);
+
+  const overallProgress = useMemo(() => {
+    if (allTasks.length === 0) return 0;
+    let done = 0;
+    for (const t of allTasks) if (t.status === "done") done++;
+    return Math.round((done / allTasks.length) * 100);
+  }, [allTasks]);
+
   const selectedSubproject = orderedSubprojects.find((sp) => sp.id === selectedSubprojectId) ?? orderedSubprojects[0] ?? null;
   const selectedTask = allTasks.find((t) => t.id === selectedTaskId) ?? selectedSubproject?.tasks[0] ?? null;
   const selectedTaskConversations = selectedTask
     ? taskConversationThreads.filter((thread) => thread.taskId === selectedTask.id)
     : [];
-  const personalTasks = orderedSubprojects
-    .flatMap((sp) => sp.tasks.map((task) => ({ ...task, subprojectTitle: sp.title })))
-    .filter((task) => task.owner === currentUserName)
-    .sort((left, right) => taskOrder.indexOf(left.id) - taskOrder.indexOf(right.id));
+  const personalTasks = useMemo(() => {
+    const out: Array<ProjectTask & { subprojectTitle: string }> = [];
+    for (const sp of orderedSubprojects) {
+      for (const task of sp.tasks) {
+        if (task.owner === currentUserName) out.push({ ...task, subprojectTitle: sp.title });
+      }
+    }
+    out.sort((a, b) => (taskIndex.get(a.id) ?? 0) - (taskIndex.get(b.id) ?? 0));
+    return out;
+  }, [orderedSubprojects, taskIndex, currentUserName]);
 
   const getAssigneeMeta = (name: string) =>
     assignablePeople.find((person) => person.name === name) ?? { name, initials: name.slice(0, 2).toUpperCase() };
   const getSubprojectOrderNumber = (subprojectId: string) => {
-    const index = subprojectOrder.indexOf(subprojectId);
-    return index === -1 ? null : index + 1;
+    const idx = subprojectIndex.get(subprojectId);
+    return idx === undefined ? null : idx + 1;
   };
   const getTaskOrderNumber = (taskId: string) => {
-    const index = taskOrder.indexOf(taskId);
-    return index === -1 ? null : index + 1;
+    const idx = taskIndex.get(taskId);
+    return idx === undefined ? null : idx + 1;
   };
 
   /* handlers */
@@ -1259,7 +1489,8 @@ export default function ProjectPage() {
     setTaskOrder((cur) => [...cur, id]);
     setSelectedTaskId(id);
     setShowTaskCreator(false);
-    setShowTaskDetails(true);
+    // Stay on the workspace page after creating — don't auto-open the task card.
+    setShowTaskDetails(false);
     setNewTaskTitle("");
     setNewTaskNote("");
     setNewTaskOwner(currentUserName);
@@ -1269,22 +1500,43 @@ export default function ProjectPage() {
   const handleSelectTask = (spId: string, taskId: string) => {
     setSelectedSubprojectId(spId);
     setSelectedTaskId(taskId);
-    setShowAssigneePicker(false);
-    setShowDueDatePicker(false);
-    setShowTaskDetails(true);
+    // Navigate directly to chat for this task
+    router.push(`/project/chat?task=${encodeURIComponent(taskId)}`);
   };
 
   const handleChangeTaskStatus = (taskId: string, newStatus: BuildTaskStatus) => {
     console.log("[task-change] Status:", taskId, "→", newStatus, "planLoaded:", planLoadedRef.current, "p2p:", p2pJoined);
-    taskStatusOnlyRef.current = true; // suppress full plan broadcast — individual task P2P message is enough
+    // We only suppress the full-plan broadcast when the cascade did NOT
+    // move the parent subproject. If the subproject status changed too,
+    // the peer needs the full plan so its subproject pill stays in sync.
+    let cascadedSubproject = false;
     setSubprojects((cur) =>
-      cur.map((sp) => ({
-        ...sp,
-        tasks: sp.tasks.map((t) =>
+      cur.map((sp) => {
+        if (!sp.tasks.some((t) => t.id === taskId)) return sp;
+        const nextTasks = sp.tasks.map((t) =>
           t.id === taskId ? { ...t, status: newStatus } : t
-        ),
-      }))
+        );
+        // Auto-advance subproject: if all tasks done → subproject done. If any task building → subproject building.
+        let nextSpStatus: BuildTaskStatus = sp.status;
+        if (nextTasks.length > 0) {
+          if (nextTasks.every((t) => t.status === "done")) {
+            nextSpStatus = "done";
+          } else if (sp.status === "done") {
+            // someone re-opened a task — move subproject back to building
+            nextSpStatus = "building";
+          } else if (nextTasks.some((t) => t.status === "building") && sp.status === "planned") {
+            nextSpStatus = "building";
+          }
+        }
+        if (nextSpStatus !== sp.status) cascadedSubproject = true;
+        return { ...sp, tasks: nextTasks, status: nextSpStatus };
+      })
     );
+    // If only the task moved, the dedicated `tasks` broadcast is enough and
+    // we can skip the debounced full-plan push (saves a git round-trip).
+    // If the subproject also cascaded, we let the plan save fire so peers
+    // receive both changes atomically.
+    taskStatusOnlyRef.current = !cascadedSubproject;
 
     // Send a dedicated task-status P2P message for fast, reliable sync
     if (p2pJoined && activeProject?.id) {
@@ -1306,6 +1558,113 @@ export default function ProjectPage() {
     }
   };
 
+  const handleChangeSubprojectStatus = (spId: string, newStatus: BuildTaskStatus) => {
+    setSubprojects((cur) =>
+      cur.map((sp) => (sp.id === spId ? { ...sp, status: newStatus, updatedAgo: "Just now" } : sp))
+    );
+  };
+
+  const handleAssignSubproject = (spId: string, personName: string) => {
+    setSubprojects((cur) =>
+      cur.map((sp) => (sp.id === spId ? { ...sp, agentName: personName, updatedAgo: "Just now" } : sp))
+    );
+  };
+
+  const handleUpdateSubprojectGoal = (spId: string, nextGoal: string) => {
+    setSubprojects((cur) =>
+      cur.map((sp) => (sp.id === spId ? { ...sp, goal: nextGoal, updatedAgo: "Just now" } : sp))
+    );
+  };
+
+  const handleOpenTaskDetails = (spId: string, taskId: string) => {
+    // Open inline drawer without navigating away from the workspace page
+    setSelectedSubprojectId(spId);
+    setSelectedTaskId(taskId);
+    setShowTaskDetails(true);
+  };
+
+  const handleReorderTasks = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setTaskOrder((cur) => {
+      const next = cur.filter((id) => id !== draggedId);
+      const targetIndex = next.indexOf(targetId);
+      if (targetIndex < 0) return [...next, draggedId];
+      next.splice(targetIndex, 0, draggedId);
+      return next;
+    });
+    // Reorders only update the taskOrder state (a UI layer on top of the
+    // plan), not subprojects. The debounced plan save doesn't see a change,
+    // so peers never learn about the new order. Broadcast a dedicated order
+    // event that the other side applies to its own taskOrder list.
+    if (p2pJoined && activeProject?.id) {
+      window.electronAPI?.p2p?.broadcastStateChange({
+        projectId: activeProject.id,
+        category: "task-order",
+        id: activeProject.id,
+        data: { taskOrder: (() => {
+          const next = taskOrder.filter((id) => id !== draggedId);
+          const targetIndex = next.indexOf(targetId);
+          if (targetIndex < 0) next.push(draggedId); else next.splice(targetIndex, 0, draggedId);
+          return next;
+        })() },
+      });
+    }
+  };
+
+  const handleReorderSubprojects = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setSubprojectOrder((cur) => {
+      const next = cur.filter((id) => id !== draggedId);
+      const targetIndex = next.indexOf(targetId);
+      if (targetIndex < 0) return [...next, draggedId];
+      next.splice(targetIndex, 0, draggedId);
+      return next;
+    });
+    if (p2pJoined && activeProject?.id) {
+      window.electronAPI?.p2p?.broadcastStateChange({
+        projectId: activeProject.id,
+        category: "subproject-order",
+        id: activeProject.id,
+        data: { subprojectOrder: (() => {
+          const next = subprojectOrder.filter((id) => id !== draggedId);
+          const targetIndex = next.indexOf(targetId);
+          if (targetIndex < 0) next.push(draggedId); else next.splice(targetIndex, 0, draggedId);
+          return next;
+        })() },
+      });
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setSubprojects((cur) =>
+      cur.map((sp) => ({
+        ...sp,
+        tasks: sp.tasks.filter((t) => t.id !== taskId),
+        updatedAgo: sp.tasks.some((t) => t.id === taskId) ? "Just now" : sp.updatedAgo,
+      }))
+    );
+    setTaskOrder((cur) => cur.filter((id) => id !== taskId));
+    if (selectedTaskId === taskId) {
+      setSelectedTaskId("");
+      setShowTaskDetails(false);
+    }
+    // The debounced plan save + broadcast will pick this up and sync peers.
+  };
+
+  const handleDeleteSubproject = (spId: string) => {
+    const sp = subprojects.find((s) => s.id === spId);
+    if (!sp) return;
+    const taskIds = new Set(sp.tasks.map((t) => t.id));
+    setSubprojects((cur) => cur.filter((s) => s.id !== spId));
+    setSubprojectOrder((cur) => cur.filter((id) => id !== spId));
+    setTaskOrder((cur) => cur.filter((id) => !taskIds.has(id)));
+    if (selectedSubprojectId === spId) setSelectedSubprojectId("");
+    if (taskIds.has(selectedTaskId)) {
+      setSelectedTaskId("");
+      setShowTaskDetails(false);
+    }
+  };
+
   const handleAssignTask = (taskId: string, owner: string) => {
     setSubprojects((cur) =>
       cur.map((sp) => ({
@@ -1316,6 +1675,18 @@ export default function ProjectPage() {
       }))
     );
     setShowAssigneePicker(false);
+    setInlineAssignTaskId(null);
+  };
+
+  const handleUpdateTaskNote = (taskId: string, note: string) => {
+    setSubprojects((cur) =>
+      cur.map((sp) => ({
+        ...sp,
+        tasks: sp.tasks.map((task) =>
+          task.id === taskId ? { ...task, note } : task
+        ),
+      }))
+    );
   };
 
   const handleChangeTaskDueDate = (taskId: string, dueDate: string) => {
@@ -1360,673 +1731,653 @@ export default function ProjectPage() {
 
   /* ─── render ─── */
 
+  const toggleSection = (spId: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(spId)) next.delete(spId);
+      else next.add(spId);
+      return next;
+    });
+  };
+
   return (
-    <div className="flex min-h-full bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
+    <div className="min-h-full text-text">
+      <div className="px-4 py-6 pb-32 sm:px-6">
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-0">
 
-      <div className="min-w-0 flex-1 px-5 pb-32 pt-[5.6rem] sm:px-6 xl:px-8">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-8">
+        {/* ═══════════════════ HEADER ═══════════════════ */}
+        <header className="flex items-center justify-between border-b border-edge pb-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/home" className="text-[12px] text-text-dim hover:text-text-soft transition">← esc</Link>
+            <span className="text-text-ghost">·</span>
+            <h1 className="font-display text-[18px] font-semibold text-text truncate">{workspaceTitle}</h1>
+          </div>
 
-        {/* ═══════════════════ HERO ═══════════════════ */}
-        <header className="flex flex-col items-start gap-8 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] theme-muted">
-              Build workspace
-            </p>
-            <div className="mt-2 flex items-center gap-3">
-              <h1 className="display-font text-[2.4rem] font-semibold leading-[0.96] tracking-tight theme-fg sm:text-[3rem]">
-                {workspaceTitle}
-              </h1>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500/15 to-blue-500/15 px-3 py-1 text-[11px] font-bold text-violet-400 ring-1 ring-violet-500/20">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                  <path fillRule="evenodd" d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" clipRule="evenodd" />
-                </svg>
-                v{currentVersion}
-              </span>
-              {showVersionConfirm ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentVersion((v) => v + 1);
-                      setShowVersionConfirm(false);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold text-violet-400 transition hover:bg-violet-500/25"
-                  >
-                    Create v{currentVersion + 1}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowVersionConfirm(false)}
-                    className="rounded-full px-2 py-1 text-[10px] font-semibold theme-muted transition hover:text-red-400"
-                  >
-                    Cancel
-                  </button>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowVersionConfirm(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-black/[0.1] px-2.5 py-1 text-[10px] font-semibold theme-muted transition hover:border-violet-500/30 hover:text-violet-400 dark:border-white/[0.1] dark:hover:border-violet-500/30"
-                  title="Fork the project into a new version"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                  </svg>
-                  New version
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void handlePushToGithub()}
-                disabled={pushingToGithub || !activeProject?.repoPath}
-                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-emerald-500/15 to-teal-500/15 px-3 py-1 text-[10px] font-semibold text-emerald-500 ring-1 ring-emerald-500/20 transition hover:from-emerald-500/25 hover:to-teal-500/25 disabled:opacity-50 dark:text-emerald-400"
-                title="Stage, commit, and push workspace + shared state to GitHub"
-              >
-                {pushingToGithub ? (
-                  <>
-                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Pushing…
-                  </>
-                ) : (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                      <path d="M10 2a.75.75 0 01.75.75v5.59l1.95-2.1a.75.75 0 111.1 1.02l-3.25 3.5a.75.75 0 01-1.1 0L6.2 7.26a.75.75 0 011.1-1.02l1.95 2.1V2.75A.75.75 0 0110 2z" />
-                      <path d="M5.273 4.5a1.25 1.25 0 00-1.205.918l-1.523 5.52c-.006.02-.01.041-.015.062H6a1 1 0 01.894.553l.448.894a1 1 0 00.894.553h3.438a1 1 0 00.86-.49l.606-1.02A1 1 0 0114 11h3.47a1.318 1.318 0 00-.015-.062l-1.523-5.52a1.25 1.25 0 00-1.205-.918h-.977a.75.75 0 010-1.5h.977a2.75 2.75 0 012.651 2.019l1.523 5.52c.066.239.099.485.099.732V15a2 2 0 01-2 2H3a2 2 0 01-2-2v-3.73c0-.246.033-.492.099-.73l1.523-5.521A2.75 2.75 0 015.273 3h.977a.75.75 0 010 1.5h-.977z" />
-                    </svg>
-                    Push to GitHub
-                  </>
-                )}
-              </button>
-              {pushResult && (
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${pushResult.ok ? "bg-emerald-500/15 text-emerald-500 dark:text-emerald-400" : "bg-red-500/15 text-red-500 dark:text-red-400"}`}>
-                  {pushResult.message}
-                </span>
-              )}
-              {/* Push to Main button */}
-              <button
-                type="button"
-                onClick={() => void handlePushToMain()}
-                disabled={pushingToMain || !activeProject?.repoPath}
-                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-500/15 to-indigo-500/15 px-3 py-1 text-[10px] font-semibold text-blue-500 ring-1 ring-blue-500/20 transition hover:from-blue-500/25 hover:to-indigo-500/25 disabled:opacity-50 dark:text-blue-400"
-                title="Merge codebuddy-build → main and push to GitHub"
-              >
-                {pushingToMain ? (
-                  <>
-                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Merging…
-                  </>
-                ) : (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                      <path fillRule="evenodd" d="M5.22 14.78a.75.75 0 001.06 0l7.22-7.22v5.69a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75h-7.5a.75.75 0 000 1.5h5.69l-7.22 7.22a.75.75 0 000 1.06z" clipRule="evenodd" />
-                    </svg>
-                    Push to Main
-                  </>
-                )}
-              </button>
-              {pushToMainResult && (
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${pushToMainResult.ok ? "bg-blue-500/15 text-blue-500 dark:text-blue-400" : "bg-red-500/15 text-red-500 dark:text-red-400"}`}>
-                  {pushToMainResult.message}
-                </span>
-              )}
-            </div>
-            {/* Auto-sync status bar */}
-            {fileWatcherActive && (
-              <div className="mt-2 flex items-center gap-2 text-[10px] theme-muted">
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${autoSyncing ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
-                <span>
-                  {autoSyncing ? "Syncing changes to codebuddy-build…" : "Auto-sync active"}
-                  {lastAutoSync && !autoSyncing ? ` · Last sync: ${lastAutoSync}` : ""}
-                </span>
+          <div className="flex items-center gap-3">
+            {/* Quick nav */}
+            <Link href="/project/chat" className="inline-flex items-center gap-1.5 rounded-lg bg-sun/10 px-3 py-1.5 text-[11px] font-semibold text-sun transition hover:bg-sun/15">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                <path fillRule="evenodd" d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902 1.168.188 2.352.327 3.55.414.28.02.521.18.642.413l1.713 3.293a.75.75 0 001.33 0l1.713-3.293a.783.783 0 01.642-.413 41.102 41.102 0 003.55-.414c1.437-.231 2.43-1.49 2.43-2.902V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0010 2z" clipRule="evenodd" />
+              </svg>
+              Chat
+            </Link>
+            <Link href="/project/ide" className="inline-flex items-center gap-1.5 rounded-lg bg-stage-up px-3 py-1.5 text-[11px] font-semibold text-text-dim ring-1 ring-edge transition hover:bg-stage-up2 hover:text-text-mid">
+              {'</>'}
+              IDE
+            </Link>
+
+            {/* Fire ring progress */}
+            <div
+              className="relative flex-shrink-0"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: `conic-gradient(var(--sun) 0deg, rgba(255,159,28,0.3) ${overallProgress * 3.6}deg, rgba(240,236,228,0.06) ${overallProgress * 3.6}deg)`,
+                boxShadow: overallProgress > 0 ? "0 0 12px rgba(255,159,28,0.12)" : "none",
+              }}
+            >
+              <div className="absolute inset-[4px] rounded-full bg-stage flex items-center justify-center">
+                <span className="font-display text-[10px] font-bold text-sun">{overallProgress}%</span>
               </div>
-            )}
-            <p className="mt-3 text-[14px] leading-relaxed theme-soft">
-              {subprojects.length} subprojects · {allTasks.length} tasks
-            </p>
-            <p className="mt-2 max-w-2xl text-[13px] leading-relaxed theme-muted">
-              {workspaceSubtitle}
-            </p>
-
-            {/* ─── P2P Live Collaboration Bar ─── */}
-            <div className="mt-3 flex items-center gap-3">
-              {/* Always-on live status indicator (no manual toggle) */}
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
-                  p2pJoined
-                    ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25 dark:text-emerald-400"
-                    : p2pJoining
-                    ? "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20 dark:text-amber-400"
-                    : hasRemote
-                    ? "bg-white/5 text-white/40 ring-1 ring-white/10"
-                    : "bg-white/5 text-white/30 ring-1 ring-white/10"
-                }`}
-              >
-                {p2pJoining ? (
-                  <>
-                    <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Connecting…
-                  </>
-                ) : p2pJoined ? (
-                  <>
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                    </span>
-                    Live
-                  </>
-                ) : (
-                  <>
-                    <span className="inline-flex h-2 w-2 rounded-full bg-white/20" />
-                    {hasRemote ? "Offline" : "No remote"}
-                  </>
-                )}
-              </span>
-
-              {/* Online peers */}
-              {p2pJoined && (
-                <div className="flex items-center gap-1.5">
-                  {p2pPeers.length > 0 ? (
-                    <>
-                      <div className="flex -space-x-1.5">
-                        {p2pPeers.slice(0, 5).map((peer) => (
-                          <div
-                            key={peer.id}
-                            className="relative flex h-6 w-6 items-center justify-center rounded-full bg-cyan-100 text-[9px] font-bold text-cyan-700 ring-2 ring-white dark:bg-cyan-500/20 dark:text-cyan-300 dark:ring-black/50"
-                            title={`${peer.name} (${peer.status})`}
-                          >
-                            {peer.initials}
-                            <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-white dark:ring-black/50 ${peer.status === "online" ? "bg-emerald-500" : "bg-amber-400"}`} />
-                          </div>
-                        ))}
-                      </div>
-                      <span className="text-[10px] font-medium theme-muted">
-                        {p2pPeers.length} peer{p2pPeers.length !== 1 ? "s" : ""} online
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-[10px] theme-muted">Waiting for teammates…</span>
-                  )}
-                </div>
-              )}
-
-              {p2pError && (
-                <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-[10px] font-medium text-red-500 dark:text-red-400">
-                  {p2pError}
-                </span>
-              )}
-
-              {/* Invite Friend button */}
-              {p2pJoined && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!activeProject?.repoPath) return;
-                    try {
-                      const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
-                      if (!remoteUrl) { setP2pError("Push to GitHub first to invite friends"); return; }
-                      const result = await window.electronAPI?.p2p?.generateInvite({ remoteUrl, projectName: activeProject.name });
-                      if (result?.code) {
-                        setInviteCode(result.code);
-                        setInviteCopied(false);
-                        setInviteRemoteUrl(remoteUrl);
-                      }
-                    } catch { setP2pError("Could not generate invite code"); }
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-600 ring-1 ring-violet-500/20 transition hover:bg-violet-500/15 dark:text-violet-400"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M11 5a3 3 0 11-6 0 3 3 0 016 0zM2.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 018 18a9.953 9.953 0 01-5.385-1.572zM16.25 5.75a.75.75 0 00-1.5 0v2h-2a.75.75 0 000 1.5h2v2a.75.75 0 001.5 0v-2h2a.75.75 0 000-1.5h-2v-2z" /></svg>
-                  Invite Friend
-                </button>
-              )}
-
-              {/* Sync Workspace — now runs automatically on project entry, removed manual button */}
-
-              {/* Auto-sync indicator */}
-              {hasRemote && (
-                <span className={`text-[10px] ${p2pJoined ? "text-emerald-400/60" : "text-white/30 dark:text-white/25"}`}>
-                  {p2pJoined ? "" : lastSyncTime ? `synced ${lastSyncTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
-                </span>
-              )}
-            </div>
-
-            {/* Invite code popup */}
-            {inviteCode && (
-              <div className="mt-3 space-y-3 rounded-xl border border-violet-400/20 bg-violet-500/5 px-4 py-3">
-                {/* Close button */}
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => { setInviteCode(null); setInviteRemoteUrl(null); }}
-                    className="rounded-lg bg-white/5 px-2 py-1 text-[11px] text-white/40 hover:bg-white/10 hover:text-white/60"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {/* Step 1: Give friend access on GitHub */}
-                {(() => {
-                  const ghMatch = inviteRemoteUrl?.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
-                  if (!ghMatch) return null;
-                  const collabUrl = `https://github.com/${ghMatch[1]}/${ghMatch[2]}/settings/access`;
-                  return (
-                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/5 px-3 py-2.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">Step 1 — Give your friend access</p>
-                      <p className="mt-1.5 text-[12px] leading-relaxed text-emerald-200/80 dark:text-emerald-200/80">
-                        Your friend needs collaborator access on GitHub before they can join.
-                      </p>
-                      <ol className="mt-2 ml-4 list-decimal space-y-1 text-[11.5px] leading-relaxed text-emerald-200/70 dark:text-emerald-200/70">
-                        <li>Click the button below to open your repo&apos;s GitHub settings</li>
-                        <li>Click <span className="font-semibold text-emerald-300/90">&ldquo;Add people&rdquo;</span> (green button)</li>
-                        <li>Type your friend&apos;s GitHub username and send the invite</li>
-                        <li>Wait for your friend to accept the GitHub email invite</li>
-                      </ol>
-                      <button
-                        type="button"
-                        onClick={() => window.electronAPI?.system?.openExternal?.(collabUrl)}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-4 py-2 text-[12px] font-semibold text-emerald-300 transition hover:bg-emerald-500/30"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5zm7.25-.75a.75.75 0 01.75-.75h3.5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0V6.31l-5.47 5.47a.75.75 0 01-1.06-1.06l5.47-5.47H12.25a.75.75 0 01-.75-.75z" clipRule="evenodd" /></svg>
-                        Add collaborator on GitHub
-                      </button>
-                    </div>
-                  );
-                })()}
-
-                {/* Step 2: Send the invite code */}
-                <div className="rounded-lg border border-violet-400/15 bg-violet-500/5 px-3 py-2.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-400/60">Step 2 — Send them this invite code</p>
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-violet-200/70 dark:text-violet-200/70">
-                    Once your friend has GitHub access, send them this code to paste in CodeBuddy.
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <p className="flex-1 min-w-0 truncate rounded-lg bg-black/20 px-3 py-2 font-mono text-[12px] text-violet-300 dark:text-violet-300">{inviteCode}</p>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(inviteCode);
-                        setInviteCopied(true);
-                        setTimeout(() => setInviteCopied(false), 2000);
-                      }}
-                      className="shrink-0 rounded-lg bg-violet-500/20 px-4 py-2 text-[12px] font-semibold text-violet-300 transition hover:bg-violet-500/30"
-                    >
-                      {inviteCopied ? "Copied!" : "Copy code"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <Link href="/project/chat" className="btn-primary flex items-center gap-2 px-5 py-2.5 text-[13px]">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902 1.168.188 2.352.327 3.55.414.28.02.521.18.642.413l1.713 3.293a.75.75 0 001.33 0l1.713-3.293a.783.783 0 01.642-.413 41.102 41.102 0 003.55-.414c1.437-.231 2.43-1.49 2.43-2.902V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0010 2zM6.75 6a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 2.5a.75.75 0 000 1.5h3.5a.75.75 0 000-1.5h-3.5z" clipRule="evenodd" />
-                </svg>
-                Talk to Project Manager
-              </Link>
-              <Link href="/project/preview" className="inline-flex items-center gap-2 rounded-2xl border border-black/[0.06] bg-white/80 px-5 py-2.5 text-[13px] font-semibold text-emerald-600 transition hover:border-emerald-500/30 hover:bg-emerald-500/5 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-emerald-400 dark:hover:border-emerald-500/30">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                </svg>
-                Run App
-              </Link>
             </div>
           </div>
-          <ProgressRing progress={overallProgress} />
         </header>
+
+        {/* ═══════════════════ SYNC / P2P BAR ═══════════════════ */}
+        <div className="flex flex-wrap items-center gap-2 py-2.5 border-b border-edge/50">
+          {/* Version badge */}
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet/10 px-2.5 py-1 text-[10px] font-bold text-violet">
+            v{currentVersion}
+          </span>
+
+          {/* Merge to main */}
+          <button type="button" onClick={() => void handlePushToMain()} disabled={pushingToMain || !activeProject?.repoPath} className="inline-flex items-center gap-1 rounded-full bg-sky/10 px-2.5 py-1 text-[10px] font-semibold text-sky hover:bg-sky/20 disabled:opacity-50">
+            {pushingToMain ? <><svg className="h-2.5 w-2.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>…</> : <>→ Merge to main</>}
+          </button>
+          {pushToMainResult && <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${pushToMainResult.ok ? "bg-sky/15 text-sky" : "bg-coral/15 text-coral"}`}>{pushToMainResult.message}</span>}
+
+          <span className="text-text-ghost">·</span>
+          {/* P2P status */}
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+            p2pJoined ? "bg-mint/15 text-mint" : p2pJoining ? "bg-sun/10 text-sun" : "bg-stage-up/60 text-text-ghost ring-1 ring-edge"
+          }`}>
+            {p2pJoining ? (
+              <><svg className="h-2.5 w-2.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Connecting…</>
+            ) : p2pJoined ? (
+              <><span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-mint" /></span>Live</>
+            ) : (
+              <><span className="inline-flex h-1.5 w-1.5 rounded-full bg-text-ghost" />{hasRemote ? "Offline" : "No remote"}</>
+            )}
+          </span>
+
+          {/* Peer avatars */}
+          {p2pJoined && p2pPeers.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <div className="flex -space-x-1.5">
+                {p2pPeers.slice(0, 5).map((peer) => (
+                  <div key={peer.id} className="relative flex h-5 w-5 items-center justify-center rounded-full bg-aqua/15 text-[8px] font-bold text-aqua ring-1 ring-stage" title={`${peer.name} (${peer.status})`}>
+                    {peer.initials}
+                    <span className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-1 ring-stage ${peer.status === "online" ? "bg-mint" : "bg-sun"}`} />
+                  </div>
+                ))}
+              </div>
+              <span className="text-[9px] text-text-dim">{p2pPeers.length} online</span>
+            </div>
+          )}
+          {p2pJoined && p2pPeers.length === 0 && <span className="text-[9px] text-text-ghost">Waiting for teammates…</span>}
+
+          {p2pError && <span className="rounded-full bg-coral/10 px-2 py-0.5 text-[9px] text-coral">{p2pError}</span>}
+
+          {/* Invite friend */}
+          {p2pJoined && (
+            <button type="button" onClick={async () => {
+              if (!activeProject?.repoPath) return;
+              try {
+                const remoteUrl = await window.electronAPI?.repo?.getRemoteUrl(activeProject.repoPath);
+                if (!remoteUrl) { setP2pError("Push to GitHub first to invite friends"); return; }
+                const result = await window.electronAPI?.p2p?.generateInvite({ remoteUrl, projectName: activeProject.name });
+                if (result?.code) { setInviteCode(result.code); setInviteCopied(false); setInviteRemoteUrl(remoteUrl); }
+              } catch { setP2pError("Could not generate invite code"); }
+            }} className="inline-flex items-center gap-1 rounded-full bg-violet/10 px-2.5 py-1 text-[10px] font-semibold text-violet hover:bg-violet/15">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M11 5a3 3 0 11-6 0 3 3 0 016 0zM2.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 018 18a9.953 9.953 0 01-5.385-1.572zM16.25 5.75a.75.75 0 00-1.5 0v2h-2a.75.75 0 000 1.5h2v2a.75.75 0 001.5 0v-2h2a.75.75 0 000-1.5h-2v-2z" /></svg>
+              Invite
+            </button>
+          )}
+
+          {/* Auto-sync */}
+          {fileWatcherActive && (
+            <span className="ml-auto flex items-center gap-1.5 text-[9px] text-text-dim">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${autoSyncing ? "bg-sun animate-pulse" : "bg-mint"}`} />
+              {autoSyncing ? "Syncing…" : "Auto-sync"}
+              {lastAutoSync && !autoSyncing ? ` · ${lastAutoSync}` : ""}
+            </span>
+          )}
+        </div>
+
+        {/* ═══════════════════ INVITE CODE POPUP ═══════════════════ */}
+        {inviteCode && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/70 backdrop-blur-sm p-4" onClick={() => { setInviteCode(null); setInviteRemoteUrl(null); }}>
+            <div
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-violet/30 bg-stage px-4 py-3 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-violet">Invite a collaborator</p>
+                <button onClick={() => { setInviteCode(null); setInviteRemoteUrl(null); }} className="rounded-lg bg-stage-up px-2 py-1 text-[11px] text-text-ghost hover:bg-stage-up2 hover:text-text-dim">✕</button>
+              </div>
+              {(() => {
+                const ghMatch = inviteRemoteUrl?.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+                if (!ghMatch) return null;
+                const collabUrl = `https://github.com/${ghMatch[1]}/${ghMatch[2]}/settings/access`;
+                return (
+                  <div className="mt-2 rounded-lg border border-mint/20 bg-mint/5 px-2.5 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-mint/70">Step 1 — Give them GitHub access</p>
+                    <ol className="mt-1.5 ml-4 list-decimal space-y-0.5 text-[11px] leading-relaxed text-text-dim">
+                      <li>Open your repo&apos;s settings</li>
+                      <li>Click <span className="font-semibold text-mint">Add people</span></li>
+                      <li>Type their GitHub username &amp; invite</li>
+                      <li>They must accept the email invite</li>
+                    </ol>
+                    <button type="button" onClick={() => window.electronAPI?.system?.openExternal?.(collabUrl)} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-mint/20 px-2.5 py-1.5 text-[11px] font-semibold text-mint transition hover:bg-mint/30">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5zm7.25-.75a.75.75 0 01.75-.75h3.5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0V6.31l-5.47 5.47a.75.75 0 01-1.06-1.06l5.47-5.47H12.25a.75.75 0 01-.75-.75z" clipRule="evenodd" /></svg>
+                      Open GitHub access page
+                    </button>
+                  </div>
+                );
+              })()}
+              <div className="mt-2 rounded-lg border border-violet/15 bg-violet/5 px-2.5 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-violet/60">Step 2 — Send them this code</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-dim">Paste it in their CodeBuddy &ldquo;Accept invite&rdquo; screen.</p>
+                <div className="mt-1.5 flex flex-col gap-1.5">
+                  <p className="w-full truncate rounded-lg bg-void/30 px-2.5 py-1.5 font-mono text-[11px] text-violet select-all" title={inviteCode}>{inviteCode}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(inviteCode); setInviteCopied(true); setTimeout(() => setInviteCopied(false), 2000); }} className="w-full rounded-lg bg-violet/20 px-3 py-1.5 text-[11px] font-semibold text-violet transition hover:bg-violet/30">
+                    {inviteCopied ? "Copied!" : "Copy code"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════ CONTEXT LINE ═══════════════════ */}
+        <div className="py-3 text-center text-[10px] text-text-ghost">
+          {subprojects.length} subprojects · {allTasks.filter((t) => t.status === "done").length} done · {allTasks.filter((t) => t.status === "building").length} building · {allTasks.length} total tasks
+        </div>
+
+        {/* ═══════════════════ EMPTY STATES ═══════════════════ */}
+        {hasNoActiveDesktopProject && (
+          <div className="mb-4 rounded-xl border border-dashed border-edge bg-stage-up/30 px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-dim">No active real project</p>
+            <p className="mt-2 text-[13px] text-text-soft">Open or create a real project first.</p>
+          </div>
+        )}
+        {hasRealProjectWithoutPlan && (
+          <div className="mb-4 rounded-xl border border-dashed border-edge bg-stage-up/30 px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-dim">Fresh workspace</p>
+            <p className="mt-2 text-[13px] text-text-soft">Add subprojects and tasks, or go to PM Chat to start planning.</p>
+          </div>
+        )}
 
         {/* ═══════════════════ ACTION ITEMS ═══════════════════ */}
         {activeProject && (
           <ActionItemsSection projectId={activeProject.id} />
         )}
 
-        {/* ═══════════════════ SUBPROJECT CARDS ═══════════════════ */}
-        <section>
-          {hasNoActiveDesktopProject && (
-            <div className="mb-5 rounded-[1.5rem] border border-dashed border-black/[0.08] bg-black/[0.02] px-5 py-5 dark:border-white/[0.12] dark:bg-white/[0.03]">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.16em] theme-muted">No active real project</p>
-              <h2 className="mt-2 text-[18px] font-semibold theme-fg">This workspace is no longer backed by seeded demo data.</h2>
-              <p className="mt-2 max-w-2xl text-[13px] leading-relaxed theme-soft">
-                Open or create a real project first. Once a real project is active, its dashboard, tasks, and PM Chat plan will show here.
-              </p>
-            </div>
-          )}
+        {/* ═══════════════════ TASK TREE BY SUBPROJECT ═══════════════════ */}
+        <div className="flex flex-col gap-0">
+          {orderedSubprojects.map((sp, spIndex) => {
+            const spCounts = getPlanCounts(sp.tasks);
+            const spPct = spCounts.total > 0 ? Math.round((spCounts.done / spCounts.total) * 100) : 0;
+            const isCollapsed = collapsedSections.has(sp.id);
+            const hasBuildingTasks = sp.tasks.some((t) => t.status === "building");
+            const orderedTasks = [...sp.tasks].sort((a, b) => taskOrder.indexOf(a.id) - taskOrder.indexOf(b.id));
 
-          {hasRealProjectWithoutPlan && (
-            <div className="mb-5 rounded-[1.5rem] border border-dashed border-black/[0.08] bg-black/[0.02] px-5 py-5 dark:border-white/[0.12] dark:bg-white/[0.03]">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.16em] theme-muted">Fresh workspace</p>
-              <h2 className="mt-2 text-[18px] font-semibold theme-fg">This real project does not have seeded subprojects.</h2>
-              <p className="mt-2 max-w-2xl text-[13px] leading-relaxed theme-soft">
-                That is intentional. This workspace is attached to your real repo, so it starts empty instead of inheriting the old demo plan. Add subprojects and tasks for this project, or go to PM Chat to start planning it from scratch.
-              </p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {orderedSubprojects.map((sp, i) => {
-              const active = sp.id === selectedSubprojectId;
-              const counts = getPlanCounts(sp.tasks);
-              const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
-              const orderNumber = getSubprojectOrderNumber(sp.id);
-
-              return (
-                <button
-                  key={sp.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedSubprojectId(sp.id);
-                    setShowTaskCreator(false);
-                  }}
-                  className={`group relative overflow-hidden rounded-[1.25rem] text-left transition-all duration-200 ${
-                    active
-                      ? "bg-[rgba(255,252,247,0.96)] ring-2 ring-white/10 shadow-[0_14px_34px_rgba(0,0,0,0.20)] scale-[1.02] dark:bg-[#23262b]"
-                      : "app-surface-strong shadow-sm hover:shadow-[0_6px_24px_rgba(0,0,0,0.08)]"
-                  }`}
-                >
-                  <div className={`h-1.5 bg-gradient-to-r ${cardAccents[i % cardAccents.length]}`} />
-                  <div className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-[14px] font-semibold theme-fg">{sp.title}</h3>
-                          {orderNumber && (
-                            <span className="rounded-full bg-black/[0.05] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] theme-muted dark:bg-white/[0.06]">
-                              Step {orderNumber}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[11px] theme-muted">{sp.updatedAgo}</span>
-                    </div>
-                    <div className="mt-3 flex items-center gap-1.5">
-                      {sp.tasks.map((task) => (
-                        <span
-                          key={task.id}
-                          className="h-2.5 w-2.5 rounded-full transition-transform group-hover:scale-110"
-                          style={{ backgroundColor: statusColor[task.status] }}
-                          title={`${task.title} — ${statusLabel[task.status]}`}
-                        />
-                      ))}
-                      {sp.tasks.length === 0 && (
-                        <span className="text-[11px] theme-muted">No tasks yet</span>
+            return (
+              <div
+                key={sp.id}
+                data-sp-container
+                className={`border border-black/[0.12] dark:border-white/[0.1] rounded-lg mb-2 px-2 py-1.5 ${hasBuildingTasks ? "bg-sun/[0.02]" : ""} ${dragOverSpId === sp.id && draggedSpId && draggedSpId !== sp.id ? "ring-2 ring-violet/40" : ""} ${draggedSpId === sp.id ? "opacity-40" : ""}`}
+                onDragOver={(e) => {
+                  if (!draggedSpId || draggedTaskId) return;
+                  e.preventDefault();
+                  if (dragOverSpId !== sp.id) setDragOverSpId(sp.id);
+                }}
+                onDragLeave={() => { if (dragOverSpId === sp.id) setDragOverSpId(null); }}
+                onDrop={(e) => {
+                  if (!draggedSpId || draggedTaskId) return;
+                  e.preventDefault();
+                  handleReorderSubprojects(draggedSpId, sp.id);
+                  setDraggedSpId(null);
+                  setDragOverSpId(null);
+                }}
+              >
+                {/* Section header */}
+                <div className="w-full flex items-center justify-between py-3 group">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedSpId(sp.id);
+                        setDraggedTaskId(null);
+                        e.dataTransfer.effectAllowed = "move";
+                        try { e.dataTransfer.setData("text/plain", sp.id); } catch { /* */ }
+                        // Use the full subproject container as the drag ghost so the whole card appears to move
+                        try {
+                          const container = (e.currentTarget as HTMLElement).closest("[data-sp-container]") as HTMLElement | null;
+                          if (container) {
+                            const rect = container.getBoundingClientRect();
+                            e.dataTransfer.setDragImage(container, e.clientX - rect.left, e.clientY - rect.top);
+                          }
+                        } catch { /* */ }
+                      }}
+                      onDragEnd={() => { setDraggedSpId(null); setDragOverSpId(null); }}
+                      title="Drag to reorder subproject"
+                      className="cursor-grab select-none text-text-ghost transition hover:text-text-dim active:cursor-grabbing"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M7 4a1 1 0 100 2 1 1 0 000-2zM7 9a1 1 0 100 2 1 1 0 000-2zM7 14a1 1 0 100 2 1 1 0 000-2zM13 4a1 1 0 100 2 1 1 0 000-2zM13 9a1 1 0 100 2 1 1 0 000-2zM13 14a1 1 0 100 2 1 1 0 000-2z" /></svg>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(sp.id)}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                    >
+                      <span className="text-[10px] text-text-ghost transition group-hover:text-text-dim">{isCollapsed ? "▸" : "▾"}</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim truncate">{sp.title}</span>
+                      <span className="text-[10px] text-text-ghost">{spCounts.done}/{spCounts.total}</span>
+                      {hasBuildingTasks && (
+                        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-sun shadow-[0_0_6px_rgba(255,159,28,0.5)]" />
                       )}
-                    </div>
-                    <div className="mt-3">
-                      <div className="h-1.5 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.08]">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#a78bfa] to-[#34d399] transition-all duration-500"
-                          style={{ width: `${Math.max(pct, 2)}%` }}
-                        />
-                      </div>
-                      <p className="mt-2 text-[11px] theme-muted">
-                        {counts.done}/{counts.total} done
-                      </p>
-                    </div>
+                    </button>
                   </div>
-                </button>
-              );
-            })}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <StatusDropdown value={sp.status} onChange={(next) => handleChangeSubprojectStatus(sp.id, next)} />
 
-            {/* add-subproject card */}
-            <button
-              type="button"
-              onClick={() => setShowSubprojectCreator(true)}
-              disabled={hasNoActiveDesktopProject}
-              className="flex min-h-[140px] items-center justify-center rounded-[1.25rem] border-2 border-dashed border-black/[0.08] bg-white/40 text-ink-muted/50 transition-colors hover:border-black/[0.16] hover:text-ink-muted dark:border-white/[0.10] dark:bg-white/[0.03] dark:text-[var(--muted)] dark:hover:border-white/[0.18]"
-            >
-              <div className="flex flex-col items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-6 w-6">
-                  <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                </svg>
-                <span className="text-[13px] font-medium">Add subproject</span>
-              </div>
-            </button>
-          </div>
-        </section>
+                    {/* Subproject Details — compact icon button */}
+                    <button
+                      type="button"
+                      title={sp.goal ? `Goal: ${sp.goal}` : "Add goal / description"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (inlineSpDetailsId === sp.id) {
+                          setInlineSpDetailsId(null);
+                        } else {
+                          setEditingSpGoalText(sp.goal || "");
+                          setInlineSpDetailsId(sp.id);
+                          setInlineSpAssignId(null);
+                        }
+                      }}
+                      className={`relative inline-flex h-5 w-5 items-center justify-center rounded-full border transition ${
+                        sp.goal
+                          ? "border-sun/30 bg-sun/10 text-sun hover:bg-sun/20"
+                          : "border-edge bg-stage-up text-text-ghost hover:border-text-ghost/40 hover:text-text-dim"
+                      }`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5"><path d="M2 4.5A2.5 2.5 0 014.5 2h7A2.5 2.5 0 0114 4.5v7a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 012 11.5v-7zm3.5 1.5a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2.5a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2.5a.5.5 0 000 1h3a.5.5 0 000-1h-3z" /></svg>
+                      {sp.goal ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-sun" /> : null}
+                    </button>
 
-        {/* ═══════════════════ TASK BOARD (kanban) ═══════════════════ */}
-        {selectedSubproject && (
-          <section className="app-surface overflow-hidden rounded-[1.5rem] p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`h-3 w-3 rounded-full bg-gradient-to-br ${
-                    cardAccents[subprojects.findIndex((sp) => sp.id === selectedSubproject.id) % cardAccents.length]
-                  }`}
-                />
-                <h2 className="text-[16px] font-semibold theme-fg">{selectedSubproject.title}</h2>
-                {getSubprojectOrderNumber(selectedSubproject.id) && (
-                  <span className="rounded-full bg-black/[0.05] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted dark:bg-white/[0.06]">
-                    Step {getSubprojectOrderNumber(selectedSubproject.id)}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowTaskCreator((v) => !v)}
-                  disabled={hasNoActiveDesktopProject}
-                  className="btn-secondary px-4 py-2 text-[12px]"
-                >
-                  + Task
-                </button>
-              </div>
-            </div>
+                    {/* Subproject Assign — avatar-only button */}
+                    <button
+                      type="button"
+                      title={sp.agentName ? `Assigned to ${sp.agentName} — click to change` : "Assign subproject"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInlineSpAssignId(inlineSpAssignId === sp.id ? null : sp.id);
+                        setInlineSpDetailsId(null);
+                      }}
+                      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[8.5px] font-bold transition ${
+                        sp.agentName
+                          ? "border-edge bg-stage-up2 text-text-soft hover:border-text-ghost/40"
+                          : "border-dashed border-edge bg-stage-up text-text-ghost hover:border-text-ghost/40 hover:text-text-dim"
+                      }`}
+                    >
+                      {sp.agentName ? getAssigneeMeta(sp.agentName).initials : "+"}
+                    </button>
 
-            {/* inline task creator */}
-            {showTaskCreator && (
-              <div className="app-surface-soft mt-4 rounded-[1rem] p-4">
-                <div className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      placeholder="Task title"
-                      className="app-input rounded-xl px-4 py-2.5 text-[13px] outline-none"
-                    />
-                    <input
-                      value={newTaskNote}
-                      onChange={(e) => setNewTaskNote(e.target.value)}
-                      placeholder="Quick note"
-                      className="app-input rounded-xl px-4 py-2.5 text-[13px] outline-none"
-                    />
-                  </div>
-
-                  <div className="grid gap-3 lg:grid-cols-[1.5fr_0.95fr_auto] lg:items-end">
-                    <div>
-                      <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Assign to</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {assignablePeople.map((person) => {
-                          const active = newTaskOwner === person.name;
-
-                          return (
-                            <button
-                              key={person.name}
-                              type="button"
-                              onClick={() => setNewTaskOwner(person.name)}
-                              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition ${active ? "bg-ink text-cream shadow-[0_8px_20px_rgba(0,0,0,0.12)] dark:bg-white dark:text-[#141414]" : "bg-white/75 text-ink-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)] hover:bg-white hover:text-ink dark:bg-white/[0.05] dark:text-[var(--muted)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)] dark:hover:bg-white/[0.08] dark:hover:text-[var(--fg)]"}`}
-                            >
-                              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${active ? "bg-white/16 text-current dark:bg-black/8" : "bg-black/[0.05] text-ink dark:bg-[#202328] dark:text-[var(--fg)]"}`}>
-                                {person.initials}
-                              </span>
-                              {person.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <label className="app-input rounded-[1rem] px-4 py-3">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Due date</span>
-                      <input
-                        type="date"
-                        value={newTaskDueDate}
-                        onChange={(e) => setNewTaskDueDate(e.target.value)}
-                        className="mt-2 w-full bg-transparent text-[13px] font-medium theme-fg outline-none"
-                      />
-                    </label>
-
-                    <button type="button" onClick={handleAddTask} className="btn-primary px-5 py-2.5 text-[13px]">
-                      Add
+                    <span className="ml-0.5 text-[9px] text-text-ghost tabular-nums">{spIndex + 1}/{orderedSubprojects.length}</span>
+                    <button
+                      type="button"
+                      title="Delete subproject"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete "${sp.title}" and its ${sp.tasks.length} task${sp.tasks.length === 1 ? "" : "s"}? This can't be undone.`)) {
+                          handleDeleteSubproject(sp.id);
+                        }
+                      }}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-edge bg-stage-up text-text-ghost transition hover:border-coral/40 hover:bg-coral/10 hover:text-coral"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 000 1.5h.3l.713 8.557A1.5 1.5 0 005.256 15.5h5.488a1.5 1.5 0 001.494-1.443L12.95 5.5h.3a.75.75 0 000-1.5H11v-.75A2.25 2.25 0 008.75 1h-1.5A2.25 2.25 0 005 3.25zm2.25-.75a.75.75 0 00-.75.75V4h3v-.75a.75.75 0 00-.75-.75h-1.5z" clipRule="evenodd" /></svg>
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
 
-            {/* kanban columns */}
-            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {allStatuses.map((status) => {
-                const tasksInCol = selectedSubproject.tasks.filter((t) => t.status === status);
-                return (
-                  <div key={status} className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 px-1 pb-1">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: statusColor[status] }} />
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted">
-                        {statusLabel[status]}
-                      </span>
-                      <span className="ml-auto text-[10px] theme-muted">{tasksInCol.length}</span>
+                {/* Inline subproject assign picker */}
+                {inlineSpAssignId === sp.id && (
+                  <div className="ml-7 mb-1 flex flex-wrap items-center gap-1.5 rounded-lg border border-edge/50 bg-stage-up px-2 py-1.5">
+                    {assignablePeople.map((person) => {
+                      const active = sp.agentName === person.name;
+                      return (
+                        <button key={person.name} type="button" onClick={() => { handleAssignSubproject(sp.id, person.name); setInlineSpAssignId(null); }}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition ${active ? "bg-sun/15 text-sun" : "text-text-dim hover:bg-stage-up2 hover:text-text-soft"}`}>
+                          <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold ${active ? "bg-sun/20" : "bg-stage-up2"}`}>{person.initials}</span>
+                          {person.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Inline subproject details editor */}
+                {inlineSpDetailsId === sp.id && (
+                  <div className="ml-7 mb-2 rounded-lg border border-edge/50 bg-stage-up px-3 py-2">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">Goal / description</label>
+                    <textarea
+                      value={editingSpGoalText}
+                      onChange={(e) => setEditingSpGoalText(e.target.value)}
+                      placeholder="What is this subproject about?"
+                      rows={3}
+                      className="mt-1.5 w-full resize-none rounded-md border border-edge/30 bg-stage px-2.5 py-1.5 text-[12px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30"
+                    />
+                    <div className="mt-1.5 flex items-center justify-end gap-1.5">
+                      <button type="button" onClick={() => setInlineSpDetailsId(null)} className="rounded-md px-2 py-1 text-[10px] text-text-dim hover:text-coral">Cancel</button>
+                      <button type="button" onClick={() => { handleUpdateSubprojectGoal(sp.id, editingSpGoalText); setInlineSpDetailsId(null); }} className="rounded-md bg-sun/15 px-2.5 py-1 text-[10px] font-semibold text-sun hover:bg-sun/25">Save</button>
                     </div>
-                    <div className="flex min-h-[60px] flex-col gap-2">
-                      {tasksInCol.map((task) => {
-                        const isActive = task.id === selectedTaskId;
-                        const orderNumber = getTaskOrderNumber(task.id);
-                        return (
-                          <button
-                            key={task.id}
-                            type="button"
-                            onClick={() => handleSelectTask(selectedSubproject.id, task.id)}
-                            className={`rounded-[0.85rem] px-3 py-2.5 text-left transition-all duration-150 ${
-                              isActive
-                                ? "bg-[#fffaf2] text-[#17181b] shadow-[0_10px_26px_rgba(0,0,0,0.12)] dark:bg-[#f3efe8]"
-                                : "app-surface-strong hover:shadow-md"
-                            }`}
+                  </div>
+                )}
+
+                {/* Task rows */}
+                {!isCollapsed && (
+                  <div className="pb-2">
+                    {orderedTasks.map((task) => {
+                      const isDone = task.status === "done";
+                      const isBuilding = task.status === "building";
+                      const isReview = task.status === "review";
+                      const isPlanned = task.status === "planned";
+
+                      return (
+                        <div
+                          key={task.id}
+                          data-task-container
+                          className={`group relative ${dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? "before:absolute before:left-2 before:right-2 before:top-0 before:h-[2px] before:rounded-full before:bg-violet" : ""} ${draggedTaskId === task.id ? "opacity-40" : ""}`}
+                          onDragOver={(e) => {
+                            if (!draggedTaskId || draggedSpId) return;
+                            e.preventDefault();
+                            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id);
+                          }}
+                          onDragLeave={() => { if (dragOverTaskId === task.id) setDragOverTaskId(null); }}
+                          onDrop={(e) => {
+                            if (!draggedTaskId || draggedSpId) return;
+                            e.preventDefault();
+                            handleReorderTasks(draggedTaskId, task.id);
+                            setDraggedTaskId(null);
+                            setDragOverTaskId(null);
+                          }}
+                        >
+                        <button
+                          type="button"
+                          onClick={() => handleSelectTask(sp.id, task.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === " ") {
+                              e.preventDefault();
+                              const nextMap: Record<BuildTaskStatus, BuildTaskStatus> = { planned: "building", building: "review", review: "done", done: "planned" };
+                              handleChangeTaskStatus(task.id, nextMap[task.status]);
+                            }
+                          }}
+                          className={`w-full flex items-center gap-3 py-2.5 pl-3 pr-9 rounded-lg text-left transition cursor-pointer ${
+                            isBuilding
+                              ? "bg-sun/[0.03] border border-sun/[0.08]"
+                              : "hover:bg-stage-up"
+                          }`}
+                        >
+                          {/* Drag handle */}
+                          <span
+                            draggable
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              setDraggedTaskId(task.id);
+                              setDraggedSpId(null);
+                              e.dataTransfer.effectAllowed = "move";
+                              try { e.dataTransfer.setData("text/plain", task.id); } catch { /* */ }
+                              // Full row follows the cursor
+                              try {
+                                const container = (e.currentTarget as HTMLElement).closest("[data-task-container]") as HTMLElement | null;
+                                if (container) {
+                                  const rect = container.getBoundingClientRect();
+                                  e.dataTransfer.setDragImage(container, e.clientX - rect.left, e.clientY - rect.top);
+                                }
+                              } catch { /* */ }
+                            }}
+                            onDragEnd={() => { setDraggedTaskId(null); setDragOverTaskId(null); }}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Drag to reorder task"
+                            className="cursor-grab select-none text-text-ghost opacity-0 transition hover:text-text-dim group-hover:opacity-100 active:cursor-grabbing"
                           >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-[12px] font-medium leading-snug">{task.title}</p>
-                              {orderNumber && (
-                                <span className={`rounded-full px-2 py-[4px] text-[9px] font-semibold uppercase tracking-[0.14em] ${isActive ? "bg-black/[0.08] text-black/55" : "bg-black/[0.04] theme-muted dark:bg-white/[0.08]"}`}>
-                                  Step {orderNumber}
-                                </span>
-                              )}
-                            </div>
-                            <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] ${isActive ? "text-black/50" : "theme-muted"}`}>
-                              <span className="rounded-full bg-black/[0.05] px-2 py-1 dark:bg-white/[0.08]">{task.owner}</span>
-                              <span className="rounded-full bg-black/[0.05] px-2 py-1 dark:bg-white/[0.08]">Due {formatDueDate(task.dueDate)}</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                      {tasksInCol.length === 0 && (
-                        <div className="flex min-h-[60px] items-center justify-center rounded-[0.85rem] border border-dashed border-black/[0.06]">
-                          <span className="text-[10px] text-ink-muted/25">—</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        <section className="overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-white/55 px-5 py-5 shadow-[0_10px_30px_rgba(32,24,16,0.04)] backdrop-blur-sm dark:border-white/[0.08] dark:bg-white/[0.03] sm:px-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] theme-muted">Your tasks</p>
-              <h2 className="mt-2 text-[16px] font-semibold theme-fg">Your current focus</h2>
-            </div>
-            <span className="rounded-full bg-black/[0.04] px-3 py-1 text-[11px] font-semibold theme-muted dark:bg-white/[0.06]">
-              {personalTasks.length} task{personalTasks.length === 1 ? "" : "s"}
-            </span>
-          </div>
-
-          <div className="mt-4 overflow-hidden rounded-[1.2rem] border border-black/[0.05] bg-white/36 dark:border-white/[0.08] dark:bg-white/[0.02]">
-            {personalTasks.length > 0 ? (
-              personalTasks.map((task, index) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => handleSelectTask(subprojects.find((sp) => sp.title === task.subprojectTitle)?.id ?? selectedSubprojectId, task.id)}
-                  className={`w-full px-4 py-4 text-left transition hover:bg-white/55 dark:hover:bg-white/[0.04] ${index !== personalTasks.length - 1 ? "border-b border-black/[0.05] dark:border-white/[0.08]" : ""}`}
-                >
-                  <div className="grid items-center gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/[0.05] text-[12px] font-semibold theme-fg dark:bg-white/[0.06]">
-                      {getTaskOrderNumber(task.id) ?? index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-[14px] font-semibold tracking-tight theme-fg">{task.title}</p>
-                        <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] theme-muted dark:bg-white/[0.06]">
-                          {task.subprojectTitle}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] theme-muted">
-                        <span className="inline-flex items-center gap-2 rounded-full bg-black/[0.04] px-2.5 py-1 dark:bg-white/[0.06] dark:text-[var(--fg)]">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/75 text-[9px] font-semibold text-[#4a4137] dark:bg-[#24272d] dark:text-[var(--fg)]">
-                            {getAssigneeMeta(task.owner).initials}
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M7 4a1 1 0 100 2 1 1 0 000-2zM7 9a1 1 0 100 2 1 1 0 000-2zM7 14a1 1 0 100 2 1 1 0 000-2zM13 4a1 1 0 100 2 1 1 0 000-2zM13 9a1 1 0 100 2 1 1 0 000-2zM13 14a1 1 0 100 2 1 1 0 000-2z" /></svg>
                           </span>
-                          {task.owner}
-                        </span>
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 ${getDueDateMeta(task.dueDate).tone === "late" ? "bg-[#fff0eb] text-[#c96d4f] dark:bg-[#3a241f] dark:text-[#ffbea7]" : getDueDateMeta(task.dueDate).tone === "soon" ? "bg-[#fff7e7] text-[#b5842d] dark:bg-[#382d15] dark:text-[#f4ca75]" : "bg-black/[0.04] theme-muted dark:bg-white/[0.06] dark:text-[var(--muted)]"}`}>
-                          Due {getDueDateMeta(task.dueDate).label}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${task.status === "done" ? "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/14 dark:text-emerald-200/90" : task.status === "building" ? "bg-violet-500/12 text-violet-700 dark:bg-violet-400/14 dark:text-violet-200/90" : task.status === "review" ? "bg-amber-500/14 text-amber-700 dark:bg-amber-400/16 dark:text-amber-200/90" : "bg-stone-500/10 text-stone-600 dark:bg-stone-400/12 dark:text-stone-200/80"}`}>
-                        {statusLabel[task.status]}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              ))
-            ) : (
-              <div className="rounded-[1.15rem] border border-dashed border-black/[0.08] px-4 py-5 text-[13px] leading-relaxed theme-soft dark:border-white/[0.12]">
-                Nothing is assigned to you right now. Assign yourself a task to keep your next actions visible here.
-              </div>
-            )}
-          </div>
-        </section>
 
-        {/* ═══════════════════ VERSION CONTROL ═══════════════════ */}
-        {/* Removed — now lives compact in hero header */}
+                          {/* Status checkbox — click to cycle status */}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            title={`Status: ${task.status} — click to advance`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextMap: Record<BuildTaskStatus, BuildTaskStatus> = { planned: "building", building: "review", review: "done", done: "planned" };
+                              handleChangeTaskStatus(task.id, nextMap[task.status]);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const nextMap: Record<BuildTaskStatus, BuildTaskStatus> = { planned: "building", building: "review", review: "done", done: "planned" };
+                                handleChangeTaskStatus(task.id, nextMap[task.status]);
+                              }
+                            }}
+                            className={`flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded border-[1.5px] transition hover:scale-110 ${
+                              isDone ? "border-mint/70 bg-mint/10 dark:border-mint/40" :
+                              isBuilding ? "border-sun/80 bg-sun/10 dark:border-sun/50" :
+                              isReview ? "border-violet/70 bg-violet/10 dark:border-violet/40" :
+                              "border-black/35 dark:border-white/25"
+                            }`}>
+                            {isDone && (
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5.5L4 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-mint" /></svg>
+                            )}
+                            {isBuilding && (
+                              <div className="h-1.5 w-1.5 rounded-sm bg-sun shadow-[0_0_6px_rgba(255,159,28,0.5)]" />
+                            )}
+                            {isReview && (
+                              <div className="h-1.5 w-1.5 rounded-sm bg-violet" />
+                            )}
+                          </span>
+
+                          {/* Task title */}
+                          <span className={`flex-1 text-[13px] min-w-0 truncate ${
+                            isDone ? "text-text-dim line-through" :
+                            isBuilding ? "text-text font-semibold" :
+                            isReview ? "text-text-mid" :
+                            "text-text-dim"
+                          }`}>
+                            {task.title}
+                          </span>
+
+                          {/* Right side: status dropdown, details icon, assignee avatar */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <StatusDropdown value={task.status} onChange={(next) => handleChangeTaskStatus(task.id, next)} />
+
+                            {/* Details — compact icon button, badged when a note exists */}
+                            <button
+                              type="button"
+                              title={task.note ? `Note: ${task.note}` : "Add a note"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (inlineNotesTaskId === task.id) {
+                                  setInlineNotesTaskId(null);
+                                } else {
+                                  setEditingNoteText(task.note || "");
+                                  setInlineNotesTaskId(task.id);
+                                  setInlineAssignTaskId(null);
+                                }
+                              }}
+                              className={`relative inline-flex h-5 w-5 items-center justify-center rounded-full border transition opacity-0 group-hover:opacity-100 ${
+                                task.note
+                                  ? "border-sun/30 bg-sun/10 text-sun hover:bg-sun/20"
+                                  : "border-edge bg-stage-up text-text-ghost hover:border-text-ghost/40 hover:text-text-dim"
+                              }`}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5"><path d="M2 4.5A2.5 2.5 0 014.5 2h7A2.5 2.5 0 0114 4.5v7a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 012 11.5v-7zm3.5 1.5a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2.5a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 2.5a.5.5 0 000 1h3a.5.5 0 000-1h-3z" /></svg>
+                              {task.note ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-sun" /> : null}
+                            </button>
+
+                            {/* Assignee — avatar-only button */}
+                            <button
+                              type="button"
+                              title={task.owner ? `Assigned to ${task.owner} — click to change` : "Unassigned"}
+                              onClick={(e) => { e.stopPropagation(); setInlineAssignTaskId(inlineAssignTaskId === task.id ? null : task.id); setInlineNotesTaskId(null); }}
+                              className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[8.5px] font-bold transition ${
+                                task.owner
+                                  ? "border-edge bg-stage-up2 text-text-soft hover:border-text-ghost/40"
+                                  : "border-dashed border-edge bg-stage-up text-text-ghost hover:border-text-ghost/40 hover:text-text-dim"
+                              }`}
+                            >
+                              {task.owner ? getAssigneeMeta(task.owner).initials : "+"}
+                            </button>
+                          </div>
+                        </button>
+
+                        {/* Delete task — floats on hover of row */}
+                        <button
+                          type="button"
+                          title="Delete task"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete task "${task.title}"? This can't be undone.`)) {
+                              handleDeleteTask(task.id);
+                            }
+                          }}
+                          className="absolute right-2 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-edge bg-stage-up text-text-ghost opacity-0 transition group-hover:opacity-100 hover:border-coral/40 hover:bg-coral/10 hover:text-coral"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 000 1.5h.3l.713 8.557A1.5 1.5 0 005.256 15.5h5.488a1.5 1.5 0 001.494-1.443L12.95 5.5h.3a.75.75 0 000-1.5H11v-.75A2.25 2.25 0 008.75 1h-1.5A2.25 2.25 0 005 3.25zm2.25-.75a.75.75 0 00-.75.75V4h3v-.75a.75.75 0 00-.75-.75h-1.5z" clipRule="evenodd" /></svg>
+                        </button>
+
+                        {/* Inline assign picker */}
+                        {inlineAssignTaskId === task.id && (
+                          <div className="ml-7 mb-1 flex items-center gap-1.5 rounded-lg border border-edge/50 bg-stage-up px-2 py-1.5">
+                            {assignablePeople.map((person) => {
+                              const active = task.owner === person.name;
+                              return (
+                                <button key={person.name} type="button" onClick={() => handleAssignTask(task.id, person.name)}
+                                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition ${active ? "bg-sun/15 text-sun" : "text-text-dim hover:bg-stage-up2 hover:text-text-soft"}`}>
+                                  <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold ${active ? "bg-sun/20" : "bg-stage-up2"}`}>{person.initials}</span>
+                                  {person.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Inline notes editor */}
+                        {inlineNotesTaskId === task.id && (
+                          <div className="ml-7 mb-1 rounded-lg border border-edge/50 bg-stage-up px-3 py-2">
+                            <textarea
+                              value={editingNoteText}
+                              onChange={(e) => setEditingNoteText(e.target.value)}
+                              placeholder="Add a note…"
+                              rows={2}
+                              className="w-full resize-none rounded-md border border-edge/30 bg-stage px-2.5 py-1.5 text-[12px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="mt-1.5 flex items-center justify-between">
+                              {task.note && <span className="text-[9px] text-text-ghost">by {task.owner || currentUserName}</span>}
+                              <div className="ml-auto flex items-center gap-1.5">
+                                <button type="button" onClick={() => setInlineNotesTaskId(null)} className="rounded-md px-2 py-1 text-[10px] text-text-dim hover:text-coral">Cancel</button>
+                                <button type="button" onClick={() => { handleUpdateTaskNote(task.id, editingNoteText); setInlineNotesTaskId(null); }} className="rounded-md bg-sun/15 px-2.5 py-1 text-[10px] font-semibold text-sun hover:bg-sun/25">Save</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+
+                    {sp.tasks.length === 0 && (
+                      <p className="px-3 py-3 text-[12px] text-text-ghost">No tasks yet — click + Task to add one</p>
+                    )}
+
+                    {/* Add task for this subproject */}
+                    {selectedSubprojectId === sp.id && showTaskCreator && (
+                      <div className="mt-2 mx-3 rounded-lg border border-edge bg-stage-up p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <input value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="Task title" className="rounded-lg border border-edge bg-stage px-3 py-2 text-[12px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30" />
+                          <input value={newTaskNote} onChange={(e) => setNewTaskNote(e.target.value)} placeholder="Quick note" className="rounded-lg border border-edge bg-stage px-3 py-2 text-[12px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30" />
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <label className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-text-ghost">
+                            Subproject
+                            <select value={selectedSubprojectId} onChange={(e) => setSelectedSubprojectId(e.target.value)} className="rounded-lg border border-edge bg-stage px-2 py-1.5 text-[11px] text-text-mid outline-none">
+                              {subprojects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                            </select>
+                          </label>
+                          <select value={newTaskOwner} onChange={(e) => setNewTaskOwner(e.target.value)} className="rounded-lg border border-edge bg-stage px-2 py-1.5 text-[11px] text-text-mid outline-none">
+                            {assignablePeople.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                          </select>
+                          <input type="date" value={newTaskDueDate} onChange={(e) => setNewTaskDueDate(e.target.value)} className="rounded-lg border border-edge bg-stage px-2 py-1.5 text-[11px] text-text-mid outline-none" />
+                          <div className="flex-1" />
+                          <button type="button" onClick={() => setShowTaskCreator(false)} className="rounded-lg px-3 py-1.5 text-[11px] text-text-dim hover:text-coral">Cancel</button>
+                          <button type="button" onClick={handleAddTask} className="rounded-lg bg-sun/15 px-3 py-1.5 text-[11px] font-semibold text-sun hover:bg-sun/25">Add</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Section divider */}
+                {spIndex < orderedSubprojects.length - 1 && <div className="border-b border-edge/30" />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ═══════════════════ ADD SUBPROJECT / TASK BUTTONS ═══════════════════ */}
+        <div className="flex items-center gap-2 py-3 border-t border-edge/30">
+          <button type="button" onClick={() => setShowSubprojectCreator(true)} disabled={hasNoActiveDesktopProject}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-[11px] font-medium text-text-ghost transition hover:border-text-dim hover:text-text-dim">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+            Add subproject
+          </button>
+          {selectedSubproject && (
+            <button type="button" onClick={() => { setShowTaskCreator(true); }} disabled={hasNoActiveDesktopProject}
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-[11px] font-medium text-text-ghost transition hover:border-text-dim hover:text-text-dim">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+              Add task
+            </button>
+          )}
+        </div>
+
+        {/* ═══════════════════ BOTTOM PROGRESS BAR ═══════════════════ */}
+        <div className="py-4">
+          <div className="h-1 overflow-hidden rounded-full bg-edge/50">
+            <div className="h-full rounded-full bg-gradient-to-r from-sun to-mint transition-all duration-700" style={{ width: `${Math.max(overallProgress, 1)}%` }} />
+          </div>
+          <p className="mt-2 text-center text-[10px] text-text-ghost">
+            {allTasks.filter((t) => t.status === "done").length} of {allTasks.length} tasks complete
+          </p>
+        </div>
+
       </div>
 
       {/* ═══════════════════ ADD SUBPROJECT MODAL ═══════════════════ */}
       {showSubprojectCreator && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setShowSubprojectCreator(false)}
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-          />
-          <div className="relative w-full max-w-md rounded-[1.5rem] bg-white p-6 shadow-2xl ring-1 ring-black/[0.06]">
-            <h3 className="text-[16px] font-semibold text-ink">New subproject</h3>
+          <button type="button" aria-label="Close" onClick={() => setShowSubprojectCreator(false)} className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
+          <div className="relative w-full max-w-md overflow-hidden rounded-xl border border-edge bg-stage p-6 shadow-2xl">
+            <h3 className="text-[16px] font-semibold text-text">New subproject</h3>
             <div className="mt-4 grid gap-3">
-              <input
-                value={newSubprojectTitle}
-                onChange={(e) => setNewSubprojectTitle(e.target.value)}
-                placeholder="Subproject name"
-                className="rounded-xl border border-black/[0.06] bg-[#faf8f4] px-4 py-3 text-[14px] text-ink outline-none placeholder:text-ink-muted/50"
-              />
-              <textarea
-                value={newSubprojectGoal}
-                onChange={(e) => setNewSubprojectGoal(e.target.value)}
-                rows={3}
-                placeholder="What is it for? (optional)"
-                className="resize-none rounded-xl border border-black/[0.06] bg-[#faf8f4] px-4 py-3 text-[14px] text-ink outline-none placeholder:text-ink-muted/50"
-              />
+              <input value={newSubprojectTitle} onChange={(e) => setNewSubprojectTitle(e.target.value)} placeholder="Subproject name" className="rounded-lg border border-edge bg-stage-up px-4 py-3 text-[14px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30" />
+              <textarea value={newSubprojectGoal} onChange={(e) => setNewSubprojectGoal(e.target.value)} rows={3} placeholder="What is it for? (optional)" className="resize-none rounded-lg border border-edge bg-stage-up px-4 py-3 text-[14px] text-text outline-none placeholder:text-text-ghost focus:border-sun/30" />
               <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSubprojectCreator(false)}
-                  className="btn-ghost px-4 py-2.5 text-[13px]"
-                >
-                  Cancel
-                </button>
-                <button type="button" onClick={handleAddSubproject} className="btn-primary px-5 py-2.5 text-[13px]">
-                  Add
-                </button>
+                <button type="button" onClick={() => setShowSubprojectCreator(false)} className="rounded-lg px-4 py-2.5 text-[13px] text-text-dim hover:text-text">Cancel</button>
+                <button type="button" onClick={handleAddSubproject} className="rounded-lg bg-sun/15 px-5 py-2.5 text-[13px] font-semibold text-sun hover:bg-sun/25">Add</button>
               </div>
             </div>
           </div>
@@ -2034,69 +2385,36 @@ export default function ProjectPage() {
       )}
 
       {/* ═══════════════════ TASK DETAIL DRAWER ═══════════════════ */}
-
       {showTaskDetails && selectedTask && (
         <div className="fixed inset-0 z-[70]">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => {
-              setShowTaskDetails(false);
-              setShowAssigneePicker(false);
-              setShowDueDatePicker(false);
-            }}
-            className="absolute inset-0 bg-black/20 backdrop-blur-[6px]"
-          />
+          <button type="button" aria-label="Close" onClick={() => { setShowTaskDetails(false); setShowAssigneePicker(false); setShowDueDatePicker(false); }} className="absolute inset-0 bg-black/20 backdrop-blur-[6px]" />
           <div className="pointer-events-none absolute inset-y-0 right-0 flex w-full justify-end p-3 sm:p-5 lg:p-6">
             <div className="drawer-panel pointer-events-auto flex h-full w-full max-w-[580px] flex-col overflow-hidden rounded-[2rem] bg-[#111] text-white shadow-2xl ring-1 ring-white/10 xl:max-w-[640px]">
 
               {/* close */}
               <div className="flex justify-end px-5 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowTaskDetails(false);
-                    setShowAssigneePicker(false);
-                    setShowDueDatePicker(false);
-                  }}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-white/60 transition hover:bg-white/12"
-                >
+                <button type="button" onClick={() => { setShowTaskDetails(false); setShowAssigneePicker(false); setShowDueDatePicker(false); }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-white/60 transition hover:bg-white/12">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.22 4.22a.75.75 0 011.06 0L10 8.94l4.72-4.72a.75.75 0 111.06 1.06L11.06 10l4.72 4.72a.75.75 0 11-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 01-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 010-1.06z"
-                      clipRule="evenodd"
-                    />
+                    <path fillRule="evenodd" d="M4.22 4.22a.75.75 0 011.06 0L10 8.94l4.72-4.72a.75.75 0 111.06 1.06L11.06 10l4.72 4.72a.75.75 0 11-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 01-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 010-1.06z" clipRule="evenodd" />
                   </svg>
                 </button>
               </div>
 
               {/* body */}
               <div className="custom-scroll flex-1 overflow-y-auto px-6 pb-6">
-                {/* title */}
-                <h2 className="display-font text-[1.5rem] font-semibold leading-tight tracking-tight">
-                  {selectedTask.title}
-                </h2>
+                <h2 className="display-font text-[1.5rem] font-semibold leading-tight tracking-tight">{selectedTask.title}</h2>
 
                 {/* interactive status selector */}
                 <div className="mt-5 flex flex-wrap gap-2">
                   {allStatuses.map((s) => {
                     const active = selectedTask.status === s;
                     return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => handleChangeTaskStatus(selectedTask.id, s)}
+                      <button key={s} type="button" onClick={() => handleChangeTaskStatus(selectedTask.id, s)}
                         className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-medium transition-all ${
-                          active
-                            ? "bg-white/15 text-white ring-1 ring-white/20"
-                            : "text-white/35 hover:bg-white/[0.05] hover:text-white/60"
-                        }`}
-                      >
-                        <span
-                          className={`h-2 w-2 rounded-full transition-all ${active ? "scale-125" : ""}`}
-                          style={{ backgroundColor: statusColor[s] }}
-                        />
+                          active ? "bg-white/15 text-white ring-1 ring-white/20" : "text-white/35 hover:bg-white/[0.05] hover:text-white/60"
+                        }`}>
+                        <span className={`h-2 w-2 rounded-full transition-all ${active ? "scale-125" : ""}`} style={{ backgroundColor: statusColor[s] }} />
                         {statusLabel[s]}
                       </button>
                     );
@@ -2105,31 +2423,16 @@ export default function ProjectPage() {
 
                 <div className="mt-6">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAssigneePicker((current) => !current);
-                        setShowDueDatePicker(false);
-                      }}
-                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-medium transition ${showAssigneePicker ? "bg-white text-[#141414] shadow-[0_12px_28px_rgba(255,255,255,0.12)]" : "bg-white/[0.06] text-white/78 hover:bg-white/[0.1] hover:text-white"}`}
-                    >
+                    <button type="button" onClick={() => { setShowAssigneePicker((c) => !c); setShowDueDatePicker(false); }}
+                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-medium transition ${showAssigneePicker ? "bg-white text-[#141414] shadow-[0_12px_28px_rgba(255,255,255,0.12)]" : "bg-white/[0.06] text-white/78 hover:bg-white/[0.1] hover:text-white"}`}>
                       <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${showAssigneePicker ? "bg-black/8" : "bg-white/[0.08]"}`}>
                         {getAssigneeMeta(selectedTask.owner).initials}
                       </span>
                       Assign: {selectedTask.owner}
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowDueDatePicker((current) => !current);
-                        setShowAssigneePicker(false);
-                      }}
-                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-medium transition ${showDueDatePicker ? "bg-white text-[#141414] shadow-[0_12px_28px_rgba(255,255,255,0.12)]" : "bg-white/[0.06] text-white/78 hover:bg-white/[0.1] hover:text-white"}`}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                        <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.25 2.25 0 0117.5 6.25v8A2.25 2.25 0 0115.25 16.5h-10A2.25 2.25 0 013 14.25v-8A2.25 2.25 0 015.25 4H5V2.75A.75.75 0 015.75 2zM4.5 8v6.25c0 .414.336.75.75.75h10a.75.75 0 00.75-.75V8h-11.5z" clipRule="evenodd" />
-                      </svg>
+                    <button type="button" onClick={() => { setShowDueDatePicker((c) => !c); setShowAssigneePicker(false); }}
+                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-medium transition ${showDueDatePicker ? "bg-white text-[#141414] shadow-[0_12px_28px_rgba(255,255,255,0.12)]" : "bg-white/[0.06] text-white/78 hover:bg-white/[0.1] hover:text-white"}`}>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.25 2.25 0 0117.5 6.25v8A2.25 2.25 0 0115.25 16.5h-10A2.25 2.25 0 013 14.25v-8A2.25 2.25 0 015.25 4H5V2.75A.75.75 0 015.75 2zM4.5 8v6.25c0 .414.336.75.75.75h10a.75.75 0 00.75-.75V8h-11.5z" clipRule="evenodd" /></svg>
                       Due: {formatDueDate(selectedTask.dueDate)}
                     </button>
                   </div>
@@ -2138,17 +2441,10 @@ export default function ProjectPage() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       {assignablePeople.map((person) => {
                         const active = selectedTask.owner === person.name;
-
                         return (
-                          <button
-                            key={person.name}
-                            type="button"
-                            onClick={() => handleAssignTask(selectedTask.id, person.name)}
-                            className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition ${active ? "bg-white text-[#141414] shadow-[0_12px_28px_rgba(255,255,255,0.12)]" : "bg-white/[0.06] text-white/72 hover:bg-white/[0.1] hover:text-white"}`}
-                          >
-                            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${active ? "bg-black/8" : "bg-white/[0.08]"}`}>
-                              {person.initials}
-                            </span>
+                          <button key={person.name} type="button" onClick={() => handleAssignTask(selectedTask.id, person.name)}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition ${active ? "bg-white text-[#141414]" : "bg-white/[0.06] text-white/72 hover:bg-white/[0.1]"}`}>
+                            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${active ? "bg-black/8" : "bg-white/[0.08]"}`}>{person.initials}</span>
                             {person.name}
                           </button>
                         );
@@ -2158,35 +2454,12 @@ export default function ProjectPage() {
 
                   {showDueDatePicker && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSetRelativeDueDate(selectedTask.id, 0)}
-                        className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 transition hover:bg-white/[0.1] hover:text-white"
-                      >
-                        Today
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetRelativeDueDate(selectedTask.id, 3)}
-                        className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 transition hover:bg-white/[0.1] hover:text-white"
-                      >
-                        +3 days
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetRelativeDueDate(selectedTask.id, 7)}
-                        className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 transition hover:bg-white/[0.1] hover:text-white"
-                      >
-                        +1 week
-                      </button>
+                      <button type="button" onClick={() => handleSetRelativeDueDate(selectedTask.id, 0)} className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 hover:bg-white/[0.1]">Today</button>
+                      <button type="button" onClick={() => handleSetRelativeDueDate(selectedTask.id, 3)} className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 hover:bg-white/[0.1]">+3 days</button>
+                      <button type="button" onClick={() => handleSetRelativeDueDate(selectedTask.id, 7)} className="rounded-full bg-white/[0.06] px-3 py-2 text-[11px] font-medium text-white/72 hover:bg-white/[0.1]">+1 week</button>
                       <label className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3.5 py-2 text-[12px] text-white/82">
                         <span className="mr-2 text-white/45">Pick</span>
-                        <input
-                          type="date"
-                          value={selectedTask.dueDate}
-                          onChange={(e) => handleChangeTaskDueDate(selectedTask.id, e.target.value)}
-                          className="bg-transparent text-[12px] text-white outline-none"
-                        />
+                        <input type="date" value={selectedTask.dueDate} onChange={(e) => handleChangeTaskDueDate(selectedTask.id, e.target.value)} className="bg-transparent text-[12px] text-white outline-none" />
                       </label>
                     </div>
                   )}
@@ -2194,45 +2467,31 @@ export default function ProjectPage() {
 
                 <div className="mt-6 rounded-[1.25rem] border border-white/8 bg-white/[0.03] p-4">
                   <div className="flex items-start justify-between gap-3 border-b border-white/8 pb-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/42">Conversation history</p>
-                    </div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/42">Conversation history</p>
                     <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58">
                       {selectedTaskConversations.length} thread{selectedTaskConversations.length === 1 ? "" : "s"}
                     </span>
                   </div>
-
                   <div className="mt-4 space-y-3">
                     {selectedTaskConversations.length > 0 ? (
                       selectedTaskConversations.map((thread) => {
                         const lastMessage = thread.messages[thread.messages.length - 1];
-
                         return (
-                          <Link
-                            key={thread.id}
-                            href={`/project/chat?task=${encodeURIComponent(selectedTask.id)}&thread=${encodeURIComponent(thread.id)}`}
-                            className="block rounded-[0.95rem] border border-white/8 bg-white/[0.025] px-4 py-3 transition hover:border-white/14 hover:bg-white/[0.04]"
-                          >
+                          <Link key={thread.id} href={`/project/chat?task=${encodeURIComponent(selectedTask.id)}&thread=${encodeURIComponent(thread.id)}`}
+                            className="block rounded-[0.95rem] border border-white/8 bg-white/[0.025] px-4 py-3 transition hover:border-white/14 hover:bg-white/[0.04]">
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <p className="text-[13px] font-semibold text-white">{thread.title}</p>
                                 <p className="mt-1 text-[11px] text-white/45">{thread.agentName} • {thread.updatedAgo}</p>
                               </div>
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-white/34">
-                                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-                              </svg>
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-white/34"><path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" /></svg>
                             </div>
-
                             <div className="mt-3 space-y-2 border-t border-white/8 pt-3">
                               <p className="line-clamp-1 text-[12px] leading-relaxed text-white/62">{thread.summary}</p>
                               {lastMessage && (
                                 <div className="flex items-start gap-2 text-[11px] leading-relaxed">
-                                  <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/46">
-                                    {lastMessage.from}
-                                  </span>
-                                  <p className={`line-clamp-1 ${lastMessage.isAI ? "text-white/62" : "text-white/82"}`}>
-                                    {lastMessage.text}
-                                  </p>
+                                  <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/46">{lastMessage.from}</span>
+                                  <p className={`line-clamp-1 ${lastMessage.isAI ? "text-white/62" : "text-white/82"}`}>{lastMessage.text}</p>
                                 </div>
                               )}
                             </div>
@@ -2250,22 +2509,14 @@ export default function ProjectPage() {
 
               {/* footer */}
               <div className="border-t border-white/8 px-5 py-4 flex flex-col gap-2.5">
-                <Link
-                  href={`/project/chat?task=${encodeURIComponent(selectedTask.id)}`}
-                  className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#a78bfa] to-[#34d399] px-5 py-3 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(167,139,250,0.25)] transition hover:shadow-[0_12px_32px_rgba(167,139,250,0.35)] hover:brightness-110"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path fillRule="evenodd" d="M2 10a.75.75 0 01.75-.75h12.59l-2.1-1.95a.75.75 0 111.02-1.1l3.5 3.25a.75.75 0 010 1.1l-3.5 3.25a.75.75 0 11-1.02-1.1l2.1-1.95H2.75A.75.75 0 012 10z" clipRule="evenodd" />
-                  </svg>
+                <Link href={`/project/chat?task=${encodeURIComponent(selectedTask.id)}`}
+                  className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#a78bfa] to-[#34d399] px-5 py-3 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(167,139,250,0.25)] transition hover:shadow-[0_12px_32px_rgba(167,139,250,0.35)] hover:brightness-110">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M2 10a.75.75 0 01.75-.75h12.59l-2.1-1.95a.75.75 0 111.02-1.1l3.5 3.25a.75.75 0 010 1.1l-3.5 3.25a.75.75 0 11-1.02-1.1l2.1-1.95H2.75A.75.75 0 012 10z" clipRule="evenodd" /></svg>
                   Start working on this task
                 </Link>
-                <Link
-                  href={`/project/chat?ask=${encodeURIComponent(selectedTask.id)}`}
-                  className="flex items-center justify-center gap-2 rounded-full bg-white/[0.06] px-5 py-3 text-[13px] font-medium text-white/70 ring-1 ring-white/10 transition hover:bg-white/[0.1] hover:text-white"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                    <path fillRule="evenodd" d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902 1.168.188 2.352.327 3.55.414.28.02.521.18.642.413l1.713 3.293a.75.75 0 001.33 0l1.713-3.293a.783.783 0 01.642-.413 41.102 41.102 0 003.55-.414c1.437-.231 2.43-1.49 2.43-2.902V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0010 2zM6.75 6a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 2.5a.75.75 0 000 1.5h3.5a.75.75 0 000-1.5h-3.5z" clipRule="evenodd" />
-                  </svg>
+                <Link href={`/project/chat?ask=${encodeURIComponent(selectedTask.id)}`}
+                  className="flex items-center justify-center gap-2 rounded-full bg-white/[0.06] px-5 py-3 text-[13px] font-medium text-white/70 ring-1 ring-white/10 transition hover:bg-white/[0.1] hover:text-white">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M10 2c-2.236 0-4.43.18-6.57.524C1.993 2.755 1 4.014 1 5.426v5.148c0 1.413.993 2.67 2.43 2.902 1.168.188 2.352.327 3.55.414.28.02.521.18.642.413l1.713 3.293a.75.75 0 001.33 0l1.713-3.293a.783.783 0 01.642-.413 41.102 41.102 0 003.55-.414c1.437-.231 2.43-1.49 2.43-2.902V5.426c0-1.413-.993-2.67-2.43-2.902A41.289 41.289 0 0010 2z" clipRule="evenodd" /></svg>
                   Ask the project manager about this task
                 </Link>
               </div>
@@ -2277,3 +2528,4 @@ export default function ProjectPage() {
     </div>
   );
 }
+

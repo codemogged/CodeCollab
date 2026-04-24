@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CodeBuddy Prod V3 — Backend Full Breakdown</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a28;
+    --border: #2a2a3a;
+    --text: #e0e0e8;
+    --text-dim: #8888a0;
+    --accent: #7c5cfc;
+    --accent2: #5caafc;
+    --green: #3ddc84;
+    --amber: #ffb74d;
+    --red: #ff5252;
+    --cyan: #26c6da;
+    --code-bg: #0e0e18;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.7;
+    padding: 0;
+  }
+  .hero {
+    background: linear-gradient(135deg, #1a103a 0%, #0a0a1a 60%, #0a1a2a 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 80px 60px 60px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+    letter-spacing: -1px;
+  }
+  .hero .subtitle {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    max-width: 700px;
+    margin: 0 auto 24px;
+  }
+  .hero .meta-row {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hero .meta-row span {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    background: var(--surface);
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 32px;
+  }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 40px;
+    margin-bottom: 48px;
+  }
+  .toc h2 {
+    font-size: 1.3rem;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+  .toc ol {
+    columns: 2;
+    column-gap: 40px;
+    padding-left: 20px;
+  }
+  .toc li {
+    margin-bottom: 6px;
+    font-size: 0.95rem;
+    break-inside: avoid;
+  }
+  .toc a {
+    color: var(--accent2);
+    text-decoration: none;
+  }
+  .toc a:hover { text-decoration: underline; }
+
+  section {
+    margin-bottom: 56px;
+  }
+  section > h2 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--accent);
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-size: 1.2rem;
+    color: var(--accent2);
+    margin: 28px 0 12px;
+  }
+  h4 {
+    font-size: 1.05rem;
+    color: var(--green);
+    margin: 20px 0 8px;
+  }
+  p, li {
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  ul, ol {
+    padding-left: 24px;
+    margin: 8px 0;
+  }
+  li { margin-bottom: 4px; }
+  code {
+    background: var(--code-bg);
+    color: var(--cyan);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 12px 0;
+    font-family: 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .card h4 { margin-top: 0; }
+  .badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  .badge-service { background: #7c5cfc30; color: var(--accent); border: 1px solid #7c5cfc50; }
+  .badge-ipc { background: #5caafc30; color: var(--accent2); border: 1px solid #5caafc50; }
+  .badge-main { background: #3ddc8430; color: var(--green); border: 1px solid #3ddc8450; }
+  .badge-preload { background: #ffb74d30; color: var(--amber); border: 1px solid #ffb74d50; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+  }
+  th {
+    background: var(--surface2);
+    color: var(--accent2);
+    font-weight: 600;
+  }
+  td { color: var(--text); }
+  tr:nth-child(even) { background: var(--surface); }
+  .flow-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 16px 0;
+    font-family: monospace;
+    font-size: 0.85rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .warn {
+    background: #ff525215;
+    border-left: 3px solid var(--red);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0;
+    font-size: 0.9rem;
+    color: var(--amber);
+  }
+  .note {
+    background: #5caafc10;
+    border-left: 3px solid var(--accent2);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0;
+    font-size: 0.9rem;
+  }
+  .separator {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 40px 0;
+  }
+  @media (max-width: 768px) {
+    .hero { padding: 40px 20px 32px; }
+    .hero h1 { font-size: 2rem; }
+    .container { padding: 24px 16px; }
+    .toc ol { columns: 1; }
+    .card-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  HERO                                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1>CodeBuddy Prod V3</h1>
+  <h1 style="font-size:1.8rem; margin-top:-8px;">Backend Full Breakdown</h1>
+  <p class="subtitle">
+    A comprehensive reference of every backend function, service, IPC channel, data flow, and integration in the production Electron main process — documented as a safety net before the UI overhaul.
+  </p>
+  <div class="meta-row">
+    <span>Build Tag: v37</span>
+    <span>Electron 41.0.3</span>
+    <span>10 Services</span>
+    <span>~120 IPC Channels</span>
+    <span>3 AI Providers</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  TABLE OF CONTENTS                                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<nav class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#s00">Section 00 — Architecture Overview</a></li>
+    <li><a href="#s01">Section 01 — File Map &amp; Line Counts</a></li>
+    <li><a href="#s02">Section 02 — Main Process (main.js)</a></li>
+    <li><a href="#s03">Section 03 — Preload Bridge (preload.js)</a></li>
+    <li><a href="#s04">Section 04 — IPC Handler Registry (register-handlers.js)</a></li>
+    <li><a href="#s05">Section 05 — Settings Service</a></li>
+    <li><a href="#s06">Section 06 — Process Service</a></li>
+    <li><a href="#s07">Section 07 — Repo Service (Git)</a></li>
+    <li><a href="#s08">Section 08 — Tooling Service</a></li>
+    <li><a href="#s09">Section 09 — Project Service</a></li>
+    <li><a href="#s10">Section 10 — P2P Collaboration Service</a></li>
+    <li><a href="#s11">Section 11 — File Watcher Service</a></li>
+    <li><a href="#s12">Section 12 — Shared State Service</a></li>
+    <li><a href="#s13">Section 13 — Activity Service</a></li>
+    <li><a href="#s14">Section 14 — Model Catalogs (Config)</a></li>
+    <li><a href="#s15">Section 15 — Data Flow Diagrams</a></li>
+    <li><a href="#s16">Section 16 — IPC Channel Reference Table</a></li>
+    <li><a href="#s17">Section 17 — Safety &amp; Security Mechanisms</a></li>
+    <li><a href="#s18">Section 18 — Known Gotchas &amp; Recovery Patterns</a></li>
+  </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 00 — ARCHITECTURE OVERVIEW                           -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s00">
+<h2>Section 00 — Architecture Overview</h2>
+
+<p>CodeBuddy is an <strong>Electron desktop application</strong> with a Next.js renderer. All backend logic executes in the Electron <strong>main process</strong> (full Node.js). The renderer communicates with the main process exclusively through <strong>IPC (Inter-Process Communication)</strong> via a preload bridge.</p>
+
+<h3>Service Dependency Graph</h3>
+<div class="flow-diagram">
+                            ┌──────────────┐
+                            │   main.js    │   App lifecycle, window creation
+                            └──────┬───────┘
+                                   │ creates all services
+                   ┌───────────────┼───────────────────────────────────┐
+                   │               │                                   │
+            ┌──────▼──────┐ ┌──────▼──────┐                    ┌──────▼──────┐
+            │ processServ │ │settingsServ │                    │  repoServ   │
+            │  (standalone)│ │ (standalone)│                    │   (async)   │
+            └──────┬──────┘ └──────┬──────┘                    └─────────────┘
+                   │               │
+            ┌──────▼──────┐ ┌──────▼──────┐  ┌──────────────┐
+            │ toolingServ │ │activityServ │  │sharedStateSv │
+            │ (uses proc) │ │ (standalone)│  │ (standalone)  │
+            └──────┬──────┘ └─────────────┘  └──────┬───────┘
+                   │                                 │
+            ┌──────▼──────────┐              ┌───────▼──────┐
+            │   p2pService    │◄─────────────│ fileWatchSrv │
+            │ (uses sharedSt) │              │(uses repo,p2p)│
+            └──────┬──────────┘              └──────────────┘
+                   │
+            ┌──────▼───────────────────────────────────────────┐
+            │              projectService                       │
+            │  (uses settings, tooling, p2p, sharedState)       │
+            │  LARGEST service — project CRUD, AI agent calls,  │
+            │  plan generation, task/PM/solo messaging,         │
+            │  checkpoint system, dev server launch             │
+            └──────────────────────────────────────────────────┘
+                   │
+            ┌──────▼──────────┐
+            │ register-       │   Wires all services to IPC channels
+            │ handlers.js     │   Also implements P2P state merge logic
+            └─────────────────┘
+</div>
+
+<h3>Service Creation Order (in main.js)</h3>
+<ol>
+  <li><code>processService</code> — child process management</li>
+  <li><code>settingsService</code> — settings persistence</li>
+  <li><code>toolingService</code> — tool detection &amp; AI providers (depends on processService)</li>
+  <li><code>activityService</code> — in-memory event log</li>
+  <li><code>sharedStateService</code> — .codebuddy/ directory management</li>
+  <li><code>p2pService</code> — peer-to-peer collaboration (depends on sharedStateService)</li>
+  <li><code>fileWatcherService</code> — file system watching (depends on repoService, processService, p2pService)</li>
+  <li><code>projectService</code> — project lifecycle (depends on settings, tooling, p2p, sharedState)</li>
+  <li><code>repoService</code> — Git operations (created async, may lag slightly)</li>
+</ol>
+
+<div class="note">
+  <strong>Key Pattern:</strong> The <code>sendEvent</code> function is initially <code>() =&gt; undefined</code> in main.js. It gets wired up to the actual BrowserWindow's <code>webContents.send</code> only after IPC handlers are registered. All services that need to emit events to the renderer receive this function.
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 01 — FILE MAP                                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s01">
+<h2>Section 01 — File Map &amp; Line Counts</h2>
+
+<table>
+  <tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+  <tr><td><code>electron/main.js</code></td><td>~285</td><td>App lifecycle, window creation, static server, service init</td></tr>
+  <tr><td><code>electron/preload.js</code></td><td>~165</td><td>Secure IPC bridge (contextBridge)</td></tr>
+  <tr><td><code>electron/ipc/register-handlers.js</code></td><td>~1700</td><td>All IPC handler registrations &amp; P2P state merge logic</td></tr>
+  <tr><td><code>electron/config/model-catalogs.json</code></td><td>~80</td><td>AI model definitions for 3 providers</td></tr>
+  <tr><td><code>electron/services/settings-service.js</code></td><td>~270</td><td>Settings file persistence with atomic writes</td></tr>
+  <tr><td><code>electron/services/process-service.js</code></td><td>~145</td><td>Child process spawn/management</td></tr>
+  <tr><td><code>electron/services/repo-service.js</code></td><td>~430</td><td>Git operations wrapper</td></tr>
+  <tr><td><code>electron/services/tooling-service.js</code></td><td>~1800</td><td>Tool detection/install, AI provider routing, auth</td></tr>
+  <tr><td><code>electron/services/project-service.js</code></td><td>~3900</td><td>Project CRUD, AI agent orchestration, plan gen, checkpoints</td></tr>
+  <tr><td><code>electron/services/p2p-service.js</code></td><td>~850</td><td>Hyperswarm P2P networking + Yjs CRDTs</td></tr>
+  <tr><td><code>electron/services/file-watcher-service.js</code></td><td>~720</td><td>Auto-commit/push file watcher</td></tr>
+  <tr><td><code>electron/services/shared-state-service.js</code></td><td>~165</td><td>.codebuddy/ directory management</td></tr>
+  <tr><td><code>electron/services/activity-service.js</code></td><td>~45</td><td>In-memory activity event store</td></tr>
+</table>
+
+<p><strong>Total backend:</strong> ~10,500 lines across 13 files.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 02 — MAIN PROCESS                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s02">
+<h2>Section 02 — Main Process <span class="badge badge-main">main.js</span></h2>
+
+<h3>2.1 App Lifecycle</h3>
+<ul>
+  <li><strong>VM Detection &amp; GPU Disable:</strong> Checks <code>os.cpus()</code> for VM CPU models (QEMU, Virtual, VMware, Xen). If detected, adds <code>--disable-gpu</code> via <code>app.commandLine.appendSwitch</code>.</li>
+  <li><strong>Hardware Acceleration:</strong> Disabled via <code>app.disableHardwareAcceleration()</code>.</li>
+  <li><strong>Single Instance Lock:</strong> Not implemented (no <code>requestSingleInstanceLock</code>).</li>
+</ul>
+
+<h3>2.2 Diagnostic Logger</h3>
+<pre>const LOG_FILE = path.join(app.getPath("userData"), "codebuddy-debug.log");</pre>
+<p>All <code>console.log/warn/error</code> calls are intercepted and tee'd to a file with ISO timestamps. Truncated to last 5000 lines on startup to prevent unbounded growth.</p>
+
+<h3>2.3 Static Server</h3>
+<h4><code>ensureStaticServer()</code></h4>
+<p>In production, Next.js exports static HTML to <code>out/</code>. This function creates an HTTP server that serves those files on a random available port (starting at 3000). Returns the URL, e.g., <code>http://localhost:3000</code>. The server is stored in <code>_staticServer</code> and closed on quit.</p>
+
+<h3>2.4 Window Creation</h3>
+<h4><code>createWindow()</code></h4>
+<ul>
+  <li><strong>Dimensions:</strong> 1400×900 default, 900×600 minimum</li>
+  <li><strong>Title:</strong> <code>CodeBuddy [build copilot-fix-v3]</code></li>
+  <li><strong>Preload:</strong> <code>electron/preload.js</code></li>
+  <li><strong>Security:</strong> <code>nodeIntegration: false</code>, <code>contextIsolation: true</code>, <code>webviewTag: true</code></li>
+  <li><strong>Dev vs Prod:</strong> Dev loads <code>http://localhost:3000</code>; Prod loads from static server</li>
+  <li><strong>Cache:</strong> Production clears <code>clearCache</code> + <code>clearCodeCaches</code> on start</li>
+  <li><strong>Webview security:</strong> Guest pages get <code>contextIsolation: true</code>, <code>sandbox: true</code>, <code>nodeIntegration: false</code></li>
+  <li><strong>X-Frame-Options stripping:</strong> Strips X-Frame-Options headers from localhost URLs (enabling preview iframe)</li>
+</ul>
+
+<h3>2.5 Service Bootstrap</h3>
+<h4><code>bootstrapDesktopServices(mainWindow)</code></h4>
+<p>Called from <code>app.whenReady()</code>. Creates all services in dependency order (see Section 00), then calls <code>registerIpcHandlers()</code> passing all services + <code>sendEvent</code>. Also creates <code>repoService</code> asynchronously.</p>
+
+<h3>2.6 Cleanup</h3>
+<h4><code>cleanupBeforeQuit()</code></h4>
+<p>Called on <code>before-quit</code> and <code>will-quit</code> events. Stops file watcher, leaves all P2P rooms, closes static server.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 03 — PRELOAD BRIDGE                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s03">
+<h2>Section 03 — Preload Bridge <span class="badge badge-preload">preload.js</span></h2>
+
+<p>Uses <code>contextBridge.exposeInMainWorld("electronAPI", ...)</code> to create a secure API surface. All methods use <code>ipcRenderer.invoke(channel, ...args)</code> for request/response and <code>ipcRenderer.on(channel, handler)</code> for event subscriptions. Subscribe functions return an unsubscribe callback.</p>
+
+<h3>3.1 Namespace: <code>system</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th><th>Purpose</th></tr>
+  <tr><td><code>openDirectory()</code></td><td>system:openDirectory</td><td>Opens native folder picker dialog</td></tr>
+  <tr><td><code>openExternal(url)</code></td><td>system:openExternal</td><td>Opens URL in default browser (http/https only)</td></tr>
+  <tr><td><code>getCommonPaths()</code></td><td>system:getCommonPaths</td><td>Returns Documents, Home, Desktop paths</td></tr>
+  <tr><td><code>getBuildTag()</code></td><td>system:getBuildTag</td><td>Returns build tag string ("v37")</td></tr>
+  <tr><td><code>platform</code></td><td>—</td><td>Property: <code>process.platform</code></td></tr>
+</table>
+
+<h3>3.2 Namespace: <code>process</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th><th>Purpose</th></tr>
+  <tr><td><code>run(command, cwd, options)</code></td><td>process:run</td><td>Execute shell command</td></tr>
+  <tr><td><code>cancel(processId)</code></td><td>process:cancel</td><td>Kill running process</td></tr>
+  <tr><td><code>listRunning()</code></td><td>process:listRunning</td><td>List active process IDs</td></tr>
+</table>
+<p><strong>Events:</strong> <code>onStarted</code>, <code>onOutput</code>, <code>onCompleted</code>, <code>onError</code>, <code>onCancelled</code></p>
+
+<h3>3.3 Namespace: <code>repo</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>inspect(repoPath)</code></td><td>repo:inspect</td></tr>
+  <tr><td><code>listDirectory(path)</code></td><td>repo:listDirectory</td></tr>
+  <tr><td><code>readFileContent(p, target)</code></td><td>repo:readFileContent</td></tr>
+  <tr><td><code>writeFileContent(p, target, content)</code></td><td>repo:writeFileContent</td></tr>
+  <tr><td><code>getFileDiff(p, target, staged)</code></td><td>repo:getFileDiff</td></tr>
+  <tr><td><code>stageFiles(p, files)</code></td><td>repo:stageFiles</td></tr>
+  <tr><td><code>unstageFiles(p, files)</code></td><td>repo:unstageFiles</td></tr>
+  <tr><td><code>commit(p, message)</code></td><td>repo:commit</td></tr>
+  <tr><td><code>checkoutBranch(p, name, create)</code></td><td>repo:checkoutBranch</td></tr>
+  <tr><td><code>getCommitDetails(p, hash)</code></td><td>repo:getCommitDetails</td></tr>
+  <tr><td><code>getRemoteUrl(p)</code></td><td>repo:getRemoteUrl</td></tr>
+  <tr><td><code>push(payload)</code></td><td>repo:push</td></tr>
+  <tr><td><code>pull(payload)</code></td><td>repo:pull</td></tr>
+  <tr><td><code>syncSharedState(p, msg)</code></td><td>repo:syncSharedState</td></tr>
+</table>
+
+<h3>3.4 Namespace: <code>settings</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>get()</code></td><td>settings:get</td></tr>
+  <tr><td><code>update(patch)</code></td><td>settings:update</td></tr>
+  <tr><td><code>isFirstRun()</code></td><td>settings:isFirstRun</td></tr>
+  <tr><td><code>completeOnboarding()</code></td><td>settings:completeOnboarding</td></tr>
+</table>
+<p><strong>Event:</strong> <code>onChanged(cb)</code> — listens to <code>settings:changed</code></p>
+
+<h3>3.5 Namespace: <code>project</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>list()</code></td><td>project:list</td></tr>
+  <tr><td><code>create(payload)</code></td><td>project:create</td></tr>
+  <tr><td><code>delete(payload)</code></td><td>project:delete</td></tr>
+  <tr><td><code>grantDeleteScope()</code></td><td>project:grantDeleteScope</td></tr>
+  <tr><td><code>setActive(id)</code></td><td>project:setActive</td></tr>
+  <tr><td><code>importSyncedPlan(id)</code></td><td>project:importSyncedPlan</td></tr>
+  <tr><td><code>syncWorkspace(id)</code></td><td>project:syncWorkspace</td></tr>
+  <tr><td><code>savePlan(payload)</code></td><td>project:savePlan</td></tr>
+  <tr><td><code>generatePlan(payload)</code></td><td>project:generatePlan</td></tr>
+  <tr><td><code>ensureGithubRepo(id)</code></td><td>project:ensureGithubRepo</td></tr>
+  <tr><td><code>listCollaborators(path)</code></td><td>project:listCollaborators</td></tr>
+  <tr><td><code>setRepoVisibility(payload)</code></td><td>project:setRepoVisibility</td></tr>
+  <tr><td><code>sendTaskMessage(payload)</code></td><td>project:sendTaskMessage</td></tr>
+  <tr><td><code>generateTaskPrompt(payload)</code></td><td>project:generateTaskPrompt</td></tr>
+  <tr><td><code>sendPMMessage(payload)</code></td><td>project:sendPMMessage</td></tr>
+  <tr><td><code>sendSoloMessage(payload)</code></td><td>project:sendSoloMessage</td></tr>
+  <tr><td><code>cancelActiveRequest()</code></td><td>project:cancelActiveRequest</td></tr>
+  <tr><td><code>forceResetAgent(payload)</code></td><td>project:forceResetAgent</td></tr>
+  <tr><td><code>getActiveRequest()</code></td><td>project:getActiveRequest</td></tr>
+  <tr><td><code>launchDevServer(payload)</code></td><td>project:launchDevServer</td></tr>
+  <tr><td><code>restoreCheckpoint(payload)</code></td><td>project:restoreCheckpoint</td></tr>
+</table>
+<p><strong>Events:</strong> <code>onPlanGenerated</code>, <code>onAgentStarted</code>, <code>onAgentOutput</code>, <code>onAgentCompleted</code>, <code>onAgentError</code></p>
+
+<h3>3.6 Namespace: <code>tools</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>listStatus()</code></td><td>tools:listStatus</td></tr>
+  <tr><td><code>getModelCatalogs()</code></td><td>tools:getModelCatalogs</td></tr>
+  <tr><td><code>runCopilotPrompt(payload)</code></td><td>tools:runCopilotPrompt</td></tr>
+  <tr><td><code>runGenericPrompt(payload)</code></td><td>tools:runGenericPrompt</td></tr>
+  <tr><td><code>installCopilot()</code></td><td>tools:installCopilot</td></tr>
+  <tr><td><code>installClaude()</code></td><td>tools:installClaude</td></tr>
+  <tr><td><code>installNode()</code></td><td>tools:installNode</td></tr>
+  <tr><td><code>installGit()</code></td><td>tools:installGit</td></tr>
+  <tr><td><code>installGh()</code></td><td>tools:installGh</td></tr>
+  <tr><td><code>installPython()</code></td><td>tools:installPython</td></tr>
+  <tr><td><code>installCodex()</code></td><td>tools:installCodex</td></tr>
+  <tr><td><code>setupGit()</code></td><td>tools:setupGit</td></tr>
+  <tr><td><code>codexAuthStatus()</code></td><td>tools:codexAuthStatus</td></tr>
+  <tr><td><code>codexAuthLogin()</code></td><td>tools:codexAuthLogin</td></tr>
+  <tr><td><code>claudeAuthStatus()</code></td><td>tools:claudeAuthStatus</td></tr>
+  <tr><td><code>claudeAuthLogin()</code></td><td>tools:claudeAuthLogin</td></tr>
+  <tr><td><code>githubAuthStatus()</code></td><td>tools:githubAuthStatus</td></tr>
+  <tr><td><code>githubAuthLogin()</code></td><td>tools:githubAuthLogin</td></tr>
+  <tr><td><code>githubAuthLogout(username)</code></td><td>tools:githubAuthLogout</td></tr>
+  <tr><td><code>githubListAccounts()</code></td><td>tools:githubListAccounts</td></tr>
+  <tr><td><code>githubSwitchAccount(username)</code></td><td>tools:githubSwitchAccount</td></tr>
+</table>
+<p><strong>Events:</strong> <code>onGithubAuthProgress</code>, <code>onClaudeAuthProgress</code>, <code>onCodexAuthProgress</code></p>
+
+<h3>3.7 Namespace: <code>sharedState</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>init(repoPath)</code></td><td>sharedState:init</td></tr>
+  <tr><td><code>isInitialized(repoPath)</code></td><td>sharedState:isInitialized</td></tr>
+  <tr><td><code>readFile(payload)</code></td><td>sharedState:readFile</td></tr>
+  <tr><td><code>writeFile(payload)</code></td><td>sharedState:writeFile</td></tr>
+  <tr><td><code>listDir(payload)</code></td><td>sharedState:listDir</td></tr>
+  <tr><td><code>saveConversation(payload)</code></td><td>sharedState:saveConversation</td></tr>
+  <tr><td><code>loadConversation(payload)</code></td><td>sharedState:loadConversation</td></tr>
+  <tr><td><code>listConversations(repoPath)</code></td><td>sharedState:listConversations</td></tr>
+  <tr><td><code>saveMember(payload)</code></td><td>sharedState:saveMember</td></tr>
+</table>
+
+<h3>3.8 Namespace: <code>p2p</code></h3>
+<table>
+  <tr><th>Method</th><th>IPC Channel</th></tr>
+  <tr><td><code>join(payload)</code></td><td>p2p:join</td></tr>
+  <tr><td><code>leave(payload)</code></td><td>p2p:leave</td></tr>
+  <tr><td><code>status(payload)</code></td><td>p2p:status</td></tr>
+  <tr><td><code>peers(payload)</code></td><td>p2p:peers</td></tr>
+  <tr><td><code>joinedProjects()</code></td><td>p2p:joinedProjects</td></tr>
+  <tr><td><code>broadcastChatToken(payload)</code></td><td>p2p:broadcastChatToken</td></tr>
+  <tr><td><code>broadcastChatMessage(payload)</code></td><td>p2p:broadcastChatMessage</td></tr>
+  <tr><td><code>broadcastStateChange(payload)</code></td><td>p2p:broadcastStateChange</td></tr>
+  <tr><td><code>generateInvite(payload)</code></td><td>p2p:generateInvite</td></tr>
+  <tr><td><code>decodeInvite(payload)</code></td><td>p2p:decodeInvite</td></tr>
+  <tr><td><code>acceptInvite(payload)</code></td><td>p2p:acceptInvite</td></tr>
+  <tr><td><code>getActivePeerStreams(payload)</code></td><td>p2p:getActivePeerStreams</td></tr>
+</table>
+<p><strong>Events:</strong> <code>onJoined</code>, <code>onLeft</code>, <code>onPeerJoined</code>, <code>onPeerLeft</code>, <code>onPresence</code>, <code>onChatToken</code>, <code>onChatMessage</code>, <code>onStateChanged</code>, <code>onReconnecting</code></p>
+
+<h3>3.9 Namespaces: <code>activity</code> &amp; <code>fileWatcher</code></h3>
+<p><code>activity</code>: <code>list()</code>, <code>onCreated(cb)</code></p>
+<p><code>fileWatcher</code>: <code>start(payload)</code>, <code>stop()</code>, <code>status()</code>, <code>triggerSync()</code>, <code>pushToMain(payload)</code> — Events: <code>onChanged</code>, <code>onStatus</code>, <code>onSyncStart</code>, <code>onSyncComplete</code>, <code>onPullComplete</code></p>
+
+<h3>3.10 Legacy Aliases</h3>
+<p>For backward-compatibility: <code>openDirectory</code>, <code>openExternal</code>, <code>runCommand</code>, <code>onTerminalOutput</code>, <code>platform</code>.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 04 — IPC HANDLER REGISTRY                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s04">
+<h2>Section 04 — IPC Handler Registry <span class="badge badge-ipc">register-handlers.js</span></h2>
+
+<h3>4.1 safeHandle Pattern</h3>
+<pre>function safeHandle(channel, handler) {
+  try { ipcMain.removeHandler(channel); } catch {}
+  ipcMain.handle(channel, handler);
+}</pre>
+<p>Removes any existing handler before registering. Prevents "handler already registered" crashes during hot reload.</p>
+
+<h3>4.2 P2P State Change Handler</h3>
+<p>This is the <strong>most complex handler</strong> in the file — registered via <code>p2pService.onStateChange()</code>. Handles 7 categories of incoming state changes from peers:</p>
+
+<div class="card">
+<h4>Category: <code>plan</code></h4>
+<p><strong>Forward-only merge:</strong> Uses STATUS_ORDER (<code>planned:0 → building:1 → review:2 → done:3</code>). When remote plan arrives, iterates all tasks. If the remote task status is MORE advanced than local, accepts it. If local is more advanced, preserves local. Also merges <code>taskThreads</code> (keeps version with more messages per thread). Uses <code>settingsService.atomicUpdate()</code> for race-free merge.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>tasks</code></h4>
+<p>Individual task status sync. Finds the project by matching <code>data.projectId</code> or the peer's joined project. Updates the single task's status using <code>updateTaskStatusInPlan()</code>. Deriving subproject status from child tasks.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>conversation</code></h4>
+<p>Appends peer messages to the correct conversation thread. Supports 3 types: <code>project-manager</code> (PM conversation), <code>task-agent</code> (task threads), <code>solo-chat</code> (solo sessions). Marks messages with <code>fromPeer: true</code> and <code>peerName</code>. De-duplicates by message ID.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>thread-sync</code></h4>
+<p>Full history merge triggered on peer connect. Merges all <code>taskThreads</code>, <code>conversation</code>, and <code>soloSessions</code> — keeps the version with more messages per thread. Atomic update.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>new-commits</code></h4>
+<p>Auto-pull on <code>codebuddy-build</code> branch. If fileWatcher reports agent is active, defers the pull. Otherwise calls <code>fileWatcherService.autoPull()</code>.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>main-updated</code></h4>
+<p>Fetches <code>origin/main</code> and fast-forward merges if currently on main. If not on main, just fetches the ref.</p>
+</div>
+
+<div class="card">
+<h4>Category: <code>agent-context</code></h4>
+<p>Writes signal marker JSON to <code>.codebuddy/agents/context/</code> so peer machines can load prior agent knowledge.</p>
+</div>
+
+<h3>4.3 Peer-Ready Handler</h3>
+<p>Registered via <code>p2pService.onPeerReady()</code>. When a new peer connects, automatically broadcasts all local threads, PM conversation, and solo sessions for full sync.</p>
+
+<h3>4.4 Agent Lifecycle Guards</h3>
+<p>All agent-invoking handlers (<code>project:sendTaskMessage</code>, <code>project:sendPMMessage</code>, <code>project:sendSoloMessage</code>, <code>project:generatePlan</code>, <code>project:generateTaskPrompt</code>) wrap their logic in a <code>try/finally</code> that:</p>
+<ol>
+  <li>Sets <code>fileWatcherService.setAgentActive(true)</code> before running</li>
+  <li>Sets <code>fileWatcherService.setAgentActive(false)</code> after completion</li>
+  <li>Triggers <code>fileWatcherService.doAutoSync()</code> to commit any agent-made file changes</li>
+</ol>
+
+<h3>4.5 syncInProgress Guard</h3>
+<p>A module-level boolean that prevents <code>project:savePlan</code> from overwriting <code>plan.json</code> during a <code>project:syncWorkspace</code> import.</p>
+
+<h3>4.6 Event Sender Wiring</h3>
+<p>After all handlers are registered, the function wires <code>sendEvent</code> into services that need it:</p>
+<pre>projectService.__setEventSender?.(sendEvent);
+processService.__setEventSender(sendEvent);
+activityService.__setEventSender(sendEvent);
+p2pService.__setEventSender(sendEvent);</pre>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 05 — SETTINGS SERVICE                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s05">
+<h2>Section 05 — Settings Service <span class="badge badge-service">settings-service.js</span></h2>
+
+<h3>5.1 Storage Location</h3>
+<pre>const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");</pre>
+<p>On Windows: <code>%APPDATA%/CodeBuddy/settings.json</code></p>
+
+<h3>5.2 Default Settings Shape</h3>
+<pre>{
+  onboardingCompleted: false,
+  workspaceRoots: [],
+  projects: [],
+  activeProjectId: null,
+  projectDefaults: {
+    rootDirectory: null,
+    createGithubRepo: true,
+    githubVisibility: "private",
+    systemPromptMarkdown: null,
+    copilotModel: "gpt-5.2"
+  },
+  featureFlags: {
+    githubCopilotCli: true,
+    claudeCode: false,
+    codexCli: false,
+    githubCompanion: true
+  }
+}</pre>
+
+<h3>5.3 Default Dashboard State</h3>
+<p>Every project gets a dashboard with these arrays (all initially empty):</p>
+<pre>systemPromptMarkdown, initialPrompt, plan: null,
+conversation: [], taskThreads: [], activity: [],
+artifacts: [], channels: [], directMessages: [], soloSessions: []</pre>
+
+<h3>5.4 System Prompts</h3>
+<ul>
+  <li><strong>DEFAULT_SYSTEM_PROMPT_MARKDOWN</strong> — 43-line prompt for new projects. Instructs the AI to create an MVP plan with 2-5 subprojects, 2-5 tasks each, JSON output. Contains CodeBuddy platform rules (never open VS Code, stay inside CodeBuddy, etc.).</li>
+  <li><strong>IMPORTED_PROJECT_SYSTEM_PROMPT</strong> — For existing codebases. Instructs the AI to analyze the project, recognize done work, set task statuses based on existing code.</li>
+</ul>
+
+<h3>5.5 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>readSettings()</code></td><td>Read from disk (with .bak fallback), normalize, return</td></tr>
+  <tr><td><code>writeSettings(data)</code></td><td>Write via atomic queue</td></tr>
+  <tr><td><code>updateSettings(patch)</code></td><td>Shallow-merge patch onto existing settings</td></tr>
+  <tr><td><code>atomicUpdate(mutateFn)</code></td><td>Read-modify-write in single queue slot (prevents stale overwrites)</td></tr>
+  <tr><td><code>isFirstRun()</code></td><td>Returns <code>!onboardingCompleted</code></td></tr>
+  <tr><td><code>completeOnboarding()</code></td><td>Sets <code>onboardingCompleted: true</code></td></tr>
+</table>
+
+<h3>5.6 Atomic Write System</h3>
+<ol>
+  <li>All reads and writes are serialized through a Promise queue (<code>enqueue(fn)</code>)</li>
+  <li><code>_writeToDisk(data)</code>: write to <code>.tmp</code> → rename existing to <code>.bak</code> → rename <code>.tmp</code> to <code>settings.json</code></li>
+  <li><code>_readFromDisk()</code>: try main file → try <code>.bak</code> → return defaults</li>
+  <li><code>normalizeSettings(raw)</code>: merges raw with defaults, normalizes all projects</li>
+  <li><code>normalizeProject(p)</code>: ensures every project has a valid dashboard with all required arrays</li>
+</ol>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 06 — PROCESS SERVICE                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s06">
+<h2>Section 06 — Process Service <span class="badge badge-service">process-service.js</span></h2>
+
+<h3>6.1 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Signature</th><th>Purpose</th></tr>
+  <tr><td><code>run</code></td><td><code>(command, cwd, options)</code></td><td>Shell-mode spawn. Returns Promise&lt;{processId, stdout, stderr, exitCode}&gt;</td></tr>
+  <tr><td><code>runProgram</code></td><td><code>(file, args, cwd, options)</code></td><td>Direct exec (no shell). Supports <code>options.stdinData</code></td></tr>
+  <tr><td><code>cancel</code></td><td><code>(processId)</code></td><td>Kill process by UUID</td></tr>
+  <tr><td><code>listRunning</code></td><td><code>()</code></td><td>Returns array of active processIds</td></tr>
+</table>
+
+<h3>6.2 Internal Mechanics</h3>
+<ul>
+  <li><strong>runChild(child, metadata):</strong> Core logic. Generates UUID <code>processId</code>, stores in <code>runningProcesses</code> Map. Streams stdout/stderr via events. Handles close/error/timeout.</li>
+  <li><strong>Event channels:</strong> <code>process:started</code>, <code>process:output</code>, <code>process:completed</code>, <code>process:error</code>, <code>process:cancelled</code>, <code>process:timeout</code></li>
+  <li><strong>Timeout:</strong> Optional via <code>options.timeoutMs</code>. Kills child + emits timeout event.</li>
+  <li><strong>stdinData:</strong> When provided, writes to stdin then closes (used for Codex CLI).</li>
+</ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 07 — REPO SERVICE                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s07">
+<h2>Section 07 — Repo Service (Git) <span class="badge badge-service">repo-service.js</span></h2>
+
+<h3>7.1 Core Wrapper</h3>
+<h4><code>runGit(gitCommand, args, cwd)</code></h4>
+<p>Wraps <code>execFile</code> with env vars <code>GIT_TERMINAL_PROMPT=0</code>, <code>GCM_INTERACTIVE=never</code> to prevent interactive auth prompts.</p>
+
+<h3>7.2 Git State Recovery</h3>
+<h4><code>cleanupGitState(repoPath)</code></h4>
+<p>Called before most git operations. Three-step cleanup:</p>
+<ol>
+  <li>Remove stale <code>.git/index.lock</code></li>
+  <li>Abort stuck rebase (force-remove <code>.git/rebase-merge</code> and <code>.git/rebase-apply</code> dirs if <code>rebase --abort</code> fails)</li>
+  <li>Abort stuck merge (remove <code>.git/MERGE_HEAD</code>)</li>
+</ol>
+
+<h3>7.3 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>inspectRepository(repoPath)</code></td><td>Returns {branch, branches[], changedFiles[], recentCommits[10]}. Auto-recovers from detached HEAD by checking out codebuddy-build.</td></tr>
+  <tr><td><code>listDirectory(targetPath)</code></td><td>Directory listing, hides node_modules/.next/__pycache__/.venv/venv/dist/.cache</td></tr>
+  <tr><td><code>readFileContent(repoPath, targetPath)</code></td><td>Read file content with path resolution</td></tr>
+  <tr><td><code>writeFileContent(repoPath, targetPath, content)</code></td><td>Write file with mkdir -p</td></tr>
+  <tr><td><code>getFileDiff(repoPath, targetPath, staged)</code></td><td>Git diff (staged or working tree)</td></tr>
+  <tr><td><code>stageFiles(repoPath, filePaths)</code></td><td>git add</td></tr>
+  <tr><td><code>unstageFiles(repoPath, filePaths)</code></td><td>git restore --staged (fallback: git reset HEAD)</td></tr>
+  <tr><td><code>commit(repoPath, message)</code></td><td>git commit -m</td></tr>
+  <tr><td><code>checkoutBranch(repoPath, branchName, create)</code></td><td>Complex flow: cleanupGitState → fetch → stash → switch/checkout → pop stash → ff-merge. Force-checkout fallback.</td></tr>
+  <tr><td><code>getCommitDetails(repoPath, commitHash)</code></td><td>Returns {hash, author, date, subject, body, files[], diff}</td></tr>
+  <tr><td><code>getRemoteUrl(repoPath)</code></td><td>Gets origin URL</td></tr>
+  <tr><td><code>pushToRemote(repoPath, options)</code></td><td>git push with -u set-upstream</td></tr>
+  <tr><td><code>pullFromRemote(repoPath, options)</code></td><td>git pull --rebase</td></tr>
+  <tr><td><code>syncSharedState(repoPath, commitMessage)</code></td><td>Stages .codebuddy/, commits, pushes</td></tr>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 08 — TOOLING SERVICE                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s08">
+<h2>Section 08 — Tooling Service <span class="badge badge-service">tooling-service.js</span></h2>
+
+<h3>8.1 Tool Detection</h3>
+<h4><code>getToolStatus()</code></h4>
+<p>Detects 8 tools with multi-strategy probing:</p>
+<table>
+  <tr><th>Tool</th><th>Command</th><th>Detection Strategy</th></tr>
+  <tr><td>Git</td><td><code>git --version</code></td><td>PATH → known dirs → .cmd/.exe fallbacks</td></tr>
+  <tr><td>GitHub CLI</td><td><code>gh --version</code></td><td>PATH → known dirs</td></tr>
+  <tr><td>GitHub Copilot CLI</td><td><code>copilot --version</code></td><td>PATH → LocalAppData → VS Code extensions → npm global → gh extensions</td></tr>
+  <tr><td>Node.js</td><td><code>node --version</code></td><td>PATH → known dirs</td></tr>
+  <tr><td>npm</td><td><code>npm --version</code></td><td>PATH → known dirs</td></tr>
+  <tr><td>Claude Code</td><td><code>claude --version</code></td><td>PATH → ~/.local/bin → winget packages → npm global</td></tr>
+  <tr><td>Python</td><td><code>python --version</code></td><td>PATH → known dirs</td></tr>
+  <tr><td>Codex CLI</td><td><code>codex --version</code></td><td>PATH → npm global bin</td></tr>
+</table>
+
+<h3>8.2 PATH Management</h3>
+<h4><code>refreshSystemPath()</code></h4>
+<p>Re-reads System + User PATH from the Windows registry (HKLM\System\...\Environment + HKCU\Environment), expands <code>%VAR%</code> references, deduplicates, and updates <code>process.env.PATH</code>. Ensures tools installed after app launch are found.</p>
+<h4><code>KNOWN_INSTALL_PATHS</code></h4>
+<p>Hardcoded directories for git, gh, node, python on Windows (Program Files, LocalAppData, winget packages, etc.).</p>
+
+<h3>8.3 AI Provider Routing</h3>
+<h4><code>runCopilotPrompt({prompt, cwd, allowTools, timeoutMs, model})</code></h4>
+<p>Runs <code>gh copilot -p [prompt]</code> with optional <code>--model</code> and <code>--allow-tool</code> flags.</p>
+
+<h4><code>runGenericPrompt({prompt, cwd, timeoutMs, model})</code></h4>
+<p>Provider-aware routing. Resolves to copilot/claude/codex based on feature flags + model ID:</p>
+<ul>
+  <li><strong>Claude:</strong> <code>claude -p [prompt] --dangerously-skip-permissions</code></li>
+  <li><strong>Codex:</strong> <code>codex exec --full-auto</code> (prompt via stdin to avoid Windows EINVAL issues)</li>
+  <li><strong>Copilot:</strong> <code>gh copilot -p [prompt] --no-color -s</code></li>
+</ul>
+
+<h4><code>resolveProviderForPrompt()</code></h4>
+<p>Logic: single provider enabled → use it. Model ID in claude catalog → claude. Model ID in codex catalog → codex. Fallback priority: copilot → codex → claude.</p>
+
+<h3>8.4 Installation Functions</h3>
+<p>All install functions follow the same pattern: check existing → probe known paths → winget/npm/native installer → poll for availability.</p>
+<div class="card-grid">
+  <div class="card">
+    <h4><code>installCopilot()</code></h4>
+    <p>5-strategy chain: (1) check binary, (2) scan known paths, (3) winget GitHub.Copilot, (4) npm -g @githubnext/github-copilot-cli, (5) gh extension install github/gh-copilot</p>
+  </div>
+  <div class="card">
+    <h4><code>installNodeJs()</code></h4>
+    <p>Check existing → probe known dirs → winget OpenJS.NodeJS.LTS → poll 60s for <code>node --version</code></p>
+  </div>
+  <div class="card">
+    <h4><code>installPython()</code></h4>
+    <p>Check existing → probe known dirs → winget Python.Python.3.12 → poll 60s</p>
+  </div>
+  <div class="card">
+    <h4><code>installCodex()</code></h4>
+    <p>Check existing → check npm global bin → <code>npm install -g @openai/codex</code> → verify</p>
+  </div>
+  <div class="card">
+    <h4><code>installGitScm()</code></h4>
+    <p>Check existing → probe known dirs → winget Git.Git → poll 90s</p>
+  </div>
+  <div class="card">
+    <h4><code>installGithubCli()</code></h4>
+    <p>Check existing → probe known dirs → winget GitHub.cli → poll 60s</p>
+  </div>
+  <div class="card">
+    <h4><code>installClaudeCode()</code></h4>
+    <p>3-strategy: (1) PowerShell native installer (<code>irm https://claude.ai/install.ps1 | iex</code>), (2) npm -g @anthropic-ai/claude-code, (3) winget Anthropic.ClaudeCode</p>
+  </div>
+</div>
+
+<h3>8.5 Authentication Functions</h3>
+<table>
+  <tr><th>Function</th><th>Mechanism</th></tr>
+  <tr><td><code>getGithubAuthStatus()</code></td><td>Parses <code>gh auth status</code> output</td></tr>
+  <tr><td><code>startGithubAuth(sendEvent)</code></td><td>Device code flow via <code>gh auth login -w</code>, 5-min timeout</td></tr>
+  <tr><td><code>logoutGithub(username)</code></td><td>Auto-confirms with stdin "Y\n"</td></tr>
+  <tr><td><code>listGithubAccounts()</code></td><td>Parses all accounts from <code>gh auth status</code></td></tr>
+  <tr><td><code>switchGithubAccount(username)</code></td><td>Calls <code>gh auth switch</code></td></tr>
+  <tr><td><code>getClaudeAuthStatus()</code></td><td>Runs <code>claude auth status</code></td></tr>
+  <tr><td><code>startClaudeAuth(sendEvent)</code></td><td>Spawns <code>claude auth login</code>, streams output, 5-min timeout</td></tr>
+  <tr><td><code>getCodexAuthStatus()</code></td><td>Checks for <code>~/.codex/auth.json</code> file</td></tr>
+  <tr><td><code>startCodexAuth(sendEvent)</code></td><td>Spawns <code>codex login</code>, streams output, 5-min timeout</td></tr>
+</table>
+
+<h3>8.6 Winget Serialization</h3>
+<h4><code>serializedWingetInstall(fn)</code></h4>
+<p>Mutex that prevents concurrent winget installs. Winget cannot run two installs simultaneously (file lock errors).</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 09 — PROJECT SERVICE                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s09">
+<h2>Section 09 — Project Service <span class="badge badge-service">project-service.js</span></h2>
+<p>At ~3900 lines, this is the <strong>largest and most critical service</strong>. It handles all project lifecycle, AI agent orchestration, plan generation, messaging, checkpoints, and GitHub integration.</p>
+
+<h3>9.1 Helper Functions (module-level)</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>slugifyProjectName(name)</code></td><td>Convert project name to filesystem-safe folder name</td></tr>
+  <tr><td><code>formatProjectTimestamp(ts)</code></td><td>ISO timestamp for project metadata</td></tr>
+  <tr><td><code>formatRelativeTime(ts)</code></td><td>Human-readable relative time ("Just now", "5m ago")</td></tr>
+  <tr><td><code>sanitizeFileSegment(s)</code></td><td>Clean string for use in filenames</td></tr>
+  <tr><td><code>stripJsonFences(s)</code></td><td>Remove markdown code fences from AI JSON output</td></tr>
+  <tr><td><code>parseJsonObjectFromText(s)</code></td><td>Extract and parse JSON from mixed AI output</td></tr>
+  <tr><td><code>buildEmptyDashboardState()</code></td><td>Creates blank dashboard with all required fields</td></tr>
+  <tr><td><code>makeDueDate(daysFromToday)</code></td><td>Generate ISO date for task due dates</td></tr>
+  <tr><td><code>normalizeGeneratedPlan(project, prompt, payload)</code></td><td>Transform raw AI JSON into normalized plan with subprojects/tasks/buildOrder/conversation/taskThreads</td></tr>
+  <tr><td><code>findTaskPlanContext(project, taskId)</code></td><td>Returns {subproject, task} for a given taskId</td></tr>
+  <tr><td><code>buildConversationTranscript(messages)</code></td><td>Format messages for AI context</td></tr>
+  <tr><td><code>buildRecentConversationTranscript(messages)</code></td><td>Last 8 messages for AI context</td></tr>
+  <tr><td><code>parseGithubRepoSlug(url)</code></td><td>Extract owner/repo from SSH or HTTPS GitHub URLs</td></tr>
+  <tr><td><code>shouldSkipCheckpointPath(p)</code></td><td>Exclude .git/node_modules/.next etc from checkpoints</td></tr>
+  <tr><td><code>collectCheckpointFiles(repoPath)</code></td><td>Collect all files for checkpoint snapshot</td></tr>
+  <tr><td><code>buildProjectManagerContextMarkdown(project)</code></td><td>Full PM context with plan, subprojects, tasks, statuses</td></tr>
+  <tr><td><code>buildTaskThreadContextMarkdown(project, thread)</code></td><td>Full task agent context with transcript, attached files</td></tr>
+  <tr><td><code>updateTaskStatusInPlan(plan, taskId, status)</code></td><td>Immutable plan update with derived subproject status</td></tr>
+  <tr><td><code>deriveSubprojectStatus(tasks)</code></td><td>All done→done, any building→building, any review→review</td></tr>
+  <tr><td><code>extractTaskAgentMetadata(rawOutput)</code></td><td>Parse TASK_STATUS: and TASK_STATUS_REASON: lines from agent output</td></tr>
+  <tr><td><code>buildTaskAgentSystemPrompt(taskContext, thread)</code></td><td>Comprehensive system prompt for task agents with safety rules</td></tr>
+  <tr><td><code>formatJsonLikeTaskResponse(rawOutput)</code></td><td>Convert JSON-shaped agent responses to human-readable markdown</td></tr>
+</table>
+
+<h3>9.2 Provider Resolution (instance-level)</h3>
+<h4><code>resolveProvider(settings, modelId)</code></h4>
+<p>Same logic as tooling-service but using dynamically loaded model catalogs. Returns "claude", "copilot", or "codex".</p>
+
+<h4><code>buildCliInvocation(commands, provider, prompt, model, opts)</code></h4>
+<p>Builds the exact CLI binary + args for a prompt invocation. Handles agent mode flags (<code>--allow-all-tools --add-dir .</code>), model selection, and provider-specific quirks (Codex uses stdin, Claude uses <code>--dangerously-skip-permissions</code>).</p>
+
+<h4><code>runProviderCli(...)</code></h4>
+<p>Runs CLI with automatic retry for Codex ChatGPT authentication errors (retries without <code>--model</code> flag).</p>
+
+<h3>9.3 Command Path Resolution</h3>
+<h4><code>readConfiguredCommands()</code></h4>
+<p>Refreshes PATH, reads settings for configured CLI paths, resolves binary locations for git, gh, copilot, claude, codex. Auto-installs copilot if not found and enabled. Returns a resolved command object used by all agent functions.</p>
+
+<h3>9.4 Safe Command Jail</h3>
+<h4><code>getSafeCommandJailDir()</code></h4>
+<p>Creates a temporary directory with no-op wrapper scripts that shadow dangerous commands (<code>code</code>, <code>explorer</code>, <code>start</code>, <code>taskkill</code>, <code>powershell</code>, <code>vim</code>, etc.). This directory is prepended to PATH when running AI agents, preventing copilot/claude from launching external apps.</p>
+
+<h3>9.5 Agent Process Management</h3>
+<h4><code>runProgram(file, args, cwd, requestMeta, stdinData)</code></h4>
+<p>The core function that runs AI CLI tools. Key behaviors:</p>
+<ul>
+  <li>Filters VS Code directories out of PATH</li>
+  <li>Prepends safe command jail directory</li>
+  <li>Overrides EDITOR, VISUAL, GIT_EDITOR, BROWSER env vars</li>
+  <li>Stores process as <code>activeChildProcess</code> (only one AI agent at a time)</li>
+  <li>Streams stdout/stderr via <code>project:agentOutput</code> events</li>
+  <li>Broadcasts tokens to P2P peers every chunk</li>
+  <li>15-second keepalive interval for P2P peer stream</li>
+  <li>Accumulates last 12KB of output in <code>activeRequestOutput</code></li>
+  <li>Handles .cmd files specially on Windows (shell: true)</li>
+  <li>Closes stdin immediately (or writes stdinData) to prevent CLI hangs</li>
+</ul>
+
+<h3>9.6 Project CRUD</h3>
+
+<h4><code>createProject(payload)</code></h4>
+<p>Two modes:</p>
+<ul>
+  <li><strong>Import existing directory:</strong> Takes <code>importExistingPath</code>. Initializes git if needed, creates GitHub remote, switches to codebuddy-build branch, creates project entry.</li>
+  <li><strong>Create new directory:</strong> Creates folder, writes README.md + .gitignore, git init, initial commit, GitHub remote, push main, create codebuddy-build branch.</li>
+</ul>
+<p>Both modes call <code>syncSharedAgentContextFiles()</code> and <code>saveProject()</code>.</p>
+
+<h4><code>deleteProject(payload)</code></h4>
+<p>Options: <code>deleteLocalFiles</code> (rm -rf repoPath + empty parent), <code>deleteGithubRepo</code> (gh repo delete --yes). Updates settings atomically.</p>
+
+<h4><code>setActiveProject(projectId)</code></h4>
+<p>Updates <code>activeProjectId</code> in settings.</p>
+
+<h4><code>saveProject(project)</code></h4>
+<p>Saves project to settings (atomic), broadcasts config summary to P2P peers. Updates <code>recentRepositories</code> and <code>workspaceRoots</code> (max 8).</p>
+
+<h3>9.7 Plan Generation</h3>
+<h4><code>generateProjectPlan(projectId, prompt, model)</code></h4>
+<ol>
+  <li>Gathers project snapshot (file tree depth 2, key files: package.json, README.md, etc.)</li>
+  <li>Builds full prompt with system prompt + schema + project context + user request</li>
+  <li>Runs CLI via <code>runProviderCli()</code> (no tool use, text-only)</li>
+  <li>Parses JSON from output via <code>parseJsonObjectFromText()</code></li>
+  <li>Normalizes plan via <code>normalizeGeneratedPlan()</code></li>
+  <li>Saves project with updated dashboard</li>
+  <li>Writes project README to repo</li>
+  <li>Broadcasts plan to P2P peers</li>
+</ol>
+
+<h3>9.8 AI Messaging</h3>
+
+<h4><code>sendPMMessage({projectId, prompt, model, attachedFiles, replaceFromMessageId})</code></h4>
+<ul>
+  <li>Creates checkpoint before sending</li>
+  <li>Builds PM prompt with conversation history (last 8)</li>
+  <li>Runs CLI (no tool use — PM is text-only)</li>
+  <li>Creates user + AI messages, appends to conversation</li>
+  <li>Supports message editing (<code>replaceFromMessageId</code> truncates conversation)</li>
+  <li>Broadcasts to P2P + saves to shared state</li>
+</ul>
+
+<h4><code>sendTaskMessage({projectId, taskId, threadId, prompt, model, attachedFiles, replaceFromMessageId})</code></h4>
+<ul>
+  <li>Finds or creates task thread (with full system prompt including safety rules)</li>
+  <li>Hydrates project via <code>syncSharedAgentContextFiles()</code></li>
+  <li>Creates checkpoint, loads peer agent context</li>
+  <li>Builds comprehensive prompt with task context, safety rules, conversation history</li>
+  <li>Ensures repo is on codebuddy-build branch</li>
+  <li>Runs CLI with <strong>agent mode (tool use enabled)</strong></li>
+  <li>Extracts TASK_STATUS metadata from output</li>
+  <li>Formats JSON-like responses to human-readable text</li>
+  <li>Uses <strong>targeted merge</strong> (atomic update of only changed fields, preserving P2P changes)</li>
+  <li>Broadcasts task status change, conversation, and agent context to P2P</li>
+</ul>
+
+<h4><code>sendSoloMessage({projectId, sessionId, prompt, model, attachedFiles, replaceFromMessageId})</code></h4>
+<ul>
+  <li>Creates or finds solo session</li>
+  <li>Creates checkpoint, loads peer agent context</li>
+  <li>Builds prompt with safety rules (simpler than task agent)</li>
+  <li>Ensures on codebuddy-build branch</li>
+  <li>Runs CLI with <strong>agent mode (tool use enabled)</strong></li>
+  <li>Saves session, broadcasts to P2P, saves agent context snapshot</li>
+</ul>
+
+<h4><code>generateTaskPrompt({projectId, taskId, threadId, model})</code></h4>
+<p>AI-generates the next best user prompt for a task. Returns JSON with <code>prompt</code>, <code>taskStatus</code>, <code>reason</code>. Automatically updates task status if AI determines task is done.</p>
+
+<h3>9.9 Checkpoint System</h3>
+<h4><code>createCheckpointSnapshot(repoPath, label)</code></h4>
+<p>Copies all project files (excluding .git, node_modules, etc.) to <code>.codebuddy/checkpoints/checkpoint-{timestamp}-{uuid}/files/</code>. Batches 50 files at a time (prevents EMFILE). Creates manifest.json with file list.</p>
+
+<h4><code>restoreCheckpointSnapshot(project, checkpointId)</code></h4>
+<p>Reads manifest, deletes current files not in snapshot, restores snapshot files. Complete rollback mechanism.</p>
+
+<h3>9.10 Dev Server Launch</h3>
+<h4><code>launchDevServer({projectId, model})</code></h4>
+<ol>
+  <li>Reads config files (package.json, Cargo.toml, pyproject.toml, etc.)</li>
+  <li>Auto-creates .env from .env.example if missing</li>
+  <li>Gathers project snapshot + README</li>
+  <li>Asks AI agent (text-only, 90s timeout) for: LAUNCH_COMMAND, EXPECTED_PORT, PREVIEW_MODE</li>
+  <li>Falls back to smart local detection via <code>detectLaunchCommand()</code></li>
+  <li>Sanitizes command (blocks Electron/VS Code/browser launches)</li>
+  <li>Returns {launchCommand, expectedPort, previewMode}</li>
+</ol>
+<p><strong>detectLaunchCommand:</strong> Supports package.json, requirements.txt, Cargo.toml, go.mod, Gemfile, build.gradle, pom.xml, composer.json, mix.exs, docker-compose, Makefile, .csproj/.sln, index.html.</p>
+<p><strong>detectPreviewMode:</strong> Returns "web" (HTTP server) or "terminal" (CLI/script).</p>
+
+<h3>9.11 GitHub Integration</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>ensureGithubRepoForProject(id)</code></td><td>Full flow: initial commit → create remote → push main → create codebuddy-build branch</td></tr>
+  <tr><td><code>ensureGithubRemote(project, git, gh)</code></td><td>Creates GitHub repo, handles "name exists" recovery</td></tr>
+  <tr><td><code>grantGithubDeleteScope()</code></td><td>Opens PowerShell window for <code>gh auth refresh -s delete_repo</code></td></tr>
+  <tr><td><code>listRepoCollaborators(repoPath)</code></td><td>Queries GitHub API for collaborators, handles jq fallbacks</td></tr>
+  <tr><td><code>setRepoVisibility(repoPath, visibility)</code></td><td>PATCH repo API to change public/private</td></tr>
+</table>
+
+<h3>9.12 Agent State Management</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>cancelActiveRequest()</code></td><td>Kills active child process, emits cancellation event</td></tr>
+  <tr><td><code>forceResetAgent(repoPath)</code></td><td>SIGKILL process, clean up git state, emit cancellation</td></tr>
+  <tr><td><code>getActiveRequest()</code></td><td>Returns active request metadata + accumulated output (survives navigation)</td></tr>
+</table>
+
+<h3>9.13 Shared Agent Context</h3>
+<h4><code>syncSharedAgentContextFiles(project)</code></h4>
+<p>Writes markdown context files for PM and each task to <code>.codebuddy/agents/</code>. Returns updated project with context paths.</p>
+
+<h4><code>saveAgentContextSnapshot(repoPath, {...})</code></h4>
+<p>Saves last 12 messages to <code>.codebuddy/agents/context/{scope}-{id}.json</code>. Includes machine hostname for peer detection.</p>
+
+<h4><code>loadPeerAgentContext(repoPath, scope, id)</code></h4>
+<p>Loads peer context snapshot. Returns formatted markdown section for injection into system prompt. Only injects if from a different machine.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 10 — P2P SERVICE                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s10">
+<h2>Section 10 — P2P Collaboration Service <span class="badge badge-service">p2p-service.js</span></h2>
+
+<h3>10.1 Technology Stack</h3>
+<ul>
+  <li><strong>Hyperswarm:</strong> DHT-based peer discovery (no central server)</li>
+  <li><strong>Yjs CRDTs:</strong> Conflict-free replicated data types for state merging</li>
+  <li><strong>Topic derivation:</strong> SHA-256 hash of <code>codebuddy:{remoteUrl}</code></li>
+</ul>
+
+<h3>10.2 Session Architecture</h3>
+<p>Each project gets its own session (keyed by projectId) containing:</p>
+<pre>{ projectId, swarm, topic, repoPath, member, remoteUrl,
+  ydoc, peers (Map), peerStreamAccumulators (Map),
+  heartbeatInterval, reconnectTimer, reconnectAttempts,
+  isJoined, lastPeerSeenAt }</pre>
+
+<h3>10.3 Connection Lifecycle</h3>
+<ol>
+  <li><code>joinProject()</code>: Creates session, initializes Yjs doc, loads shared state, connects swarm</li>
+  <li><code>connectSwarm()</code>: Creates Hyperswarm, joins topic (server + client), starts heartbeat (5s)</li>
+  <li><code>handlePeerConnection()</code>: Sets up per-peer state, sends "hello" with Yjs state vector</li>
+  <li><code>handlePeerMessage()</code>: Processes 6 message types (hello, yjs-update, yjs-sync, heartbeat, chat-token, chat-message, state-change)</li>
+  <li><code>leaveProject()</code>: Cleans up timers, destroys connections, Yjs doc, swarm</li>
+</ol>
+
+<h3>10.4 Message Types</h3>
+<table>
+  <tr><th>Type</th><th>Purpose</th></tr>
+  <tr><td><code>hello</code></td><td>Initial handshake. Exchanges member profile + Yjs state vector for sync.</td></tr>
+  <tr><td><code>yjs-update</code></td><td>Incremental Yjs CRDT update (base64 encoded)</td></tr>
+  <tr><td><code>yjs-sync</code></td><td>Full Yjs state sync response (base64 encoded)</td></tr>
+  <tr><td><code>heartbeat</code></td><td>Every 5s. Contains member info. Updates peer lastSeen.</td></tr>
+  <tr><td><code>chat-token</code></td><td>Real-time AI token streaming. Accumulated per-peer (max 8KB). Includes scope, taskId, sessionId.</td></tr>
+  <tr><td><code>chat-message</code></td><td>Complete AI message. Clears token accumulator.</td></tr>
+  <tr><td><code>state-change</code></td><td>Generic state broadcast. Triggers stateChangeCallbacks. Synced to Yjs + disk.</td></tr>
+</table>
+
+<h3>10.5 Reconnection</h3>
+<p>Exponential backoff: base 3s × 1.5^attempts, max 30s, max 10 attempts. Auto-triggers if no peers for 60 seconds.</p>
+
+<h3>10.6 Yjs State Maps</h3>
+<p>The Yjs document stores 4 maps: <code>conversations</code> (Array), <code>members</code> (Map), <code>tasks</code> (Map), <code>agents</code> (Map). Loaded from <code>.codebuddy/</code> on join. Updates are broadcast to peers automatically via Yjs observers.</p>
+
+<h3>10.7 Invite System</h3>
+<h4><code>generateInviteCode(remoteUrl, projectName)</code></h4>
+<p>Base64url-encodes <code>{r: remoteUrl, n: projectName}</code>. Before generating, exports plan to <code>.codebuddy/plan.json</code>, commits, and pushes to both codebuddy-build and main (so clone gets the plan).</p>
+
+<h4><code>decodeInviteCode(code)</code></h4>
+<p>Base64url-decodes and validates.</p>
+
+<h4><code>acceptInvite(payload)</code> (in register-handlers.js)</h4>
+<ol>
+  <li>Decode invite → get remoteUrl + projectName</li>
+  <li>Clone repo to target directory</li>
+  <li>Configure git credential helper</li>
+  <li>Switch to codebuddy-build branch</li>
+  <li>Create CodeBuddy project (importExistingPath)</li>
+  <li>Import plan from .codebuddy/plan.json</li>
+  <li>Initialize shared state directory</li>
+  <li>Set up git identity</li>
+  <li>Commit scaffolding changes, push</li>
+  <li>Auto-join P2P room</li>
+</ol>
+
+<h3>10.8 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>joinProject(id, path, url, member)</code></td><td>Join P2P room for a project</td></tr>
+  <tr><td><code>leaveProject(id)</code></td><td>Leave P2P room</td></tr>
+  <tr><td><code>leaveAllProjects()</code></td><td>Leave all rooms (cleanup)</td></tr>
+  <tr><td><code>broadcastChatToken(projectId, convId, token, scope, extra)</code></td><td>Send AI token to peers</td></tr>
+  <tr><td><code>broadcastChatMessage(projectId, convId, message, scope)</code></td><td>Send complete AI message to peers</td></tr>
+  <tr><td><code>broadcastStateChange(projectId, category, id, data)</code></td><td>Send generic state change</td></tr>
+  <tr><td><code>getConnectedPeers(projectId)</code></td><td>List peers with status (online/away)</td></tr>
+  <tr><td><code>getStatus(projectId)</code></td><td>Session status</td></tr>
+  <tr><td><code>generateInviteCode(url, name)</code></td><td>Create invite code</td></tr>
+  <tr><td><code>decodeInviteCode(code)</code></td><td>Decode invite code</td></tr>
+  <tr><td><code>onStateChange(callback)</code></td><td>Register callback for state changes</td></tr>
+  <tr><td><code>onPeerReady(callback)</code></td><td>Register callback for peer connections</td></tr>
+  <tr><td><code>getActivePeerStreams(projectId)</code></td><td>Get accumulated AI token streams per peer</td></tr>
+  <tr><td><code>isProjectJoined(projectId)</code></td><td>Check if project P2P is active</td></tr>
+  <tr><td><code>getJoinedProjectIds()</code></td><td>List all joined project IDs</td></tr>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 11 — FILE WATCHER SERVICE                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s11">
+<h2>Section 11 — File Watcher Service <span class="badge badge-service">file-watcher-service.js</span></h2>
+
+<h3>11.1 Purpose</h3>
+<p>Watches the active project directory. After file changes stop for 10 seconds, auto-commits and pushes to <code>codebuddy-build</code> branch. Coordinates with agent activity and P2P pull operations.</p>
+
+<h3>11.2 Debounce &amp; Guards</h3>
+<ul>
+  <li><strong>DEBOUNCE_MS:</strong> 10,000ms (10 seconds after last change)</li>
+  <li><strong>paused:</strong> Set during pull operations to prevent echo loops</li>
+  <li><strong>syncing:</strong> Set during auto-sync to prevent re-entry</li>
+  <li><strong>agentActive:</strong> Set while AI agents are running. Defers auto-sync until agent finishes.</li>
+</ul>
+
+<h3>11.3 Ignored Directories</h3>
+<pre>node_modules, .next, dist, dist-electron, .git, out, tmp,
+__pycache__, .venv, venv, target, .cache, coverage, build</pre>
+<p>Also ignores <code>.codebuddy/checkpoints/</code> and <code>*.log</code> files.</p>
+
+<h3>11.4 Auto-Sync Flow (<code>doAutoSync()</code>)</h3>
+<ol>
+  <li>Clean up stuck git state (index.lock, rebase, merge)</li>
+  <li>Ensure git identity is configured (tries gh API for username/email)</li>
+  <li>Ensure on codebuddy-build branch (stash → switch → pop)</li>
+  <li>Check for changes (<code>git status --porcelain</code>)</li>
+  <li>Stage all (<code>git add -A</code>)</li>
+  <li>Commit (<code>git commit -m "auto: sync changes {timestamp}" --no-verify</code>)</li>
+  <li>Pull before push (<code>git pull origin codebuddy-build --rebase</code>)</li>
+  <li>Push (<code>git push origin codebuddy-build</code>)</li>
+  <li>Broadcast <code>new-commits</code> to P2P peers</li>
+</ol>
+<p><strong>Push recovery strategies (in order):</strong></p>
+<ol>
+  <li>If no upstream → <code>push -u origin codebuddy-build</code></li>
+  <li>If non-fast-forward → pull --rebase → push retry</li>
+  <li>If rebase conflicts → fetch → soft-reset to remote → re-commit → push</li>
+  <li>Last resort → <code>push --force-with-lease</code></li>
+</ol>
+
+<h3>11.5 Push to Main (<code>pushToMain(repoPath)</code>)</h3>
+<ol>
+  <li>Auto-sync pending changes first</li>
+  <li>Switch to main</li>
+  <li>Merge codebuddy-build → main (no-edit)</li>
+  <li>Push main</li>
+  <li>Switch back to codebuddy-build</li>
+  <li>Broadcast <code>main-updated</code> to P2P peers</li>
+</ol>
+
+<h3>11.6 Auto-Pull (<code>autoPull(repoPath)</code>)</h3>
+<p>Triggered by P2P <code>new-commits</code> signal. Pauses watcher, stashes changes, pulls --rebase, pops stash. Resumes watcher after 3s delay. Handles detached HEAD, non-codebuddy-build branches (fetch-only), and stash pop conflicts (drops stash, keeps remote).</p>
+
+<h3>11.7 Startup Housekeeping</h3>
+<ul>
+  <li>Adds <code>.codebuddy/checkpoints/</code> to .gitignore if missing</li>
+  <li>Configures git credential helper (<code>gh auth git-credential</code>)</li>
+  <li>Won't restart if already watching the same repo</li>
+</ul>
+
+<h3>11.8 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>startWatching(repoPath)</code></td><td>Start fs.watch (recursive)</td></tr>
+  <tr><td><code>stopWatching()</code></td><td>Close watcher, clear timers</td></tr>
+  <tr><td><code>pauseWatching()</code></td><td>Temporarily halt (during pulls)</td></tr>
+  <tr><td><code>resumeWatching()</code></td><td>Resume after pause</td></tr>
+  <tr><td><code>getStatus()</code></td><td>Returns {watching, repoPath, paused, syncing}</td></tr>
+  <tr><td><code>doAutoSync()</code></td><td>Manual trigger of commit+push</td></tr>
+  <tr><td><code>pushToMain(repoPath)</code></td><td>Merge to main and push</td></tr>
+  <tr><td><code>autoPull(repoPath)</code></td><td>Pull from remote</td></tr>
+  <tr><td><code>setAgentActive(active)</code></td><td>Signal agent start/stop</td></tr>
+  <tr><td><code>isAgentActive()</code></td><td>Check if agent is running</td></tr>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 12 — SHARED STATE SERVICE                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s12">
+<h2>Section 12 — Shared State Service <span class="badge badge-service">shared-state-service.js</span></h2>
+
+<h3>12.1 Directory Structure</h3>
+<pre>.codebuddy/
+├── conversations/    # Conversation history JSON files
+├── agents/           # Agent context files
+│   ├── project-manager.md
+│   ├── tasks/        # Per-task agent context markdown
+│   └── context/      # Peer agent context snapshots
+├── tasks/            # Task state JSON files
+├── members/          # Member profile JSON files
+├── versions/         # Version tracking
+├── docs/             # Documentation
+├── plan.json         # Exported project plan (for sync)
+├── .gitkeep          # In each subdir
+└── README.md         # Auto-generated</pre>
+
+<h3>12.2 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>ensureSharedDir(repoPath)</code></td><td>Creates base dir + subdirs + .gitkeep files + README.md</td></tr>
+  <tr><td><code>isInitialized(repoPath)</code></td><td>Checks if .codebuddy/ exists</td></tr>
+  <tr><td><code>readSharedFile(repoPath, relativePath)</code></td><td>Read file within .codebuddy/. Returns {exists, content}</td></tr>
+  <tr><td><code>writeSharedFile(repoPath, relativePath, content)</code></td><td>Write file within .codebuddy/ (auto mkdir)</td></tr>
+  <tr><td><code>listSharedDir(repoPath, relativePath)</code></td><td>List directory within .codebuddy/. Returns [{name, type}]</td></tr>
+  <tr><td><code>saveConversation(repoPath, id, data)</code></td><td>Save JSON to conversations/</td></tr>
+  <tr><td><code>loadConversation(repoPath, id)</code></td><td>Load JSON from conversations/</td></tr>
+  <tr><td><code>listConversations(repoPath)</code></td><td>List all conversations with metadata</td></tr>
+  <tr><td><code>saveMember(repoPath, profile)</code></td><td>Save member profile to members/</td></tr>
+  <tr><td><code>listMembers(repoPath)</code></td><td>List all member profiles</td></tr>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 13 — ACTIVITY SERVICE                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s13">
+<h2>Section 13 — Activity Service <span class="badge badge-service">activity-service.js</span></h2>
+
+<p>Simple in-memory event store. Not persisted to disk.</p>
+
+<h3>13.1 Exported Functions</h3>
+<table>
+  <tr><th>Function</th><th>Purpose</th></tr>
+  <tr><td><code>addEvent(event)</code></td><td>Creates event with UUID, type, title, description, actor, actorInitials, time, relatedFile. Unshifts to array, caps at 30 events. Emits <code>activity:created</code> event.</td></tr>
+  <tr><td><code>listEvents()</code></td><td>Returns shallow copy of events array</td></tr>
+</table>
+
+<h3>13.2 Event Types Used</h3>
+<p><code>build</code>, <code>status</code>, <code>comment</code>, <code>deploy</code>, <code>review</code>, <code>join</code></p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 14 — MODEL CATALOGS                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s14">
+<h2>Section 14 — Model Catalogs <span class="badge badge-ipc">config/model-catalogs.json</span></h2>
+
+<h3>14.1 Copilot Provider (15 models)</h3>
+<pre>auto, claude-opus-4.6, claude-sonnet-4.6, gpt-5.4, claude-haiku-4.5,
+claude-opus-4.5, claude-sonnet-4, claude-sonnet-4.5, gemini-2.5-pro,
+gemini-3-flash-preview, gemini-3-pro-preview, gemini-3.1-pro-preview,
+gpt-5.2, gpt-5.1, o3</pre>
+
+<h3>14.2 Claude Provider (6 models)</h3>
+<pre>sonnet (latest), opus (latest), claude-sonnet-4-6, claude-opus-4-6,
+claude-sonnet-4-5, claude-haiku-4-5</pre>
+
+<h3>14.3 Codex Provider (8 models)</h3>
+<pre>default (ChatGPT), o4-mini, o3, gpt-4.1, gpt-4.1-mini,
+gpt-4.1-nano, o3-pro, codex-mini</pre>
+
+<div class="note">
+  These catalogs are loaded by <code>toolingService.loadModelCatalogs()</code> at startup and used by <code>resolveProvider()</code> in both tooling-service and project-service to route prompts to the correct CLI.
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 15 — DATA FLOW DIAGRAMS                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s15">
+<h2>Section 15 — Data Flow Diagrams</h2>
+
+<h3>15.1 AI Agent Message Flow</h3>
+<div class="flow-diagram">
+Renderer (React)
+    │
+    ├─ ipcRenderer.invoke("project:sendTaskMessage", payload)
+    │
+    ▼
+register-handlers.js
+    │
+    ├─ fileWatcherService.setAgentActive(true)
+    │
+    ├─ projectService.sendTaskMessage(payload)
+    │   │
+    │   ├─ settingsService.readSettings()           ← read project
+    │   ├─ readConfiguredCommands()                  ← resolve CLI paths
+    │   │   └─ refreshSystemPath()                   ← reload Windows PATH
+    │   │   └─ toolingService.installCopilot()       ← auto-install if missing
+    │   ├─ findTaskPlanContext(project, taskId)       ← find task in plan
+    │   ├─ syncSharedAgentContextFiles(project)      ← write .codebuddy/agents/
+    │   ├─ createCheckpointSnapshot(repoPath, label) ← snapshot files
+    │   ├─ loadPeerAgentContext(repoPath, scope, id) ← load peer context
+    │   ├─ buildTaskAgentSystemPrompt(ctx, thread)   ← build system prompt
+    │   ├─ ensureOnCodebuddyBuild(repoPath)          ← branch guard
+    │   ├─ runProviderCli(...)                       ← spawn CLI process
+    │   │   │
+    │   │   ├─ getSafeCommandJailDir()               ← create no-op wrappers
+    │   │   ├─ runProgram(file, args, cwd, meta)     ← core process spawn
+    │   │   │   │
+    │   │   │   ├─ emit project:agentStarted         → renderer
+    │   │   │   ├─ emit project:agentOutput (stream)  → renderer
+    │   │   │   ├─ broadcastTokenToP2P()              → peers
+    │   │   │   └─ emit project:agentCompleted        → renderer
+    │   │   │
+    │   │   └─ (auto-retry for Codex ChatGPT errors)
+    │   │
+    │   ├─ extractTaskAgentMetadata(rawOutput)        ← parse TASK_STATUS
+    │   ├─ updateTaskStatusInPlan(plan, taskId)       ← immutable plan update
+    │   ├─ settingsService.atomicUpdate(...)          ← targeted merge
+    │   ├─ broadcastMessageToP2P(...)                 → peers
+    │   ├─ broadcastStateToP2P(...)                   → peers
+    │   ├─ saveConversationToSharedState(...)          → .codebuddy/conversations/
+    │   └─ saveAgentContextSnapshot(...)              → .codebuddy/agents/context/
+    │
+    ├─ fileWatcherService.setAgentActive(false)
+    ├─ fileWatcherService.doAutoSync()                ← commit + push changes
+    │
+    ├─ sendEvent("settings:changed", settings)        → renderer
+    └─ logActivity(...)                               → activity store
+</div>
+
+<h3>15.2 File Watch → Auto-Sync Flow</h3>
+<div class="flow-diagram">
+fs.watch (recursive)
+    │  (file change detected, not in IGNORED_DIRS)
+    ▼
+sendEvent("fileWatcher:changed")    → renderer
+    │
+    ├─ Reset 10-second debounce timer
+    │
+    ▼ (10s after last change)
+doAutoSync()
+    │
+    ├─ GUARD: paused? agentActive? syncing? → abort
+    │
+    ├─ cleanupGitState()        ← remove index.lock, abort rebase/merge
+    ├─ ensureGitIdentitySync()  ← set user.name/email if missing
+    ├─ Ensure on codebuddy-build branch
+    ├─ git status --porcelain   ← check for changes
+    ├─ git add -A
+    ├─ git commit -m "auto: sync changes {timestamp}" --no-verify
+    ├─ git pull origin codebuddy-build --rebase
+    ├─ git push origin codebuddy-build
+    │   └─ (retry strategies: -u, pull+push, soft-reset, force-with-lease)
+    │
+    ├─ p2pService.broadcastStateChange("new-commits", ...)  → peers
+    │
+    └─ sendEvent("fileWatcher:syncComplete")  → renderer
+</div>
+
+<h3>15.3 P2P State Sync Flow</h3>
+<div class="flow-diagram">
+Peer A broadcasts state-change
+    │
+    ▼
+Peer B receives via Hyperswarm connection
+    │
+    ├─ handlePeerMessage(session, peerId, msg)
+    │   ├─ type === "state-change"
+    │   ├─ emit p2p:stateChanged → renderer
+    │   ├─ call stateChangeCallbacks[]
+    │   ├─ syncStateChangeToDisk()  → .codebuddy/{category}/
+    │   └─ update Yjs map
+    │
+    ▼
+register-handlers.js: onStateChange callback
+    │
+    ├─ category === "plan"   → forward-only merge into settings
+    ├─ category === "tasks"  → update single task status
+    ├─ category === "conversation" → append messages to thread
+    ├─ category === "thread-sync"  → full thread merge
+    ├─ category === "new-commits"  → fileWatcher.autoPull()
+    ├─ category === "main-updated" → fetch + ff-merge main
+    └─ category === "agent-context" → write .codebuddy/agents/context/
+</div>
+
+<h3>15.4 Invite &amp; Join Flow</h3>
+<div class="flow-diagram">
+Host Machine                           Joining Machine
+─────────────                          ──────────────
+p2p:generateInvite
+  ├─ Export plan → .codebuddy/plan.json
+  ├─ git commit + push (both branches)
+  └─ Return base64url invite code
+                     │
+                     │ (user shares code)
+                     ▼
+                  p2p:acceptInvite
+                    ├─ decodeInviteCode(code)
+                    ├─ git clone remoteUrl
+                    ├─ git switch codebuddy-build
+                    ├─ createProject(importExistingPath)
+                    ├─ Import plan from .codebuddy/plan.json
+                    ├─ ensureSharedDir()
+                    ├─ git commit + push scaffolding
+                    └─ p2pService.joinProject()
+                              │
+                              ▼
+                    Both machines in same Hyperswarm topic
+                    Full thread-sync triggered on peer-ready
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 16 — IPC CHANNEL REFERENCE TABLE                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s16">
+<h2>Section 16 — IPC Channel Reference Table</h2>
+
+<table>
+  <tr><th>Channel</th><th>Direction</th><th>Handler/Emitter</th></tr>
+  <tr><td colspan="3" style="background:var(--surface2);color:var(--accent);font-weight:700;">System</td></tr>
+  <tr><td>system:getBuildTag</td><td>invoke</td><td>Returns "v37"</td></tr>
+  <tr><td>system:openDirectory</td><td>invoke</td><td>dialog.showOpenDialog()</td></tr>
+  <tr><td>system:openExternal</td><td>invoke</td><td>shell.openExternal() (http/https only)</td></tr>
+  <tr><td>system:getCommonPaths</td><td>invoke</td><td>Returns Documents, Home, Desktop</td></tr>
+  <tr><td colspan="3" style="background:var(--surface2);color:var(--accent);font-weight:700;">Process</td></tr>
+  <tr><td>process:run</td><td>invoke</td><td>processService.run()</td></tr>
+  <tr><td>process:cancel</td><td>invoke</td><td>processService.cancel()</td></tr>
+  <tr><td>process:listRunning</td><td>invoke</td><td>processService.listRunning()</td></tr>
+  <tr><td>process:started</td><td>event→</td><td>Emitted when process starts</td></tr>
+  <tr><td>process:output</td><td>event→</td><td>Emitted per stdout/stderr chunk</td></tr>
+  <tr><td>process:completed</td><td>event→</td><td>Emitted when process exits</td></tr>
+  <tr><td colspan="3" style="background:var(--surface2);color:var(--accent);font-weight:700;">Settings</td></tr>
+  <tr><td>settings:get</td><td>invoke</td><td>settingsService.readSettings()</td></tr>
+  <tr><td>settings:update</td><td>invoke</td><td>settingsService.updateSettings()</td></tr>
+  <tr><td>settings:isFirstRun</td><td>invoke</td><td>settingsService.isFirstRun()</td></tr>
+  <tr><td>settings:completeOnboarding</td><td>invoke</td><td>settingsService.completeOnboarding()</td></tr>
+  <tr><td>settings:changed</td><td>event→</td><td>Emitted after any settings write</td></tr>
+  <tr><td colspan="3" style="background:var(--surface2);color:var(--accent);font-weight:700;">Project</td></tr>
+  <tr><td>project:list</td><td>invoke</td><td>List all projects</td></tr>
+  <tr><td>project:create</td><td>invoke</td><td>Create new or import existing</td></tr>
+  <tr><td>project:delete</td><td>invoke</td><td>Delete project (optional: files, repo)</td></tr>
+  <tr><td>project:setActive</td><td>invoke</td><td>Set active project ID</td></tr>
+  <tr><td>project:generatePlan</td><td>invoke</td><td>Generate MVP plan via AI</td></tr>
+  <tr><td>project:savePlan</td><td>invoke</td><td>Save plan + export to .codebuddy/</td></tr>
+  <tr><td>project:syncWorkspace</td><td>invoke</td><td>Pull + import plan from git</td></tr>
+  <tr><td>project:importSyncedPlan</td><td>invoke</td><td>Import plan from .codebuddy/plan.json</td></tr>
+  <tr><td>project:sendTaskMessage</td><td>invoke</td><td>Send message to task agent (tool use)</td></tr>
+  <tr><td>project:sendPMMessage</td><td>invoke</td><td>Send message to PM (no tool use)</td></tr>
+  <tr><td>project:sendSoloMessage</td><td>invoke</td><td>Send message to solo agent (tool use)</td></tr>
+  <tr><td>project:generateTaskPrompt</td><td>invoke</td><td>Auto-generate next prompt for task</td></tr>
+  <tr><td>project:launchDevServer</td><td>invoke</td><td>Detect and return launch command</td></tr>
+  <tr><td>project:restoreCheckpoint</td><td>invoke</td><td>Restore files from checkpoint</td></tr>
+  <tr><td>project:cancelActiveRequest</td><td>invoke</td><td>Kill active AI process</td></tr>
+  <tr><td>project:forceResetAgent</td><td>invoke</td><td>SIGKILL + git cleanup</td></tr>
+  <tr><td>project:getActiveRequest</td><td>invoke</td><td>Get current agent status/output</td></tr>
+  <tr><td>project:ensureGithubRepo</td><td>invoke</td><td>Create/connect GitHub repo</td></tr>
+  <tr><td>project:listCollaborators</td><td>invoke</td><td>List GitHub collaborators</td></tr>
+  <tr><td>project:setRepoVisibility</td><td>invoke</td><td>Change public/private</td></tr>
+  <tr><td>project:grantDeleteScope</td><td>invoke</td><td>Grant delete_repo permission</td></tr>
+  <tr><td>project:agentStarted</td><td>event→</td><td>Agent process spawned</td></tr>
+  <tr><td>project:agentOutput</td><td>event→</td><td>Agent stdout/stderr/system chunk</td></tr>
+  <tr><td>project:agentCompleted</td><td>event→</td><td>Agent process exited</td></tr>
+  <tr><td>project:agentError</td><td>event→</td><td>Agent process error</td></tr>
+  <tr><td>project:agentCancelled</td><td>event→</td><td>Agent cancelled by user</td></tr>
+  <tr><td colspan="3" style="background:var(--surface2);color:var(--accent);font-weight:700;">P2P &amp; File Watcher (see Sections 10-11)</td></tr>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 17 — SAFETY & SECURITY                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s17">
+<h2>Section 17 — Safety &amp; Security Mechanisms</h2>
+
+<h3>17.1 Electron Security</h3>
+<ul>
+  <li><code>nodeIntegration: false</code> — Renderer has no Node.js access</li>
+  <li><code>contextIsolation: true</code> — Preload runs in isolated context</li>
+  <li><code>sandbox: true</code> for webview guests</li>
+  <li>X-Frame-Options stripped only for localhost URLs</li>
+  <li>openExternal validates URL scheme (http/https only)</li>
+</ul>
+
+<h3>17.2 AI Agent Safety</h3>
+<ul>
+  <li><strong>Safe Command Jail:</strong> No-op wrappers shadow dangerous commands (code, explorer, taskkill, powershell, vim, etc.)</li>
+  <li><strong>PATH filtering:</strong> VS Code directories removed from PATH during agent execution</li>
+  <li><strong>Environment overrides:</strong> EDITOR=cat, VISUAL=cat, GIT_EDITOR=cat, BROWSER=echo</li>
+  <li><strong>System prompt rules:</strong> Comprehensive safety instructions forbidding port-killing, external app launches, long-running processes</li>
+  <li><strong>Only one active agent:</strong> Single <code>activeChildProcess</code> at a time</li>
+  <li><strong>Checkpoint before every message:</strong> Full file snapshot before any agent interaction</li>
+</ul>
+
+<h3>17.3 Git Safety</h3>
+<ul>
+  <li><code>GIT_TERMINAL_PROMPT=0</code> — Prevents interactive credential prompts</li>
+  <li><code>GCM_INTERACTIVE=never</code> — Git Credential Manager non-interactive</li>
+  <li><code>cleanupGitState()</code> — Automatic recovery from stuck index.lock, rebase, merge</li>
+  <li><code>--no-verify</code> on auto-commits — Prevents pre-commit hooks from blocking sync</li>
+  <li><code>--force-with-lease</code> as last resort (not <code>--force</code>)</li>
+  <li>Branch guard: <code>ensureOnCodebuddyBuild()</code> before agent file modifications</li>
+</ul>
+
+<h3>17.4 Data Safety</h3>
+<ul>
+  <li><strong>Atomic writes:</strong> Settings use tmp → backup → rename pattern</li>
+  <li><strong>Targeted merge:</strong> Task agent results merge only changed fields into fresh settings, avoiding stale overwrites</li>
+  <li><strong>Forward-only status merge:</strong> P2P never regresses task status (planned→building→review→done)</li>
+  <li><strong>syncInProgress guard:</strong> Prevents savePlan from overwriting during syncWorkspace</li>
+  <li><strong>Message deduplication:</strong> P2P conversation sync checks message IDs</li>
+</ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  SECTION 18 — GOTCHAS & RECOVERY                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="s18">
+<h2>Section 18 — Known Gotchas &amp; Recovery Patterns</h2>
+
+<div class="card">
+<h4>Git Index Lock</h4>
+<p><strong>Symptom:</strong> "fatal: Unable to create '.../.git/index.lock': File exists"</p>
+<p><strong>Cause:</strong> Previous git operation was interrupted (process kill, crash).</p>
+<p><strong>Recovery:</strong> <code>cleanupGitState()</code> automatically deletes <code>.git/index.lock</code>. Called before every git operation in file-watcher and repo-service.</p>
+</div>
+
+<div class="card">
+<h4>Detached HEAD</h4>
+<p><strong>Symptom:</strong> <code>git rev-parse --abbrev-ref HEAD</code> returns "HEAD".</p>
+<p><strong>Cause:</strong> Aborted rebase left HEAD detached.</p>
+<p><strong>Recovery:</strong> <code>inspectRepository()</code> auto-checks out <code>codebuddy-build</code>. <code>autoPull()</code> also handles this.</p>
+</div>
+
+<div class="card">
+<h4>Port 3000 Conflict</h4>
+<p><strong>Symptom:</strong> AI agent tries to kill port 3000 or start a dev server on it.</p>
+<p><strong>Prevention:</strong> System prompt explicitly forbids killing port 3000 (CodeBuddy itself). Safe command jail blocks taskkill/kill. <code>launchDevServer()</code> detects conflicts.</p>
+</div>
+
+<div class="card">
+<h4>Stale Settings Overwrite</h4>
+<p><strong>Symptom:</strong> P2P-synced data lost after agent completes.</p>
+<p><strong>Prevention:</strong> <code>sendTaskMessage</code> uses targeted merge — reads FRESH settings inside <code>atomicUpdate()</code> and merges only its specific thread + status change. Does not overwrite the entire project.</p>
+</div>
+
+<div class="card">
+<h4>Windows EINVAL with .cmd Files</h4>
+<p><strong>Symptom:</strong> "EINVAL" error when spawning .cmd files with long arguments.</p>
+<p><strong>Cause:</strong> Node.js CVE-2024-27980 security fix rejects .cmd with suspicious characters.</p>
+<p><strong>Recovery:</strong> <code>runProgram()</code> detects .cmd files and uses <code>shell: true</code> mode. Codex CLI passes prompts via stdin instead of args.</p>
+</div>
+
+<div class="card">
+<h4>Auto-Sync Echo Loop</h4>
+<p><strong>Symptom:</strong> Infinite push/pull cycle between machines.</p>
+<p><strong>Prevention:</strong> File watcher pauses during pulls (3s resume delay). <code>agentActive</code> flag defers sync during agent runs. <code>savePlan</code> skips git push when P2P is live or agent is active.</p>
+</div>
+
+<div class="card">
+<h4>Codex ChatGPT Model Error</h4>
+<p><strong>Symptom:</strong> "not supported when using Codex with a ChatGPT account"</p>
+<p><strong>Recovery:</strong> <code>runProviderCli()</code> auto-retries without <code>--model</code> flag, letting the server pick its default.</p>
+</div>
+
+<div class="card">
+<h4>No Git Identity</h4>
+<p><strong>Symptom:</strong> "Author identity unknown" on commit.</p>
+<p><strong>Recovery:</strong> Both <code>ensureGitIdentitySync()</code> (file-watcher) and <code>ensureGitIdentity()</code> (project-service) detect missing identity and set it from <code>gh api user</code> or fallback to "CodeBuddy &lt;codebuddy@local.invalid&gt;".</p>
+</div>
+
+<div class="card">
+<h4>Handler Already Registered</h4>
+<p><strong>Symptom:</strong> Crash on hot reload — "Attempted to register a second handler for..."</p>
+<p><strong>Prevention:</strong> <code>safeHandle()</code> removes existing handler before registering new one.</p>
+</div>
+</section>
+
+<hr class="separator" />
+
+<p style="text-align:center;color:var(--text-dim);font-size:0.85rem;padding:20px 0 40px;">
+  CodeBuddy Prod V3 Backend Full Breakdown — Build v37<br/>
+  Generated as a reference document before the UI overhaul.<br/>
+  Every function, IPC channel, data flow, and recovery pattern documented.<br/>
+  If anything breaks post-overhaul, this is your source of truth.
+</p>
+
+</div><!-- /container -->
+</body>
+</html>

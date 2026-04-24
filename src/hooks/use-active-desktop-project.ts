@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function createDefaultDashboard(systemPromptMarkdown = "", initialPrompt = "") {
   return {
@@ -40,7 +40,7 @@ type ActiveDesktopProject = {
     artifacts: unknown[];
     channels: unknown[];
     directMessages: unknown[];
-    soloSessions?: unknown[];
+    soloSessions?: { id: string; title: string; createdAt: string; updatedAt: string; lastModel: string | null; messages: { id: string; from: string; text: string; isAI?: boolean; isMine?: boolean }[] }[];
   };
 };
 
@@ -84,9 +84,65 @@ function normalizeActiveProject(project: Partial<ActiveDesktopProject> | null): 
 export function useActiveDesktopProject() {
   const [activeProject, setActiveProject] = useState<ActiveDesktopProject | null>(null);
   const [canUseDesktopProject, setCanUseDesktopProject] = useState(false);
+  // Lightweight signature so we can drop settings:changed events whose payload
+  // is structurally identical to what we already applied. We only hash fields
+  // the workspace page actually re-renders from — the heavy dashboard arrays
+  // (conversation / activity / taskThreads / soloSessions) can be multiple MB
+  // and stringifying them on every change is itself the freeze.
+  const lastKeyRef = useRef<string>("");
+  // Coalesce bursty settings:changed events so a flood (P2P presence ticks,
+  // file-watcher events, plan saves) doesn't cause a re-render per event.
+  const pendingRef = useRef<ActiveDesktopProject | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    const makeKey = (p: ActiveDesktopProject | null) => {
+      if (!p) return "";
+      // Fields the workspace actually depends on. The dashboard.plan is small
+      // (subprojects + tasks — typically <50KB). Everything else in dashboard
+      // is NOT used on the workspace render path, so we deliberately ignore it.
+      try {
+        return [
+          p.id,
+          p.name,
+          p.description,
+          p.stage,
+          p.repoPath,
+          p.folderName,
+          p.githubVisibility,
+          p.githubRepoUrl ?? "",
+          p.updatedAt,
+          JSON.stringify(p.dashboard.plan ?? null),
+          (p.dashboard.taskThreads?.length ?? 0),
+        ].join("|");
+      } catch {
+        return String(Math.random());
+      }
+    };
+
+    const commit = () => {
+      flushTimerRef.current = null;
+      if (!isMounted) return;
+      const next = pendingRef.current;
+      pendingRef.current = null;
+      const key = makeKey(next);
+      if (key === lastKeyRef.current) return;
+      lastKeyRef.current = key;
+      setActiveProject(next);
+    };
+
+    const applyProject = (next: ActiveDesktopProject | null) => {
+      if (!isMounted) return;
+      // Fast path: compute the cheap signature up front and bail without
+      // scheduling anything if nothing relevant changed.
+      const key = makeKey(next);
+      if (key === lastKeyRef.current && pendingRef.current === null) return;
+      pendingRef.current = next;
+      if (flushTimerRef.current) return; // coalesce — a flush is already queued
+      flushTimerRef.current = setTimeout(commit, 50);
+    };
 
     async function loadActiveProject() {
       if (typeof window === "undefined") {
@@ -108,14 +164,12 @@ export function useActiveDesktopProject() {
         const nextActiveProject = normalizeActiveProject(
           settings.projects.find((project) => project.id === settings.activeProjectId) ?? null,
         );
-
-        if (isMounted) {
-          setActiveProject(nextActiveProject);
-        }
+        // Apply the initial value synchronously so the first paint has data.
+        const key = makeKey(nextActiveProject);
+        lastKeyRef.current = key;
+        if (isMounted) setActiveProject(nextActiveProject);
       } catch {
-        if (isMounted) {
-          setActiveProject(null);
-        }
+        if (isMounted) setActiveProject(null);
       }
     }
 
@@ -125,14 +179,15 @@ export function useActiveDesktopProject() {
       const nextActiveProject = normalizeActiveProject(
         settings.projects.find((project) => project.id === settings.activeProjectId) ?? null,
       );
-
-      if (isMounted) {
-        setActiveProject(nextActiveProject);
-      }
+      applyProject(nextActiveProject);
     });
 
     return () => {
       isMounted = false;
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
       stopListening?.();
     };
   }, []);

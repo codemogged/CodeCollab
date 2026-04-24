@@ -1,10 +1,12 @@
-import { Navbar } from "@/components";
+import { LeftRail, MonolithPanel } from "@/components";
 
 export default function HomeLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <Navbar />
-      <main className="w-full px-0 py-10">{children}</main>
-    </>
+    <div className="flex h-screen overflow-hidden">
+      <LeftRail />
+      <MonolithPanel>
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </MonolithPanel>
+    </div>
   );
 }

@@ -393,14 +393,13 @@ export default function SettingsPage() {
   }, []);
 
   return (
-    <div className="text-ink dark:text-[var(--fg)]">
+    <div className="text-text">
       <div className="mx-auto flex w-full max-w-[1180px] justify-center">
-        <div className="w-full max-w-[760px] space-y-8 pb-24">
+        <div className="w-full max-w-[760px] space-y-8 px-6 py-8 pb-24">
           {/* Header */}
-          <div className="text-center sm:text-left">
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] theme-muted">Account</p>
-            <h1 className="display-font mt-2 text-[2rem] font-semibold tracking-tight theme-fg">User settings</h1>
-            <p className="mt-2 text-[14px] theme-soft">Manage your profile, connections, and defaults.</p>
+          <div>
+            <h1 className="font-display text-display-sm tracking-tight text-text">Settings</h1>
+            <p className="mt-1 text-body-sm text-text-dim">Manage your profile, connections, and defaults.</p>
           </div>
 
           {/* Profile card — shows GitHub username if connected */}

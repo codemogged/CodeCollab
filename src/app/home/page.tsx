@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Avatar } from "@/components";
 import { friends as seedFriends, ideas, type Friend, type Idea } from "@/lib/mock-data";
+import { nowTimestamp } from "@/lib/format-time";
 
 /* ─── visual constants ─── */
 
@@ -12,19 +13,18 @@ type ProjectStage = "Planning" | "Building" | "Review" | "Live";
 const stages: ProjectStage[] = ["Planning", "Building", "Review", "Live"];
 
 const stageColor: Record<ProjectStage, string> = {
-  Planning: "#d4cfc7",
-  Building: "#a78bfa",
-  Review: "#fbbf24",
-  Live: "#34d399",
+  Planning: "var(--text-ghost)",
+  Building: "var(--sun)",
+  Review: "var(--violet)",
+  Live: "var(--mint)",
 };
 
-const worldGradients = [
-  "from-[#0f0c29] via-[#302b63] to-[#24243e]",
-  "from-[#2d1b69] via-[#552586] to-[#b14dae]",
-  "from-[#134e5e] via-[#71b280] to-[#38ef7d]",
-  "from-[#1a1a2e] via-[#16213e] to-[#0f3460]",
-  "from-[#f12711] via-[#f5af19] to-[#f09819]",
-];
+const stageLabel: Record<ProjectStage, string> = {
+  Planning: "Planned",
+  Building: "Building",
+  Review: "In review",
+  Live: "Live",
+};
 
 /* ─── project type ─── */
 
@@ -39,6 +39,7 @@ interface ManagedProject {
   repoPath?: string;
   githubRepoUrl?: string | null;
   isDesktopProject?: boolean;
+  taskCounts?: { planned: number; building: number; review: number; done: number; total: number };
 }
 
 type HomeTab = "projects" | "friends";
@@ -126,7 +127,18 @@ function mapDesktopProject(project: {
   repoPath: string;
   githubRepoUrl: string | null;
   updatedAt: string;
+  dashboard?: { plan?: { subprojects?: Array<{ tasks?: Array<{ status: string }> }> } | null };
 }): ManagedProject {
+  // Extract real task counts from plan data
+  const allTasks = (project.dashboard?.plan?.subprojects ?? []).flatMap((sp) => sp.tasks ?? []);
+  const taskCounts = {
+    planned: allTasks.filter((t) => t.status === "planned").length,
+    building: allTasks.filter((t) => t.status === "building").length,
+    review: allTasks.filter((t) => t.status === "review").length,
+    done: allTasks.filter((t) => t.status === "done").length,
+    total: allTasks.length,
+  };
+
   return {
     id: project.id,
     name: project.name,
@@ -140,6 +152,7 @@ function mapDesktopProject(project: {
     repoPath: project.repoPath,
     githubRepoUrl: project.githubRepoUrl,
     isDesktopProject: true,
+    taskCounts,
   };
 }
 
@@ -587,7 +600,7 @@ function HomePageContent() {
       id: `message-${Date.now()}`,
       from: "You",
       text: friendMessage.trim(),
-      time: "Now",
+      time: nowTimestamp(),
       isMine: true,
     };
 
@@ -604,67 +617,62 @@ function HomePageContent() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] px-6 pb-24 pt-20 text-ink dark:text-[var(--fg)] sm:px-8 xl:px-10">
-      <div className="flex w-full flex-col gap-8">
+    <div className="custom-scroll min-h-screen w-full overflow-y-auto px-6 py-8">
 
-        {/* ═══════════════════ HERO ═══════════════════ */}
-        <header className="text-center">
-          <p className="text-[11px] font-medium uppercase tracking-[0.2em] theme-muted">
-            {activeTab === "projects" ? "Your projects" : "Coding friends"}
-          </p>
-          <h1 className="display-font mt-2 text-[2.3rem] font-semibold leading-[0.98] tracking-tight theme-fg sm:text-[3rem]">
-            {activeTab === "projects" ? "What are we building?" : "Who are you building with?"}
-          </h1>
-          <p className="mx-auto mt-3 max-w-xl text-[14px] leading-relaxed theme-soft">
-            {activeTab === "projects"
-              ? "Pick a project to continue, or start something brand new."
-              : "Keep your coding circle close. Add friends, check in, and message people you build with."}
-          </p>
-          <div className="mt-5 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => activeTab === "projects" ? openProjectCreator() : setShowFriendCreator(true)}
-              className="btn-primary px-5 py-2.5 text-[13px]"
-            >
-              {activeTab === "projects" ? "New project" : "Add coding friend"}
-            </button>
-            {activeTab === "projects" && canUseDesktopProjects && (
+        {/* ═══════════════════ HEADER ═══════════════════ */}
+        <header className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-display-sm tracking-tight text-text">
+              Projects
+            </h1>
+            <p className="mt-1 text-body-sm text-text-dim">
+              {projects.length} project{projects.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {canUseDesktopProjects && (
               <button
                 type="button"
                 onClick={() => setShowJoinInvite(true)}
-                className="inline-flex items-center gap-1.5 rounded-2xl border border-violet-500/20 bg-violet-500/5 px-5 py-2.5 text-[13px] font-semibold text-violet-600 transition hover:bg-violet-500/10 dark:text-violet-400"
+                className="btn-ghost text-label text-violet"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5z" clipRule="evenodd" /><path fillRule="evenodd" d="M6.194 12.753a.75.75 0 001.06.053L16.5 4.44v2.81a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.553l-9.056 8.194a.75.75 0 00-.053 1.06z" clipRule="evenodd" /></svg>
-                Join with invite
+                Join invite
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => openProjectCreator()}
+              className="btn-primary px-4 py-2 text-label"
+            >
+              New project
+            </button>
           </div>
         </header>
 
         {projectError ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+          <div className="mb-4 rounded-xl border border-coral/20 bg-coral/5 px-4 py-3 text-body-sm text-coral">
             {projectError}
           </div>
         ) : null}
 
         {pendingGithubAuth ? (
-          <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          <div className="mb-4 flex items-center gap-4 rounded-xl border border-sun/20 bg-sun/5 px-4 py-3 text-body-sm text-sun">
             <div className="flex-1">
               <p className="font-semibold">GitHub needs permission to delete repos</p>
-              <p className="mt-0.5 text-[12px] opacity-80">A window will open to complete GitHub authentication. This only needs to happen once.</p>
+              <p className="mt-0.5 text-label opacity-80">A window will open to complete GitHub authentication.</p>
             </div>
             <button
               type="button"
               onClick={() => void handleGrantDeleteScope()}
               disabled={grantingScope}
-              className="shrink-0 rounded-full bg-amber-600 px-4 py-2 text-[12px] font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+              className="btn-primary shrink-0 bg-sun px-4 py-2 text-label text-void"
             >
-              {grantingScope ? "Waiting for auth..." : "Grant Permission"}
+              {grantingScope ? "Waiting..." : "Grant Permission"}
             </button>
             <button
               type="button"
               onClick={() => setPendingGithubAuth(null)}
-              className="shrink-0 text-[12px] font-medium opacity-60 transition hover:opacity-100"
+              className="btn-ghost shrink-0 text-label"
             >
               Dismiss
             </button>
@@ -672,274 +680,113 @@ function HomePageContent() {
         ) : null}
 
         {projectNotice ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          <div className="mb-4 rounded-xl border border-mint/20 bg-mint/5 px-4 py-3 text-body-sm text-mint">
             {projectNotice}
           </div>
         ) : null}
 
-        {/* ═══════════════════ PROJECT TILES ═══════════════════ */}
-        {activeTab === "projects" ? (
-          <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {projects.map((project, i) => {
-              const stageIdx = stages.indexOf(project.stage);
+        {/* ═══════════════════ PROJECT ROWS ═══════════════════ */}
+          <section className="stagger space-y-1">
+            {projects.map((project) => {
+              const tc = project.taskCounts ?? { planned: 0, building: 0, review: 0, done: 0, total: 0 };
+              const hasTasks = tc.total > 0;
 
               return (
                 <div
                   key={project.id}
-                  className="group relative overflow-hidden rounded-[1.4rem] app-surface-strong shadow-sm transition-all duration-300 hover:shadow-[0_14px_34px_rgba(0,0,0,0.12)]"
+                  className="group relative flex items-center gap-4 rounded-xl border border-transparent px-4 py-3 transition-all duration-150 hover:border-edge hover:bg-stage-up"
+                  style={{ minHeight: "72px" }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => handleRequestDeleteProject(project)}
-                    className="absolute left-3 top-3 z-10 rounded-full border border-red-200/80 bg-[rgba(255,248,246,0.92)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700 shadow-[0_8px_18px_rgba(94,32,20,0.12)] backdrop-blur-sm transition hover:border-red-300 hover:bg-[rgba(255,241,238,0.97)] hover:text-red-800 dark:border-red-300/20 dark:bg-[rgba(45,24,24,0.82)] dark:text-red-200 dark:hover:border-red-200/30 dark:hover:bg-[rgba(58,29,29,0.9)]"
-                  >
-                    Delete
-                  </button>
+                  {/* Status dot */}
+                  <div
+                    className="status-dot shrink-0"
+                    style={{ background: stageColor[project.stage] }}
+                    title={stageLabel[project.stage]}
+                  />
 
+                  {/* Name + meta */}
                   <Link
                     href="/project"
                     onClick={() => void handleOpenProject(project)}
-                    className="block"
+                    className="flex min-w-0 flex-1 items-center gap-4"
                   >
-                    <div
-                      className={`relative flex h-[116px] items-center justify-center overflow-hidden bg-gradient-to-br ${worldGradients[i % worldGradients.length]}`}
-                    >
-                      <span className="display-font select-none text-[3.4rem] font-bold leading-none text-white/[0.11] transition-transform duration-500 ease-out group-hover:scale-110">
-                        {project.name.charAt(0).toUpperCase()}
-                      </span>
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
-                      <span className="absolute right-3 top-3 rounded-full bg-black/20 px-2 py-1 text-[9px] font-medium text-white/70 backdrop-blur-sm">
-                        {project.updatedAgo}
-                      </span>
-                    </div>
-
-                    <div className="p-4">
-                      <h3 className="display-font text-[1.05rem] font-semibold tracking-tight theme-fg">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-display text-body font-semibold tracking-tight text-text">
                         {project.name}
                       </h3>
-                      <p className="mt-2 text-[12px] leading-[1.55] theme-soft">
+                      <p className="mt-0.5 truncate text-body-sm text-text-dim">
                         {project.description}
                       </p>
-                      {project.repoPath ? (
-                        <p className="mt-2 line-clamp-2 text-[11px] theme-muted">
-                          {project.repoPath}
-                        </p>
-                      ) : null}
-
-                      <div className="mt-4 flex items-center">
-                        {stages.map((stage, si) => {
-                          const complete = si < stageIdx;
-                          const current = si === stageIdx;
-                          const future = si > stageIdx;
-
-                          return (
-                            <div key={stage} className="flex items-center">
-                              {si > 0 && (
-                                <div
-                                  className="h-[2px] w-4 transition-colors duration-300"
-                                  style={{
-                                    backgroundColor: future
-                                      ? "rgba(0,0,0,0.06)"
-                                      : "rgba(0,0,0,0.12)",
-                                  }}
-                                />
-                              )}
-                              <div className="flex flex-col items-center gap-1.5">
-                                <div
-                                  className={`rounded-full transition-all duration-300 ${
-                                    current ? "h-3 w-3" : "h-2 w-2"
-                                  }`}
-                                  style={{
-                                    backgroundColor: future
-                                      ? "rgba(0,0,0,0.14)"
-                                      : stageColor[stage],
-                                    boxShadow: current
-                                      ? `0 0 0 3px ${stageColor[stage]}25, 0 0 10px ${stageColor[stage]}30`
-                                      : undefined,
-                                  }}
-                                />
-                                <span
-                                  className={`text-[8px] font-semibold uppercase tracking-[0.12em] ${
-                                    current
-                                      ? "text-black/70 dark:text-[#f2efe8]"
-                                      : complete
-                                        ? "text-black/35 dark:text-[#b8b1a5]"
-                                        : "text-black/20 dark:text-[#7c776f]"
-                                  }`}
-                                >
-                                  {stage}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between">
-                        <div className="flex -space-x-1.5">
-                          {project.friends.slice(0, 4).map((f) => (
-                            <div
-                              key={f.name}
-                              className="app-avatar flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold ring-2 ring-white dark:ring-[#1a1c20]"
-                              title={f.name}
-                            >
-                              {f.initials}
-                            </div>
-                          ))}
-                        </div>
-                        <span className="flex items-center gap-1 text-[11px] font-semibold theme-muted transition-colors group-hover:text-[var(--fg)]">
-                          Open
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 16 16"
-                            fill="currentColor"
-                            className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M6.22 4.22a.75.75 0 011.06 0l3.25 3.25a.75.75 0 010 1.06l-3.25 3.25a.75.75 0 01-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 010-1.06z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        </span>
-                      </div>
                     </div>
+
+                    {/* Linear-style task breakdown */}
+                    <div className="hidden w-32 sm:block">
+                      {hasTasks ? (
+                        <>
+                          <div className="flex h-[5px] w-full overflow-hidden rounded-full bg-stage-up2">
+                            {tc.done > 0 && <div className="h-full bg-[var(--mint)]" style={{ width: `${(tc.done / tc.total) * 100}%` }} />}
+                            {tc.review > 0 && <div className="h-full bg-[var(--sun)]" style={{ width: `${(tc.review / tc.total) * 100}%` }} />}
+                            {tc.building > 0 && <div className="h-full bg-[var(--violet)]" style={{ width: `${(tc.building / tc.total) * 100}%` }} />}
+                          </div>
+                          <p className="mt-1 text-right text-[10px] text-text-dim">{tc.done}/{tc.total} done</p>
+                        </>
+                      ) : (
+                        <p className="text-right text-[10px] text-text-dim">No tasks yet</p>
+                      )}
+                    </div>
+
+                    {/* Friend avatars */}
+                    <div className="hidden items-center gap-2 sm:flex">
+                      <div className="flex -space-x-1.5">
+                        {project.friends.slice(0, 3).map((f) => (
+                          <div
+                            key={f.name}
+                            className="app-avatar flex h-6 w-6 items-center justify-center text-[9px] ring-2 ring-stage"
+                            title={f.name}
+                          >
+                            {f.initials}
+                          </div>
+                        ))}
+                      </div>
+                      {project.friends.length > 3 && (
+                        <span className="text-label text-text-ghost">+{project.friends.length - 3}</span>
+                      )}
+                    </div>
+
+                    {/* Updated ago */}
+                    <span className="hidden text-label text-text-ghost lg:block">{project.updatedAgo}</span>
                   </Link>
+
+                  {/* Delete button (visible on hover) */}
+                  <button
+                    type="button"
+                    onClick={() => handleRequestDeleteProject(project)}
+                    className="shrink-0 rounded-lg p-1.5 text-text-ghost opacity-0 transition hover:bg-coral/10 hover:text-coral group-hover:opacity-100"
+                    title="Delete project"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                      <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5a.75.75 0 0 1 .786-.712Z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 </div>
               );
             })}
 
+            {/* New project row */}
             <button
               type="button"
               onClick={openProjectCreator}
-              className="flex min-h-[236px] items-center justify-center rounded-[1.4rem] border-2 border-dashed border-black/[0.07] bg-white/30 text-ink-muted/40 transition-all duration-200 hover:border-black/[0.14] hover:bg-white/50 hover:text-ink-muted/60 dark:border-white/[0.10] dark:bg-white/[0.03] dark:text-[var(--muted)] dark:hover:border-white/[0.18] dark:hover:bg-white/[0.05]"
+              className="flex w-full items-center gap-4 rounded-xl border border-dashed border-edge px-4 py-4 text-text-dim transition hover:border-text-ghost hover:bg-stage-up hover:text-text-soft"
+              style={{ minHeight: "72px" }}
             >
-              <div className="flex flex-col items-center gap-2.5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] bg-black/[0.04] dark:bg-white/[0.06]">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-5 w-5"
-                  >
-                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                  </svg>
-                </div>
-                <span className="text-[13px] font-medium">Start a new project</span>
-                <span className="text-[11px]">Describe your idea and go</span>
+              <div className="flex h-5 w-5 items-center justify-center rounded-md bg-stage-up2">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                  <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+                </svg>
               </div>
+              <span className="text-body-sm font-medium">Start a new project</span>
             </button>
           </section>
-        ) : (
-          <section className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <aside className="app-surface rounded-[1.75rem] p-4">
-              <div className="flex items-center justify-between gap-3 border-b border-black/[0.06] px-2 pb-4 dark:border-white/[0.08]">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] theme-muted">Friends</p>
-                  <p className="mt-1 text-[13px] theme-soft">{codingFriends.length} in your circle</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowFriendCreator(true)}
-                  className="rounded-full bg-black/[0.04] px-3 py-1.5 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-                >
-                  Add friend
-                </button>
-              </div>
-
-              <div className="mt-3 space-y-2">
-                {codingFriends.map((friend) => {
-                  const active = friend.id === selectedFriend?.id;
-
-                  return (
-                    <button
-                      key={friend.id}
-                      type="button"
-                      onClick={() => setSelectedFriendId(friend.id)}
-                      className={`w-full rounded-[1.2rem] border px-4 py-3 text-left transition ${active ? "border-black/[0.08] bg-black/[0.03] shadow-[0_10px_22px_rgba(0,0,0,0.04)] dark:border-white/[0.12] dark:bg-white/[0.05] dark:shadow-none" : "border-transparent hover:border-black/[0.06] hover:bg-black/[0.02] dark:hover:border-white/[0.08] dark:hover:bg-white/[0.03]"}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar initials={friend.initials} online={friend.online} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[13px] font-semibold theme-fg">{friend.name}</p>
-                            <p className="text-[10px] uppercase tracking-[0.12em] theme-muted">{friend.updatedAgo}</p>
-                          </div>
-                          <p className="text-[11px] theme-muted">{friend.focus}</p>
-                          <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed theme-soft">{friend.note}</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            <section className="app-surface flex min-h-[660px] flex-col overflow-hidden rounded-[1.85rem]">
-              {selectedFriend ? (
-                <>
-                  <div className="border-b border-black/[0.06] px-6 py-5 dark:border-white/[0.08]">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar initials={selectedFriend.initials} size="lg" online={selectedFriend.online} ring />
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] theme-muted">Coding friend</p>
-                          <h2 className="display-font mt-1 text-[1.45rem] font-semibold tracking-tight theme-fg">{selectedFriend.name}</h2>
-                          <p className="mt-1 text-[13px] theme-soft">{selectedFriend.focus}</p>
-                        </div>
-                      </div>
-                      <p className="text-[10px] uppercase tracking-[0.12em] theme-muted">{selectedFriend.updatedAgo}</p>
-                    </div>
-                  </div>
-
-                  <div className="custom-scroll flex-1 space-y-4 overflow-y-auto px-6 py-6">
-                    {selectedFriend.messages.length > 0 ? selectedFriend.messages.map((message) => (
-                      <div key={message.id} className={`flex ${message.isMine ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[620px] rounded-[1.15rem] px-4 py-3 ${message.isMine ? "bg-[#f4eee3] text-[#17181b] shadow-[0_12px_28px_rgba(0,0,0,0.06)] dark:bg-[#f3efe8] dark:text-[#141414]" : "border border-black/[0.05] bg-white/55 text-ink shadow-[0_8px_20px_rgba(0,0,0,0.03)] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[var(--fg)] dark:shadow-none"}`}>
-                          <div className={`mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] ${message.isMine ? "text-[#5f5a52]/70 dark:text-[#4d463c]/70" : "theme-muted"}`}>
-                            <span>{message.from}</span>
-                            <span>{message.time}</span>
-                          </div>
-                          <p className="text-[14px] leading-relaxed">{message.text}</p>
-                        </div>
-                      </div>
-                    )) : (
-                      <div className="flex h-full min-h-[260px] items-center justify-center rounded-[1.25rem] border border-dashed border-black/[0.08] bg-white/30 text-[13px] theme-soft dark:border-white/[0.12] dark:bg-white/[0.02]">
-                        Start the conversation.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="border-t border-black/[0.06] px-5 py-4 dark:border-white/[0.08]">
-                    <div className="app-surface-strong rounded-[1.45rem] px-4 py-3">
-                      <textarea
-                        rows={2}
-                        value={friendMessage}
-                        onChange={(event) => setFriendMessage(event.target.value)}
-                        placeholder={`Message ${selectedFriend.name}`}
-                        className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-ink placeholder:text-ink-muted/45 outline-none dark:text-[var(--fg)] dark:placeholder:text-[var(--muted)]"
-                      />
-                      <div className="mt-3 flex items-center justify-end">
-                        <button
-                          type="button"
-                          onClick={handleSendFriendMessage}
-                          className="rounded-full bg-ink px-4 py-2 text-[12px] font-semibold text-cream transition hover:bg-ink/90 dark:bg-white dark:text-[#141414]"
-                        >
-                          Send
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex min-h-[660px] items-center justify-center px-6 text-[14px] theme-soft">
-                  Add a coding friend to start messaging.
-                </div>
-              )}
-            </section>
-          </section>
-        )}
-      </div>
 
       {/* ═══════════════════ CREATE PROJECT MODAL ═══════════════════ */}
       {showCreator && (
@@ -948,34 +795,30 @@ function HomePageContent() {
             type="button"
             aria-label="Close"
             onClick={() => setShowCreator(false)}
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            className="absolute inset-0 bg-void/60 backdrop-blur-sm"
           />
-          <div className="app-surface-strong relative w-full max-w-md overflow-hidden rounded-[1.75rem] shadow-2xl">
-            {/* gradient header */}
-            <div className="flex h-24 items-center justify-center bg-gradient-to-br from-[#667eea] to-[#764ba2]">
-              <span className="display-font text-[2.5rem] font-bold text-white/20">New</span>
-            </div>
+          <div className="surface relative w-full max-w-md overflow-hidden shadow-panel">
             <div className="p-6">
-              <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
-                {draftImportMode ? "Import existing project" : "Start something new"}
+              <h3 className="font-display text-display-sm tracking-tight text-text">
+                {draftImportMode ? "Import project" : "New project"}
               </h3>
-              <p className="mt-1.5 text-[13px] theme-muted">
+              <p className="mt-1.5 text-body-sm text-text-dim">
                 {draftImportMode
-                  ? "Point to an existing directory and CodeBuddy will wrap it as a project."
-                  : "Create a real local project folder and, if you want, its matching GitHub repo."}
+                  ? "Point to an existing directory to wrap it as a project."
+                  : "Create a local project folder and optionally a matching GitHub repo."}
               </p>
               <div className="mt-4 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setDraftImportMode(false)}
-                  className={`rounded-full px-3.5 py-1.5 text-[11px] font-semibold transition ${!draftImportMode ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                  className={`rounded-lg px-3 py-1.5 text-label transition ${!draftImportMode ? "bg-text text-void" : "bg-stage-up text-text-dim hover:text-text"}`}
                 >
                   New project
                 </button>
                 <button
                   type="button"
                   onClick={() => setDraftImportMode(true)}
-                  className={`rounded-full px-3.5 py-1.5 text-[11px] font-semibold transition ${draftImportMode ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                  className={`rounded-lg px-3 py-1.5 text-label transition ${draftImportMode ? "bg-text text-void" : "bg-stage-up text-text-dim hover:text-text"}`}
                 >
                   Import existing
                 </button>
@@ -985,14 +828,14 @@ function HomePageContent() {
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   placeholder="Project name"
-                  className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                  className="app-input rounded-xl px-4 py-3 text-body outline-none"
                 />
                 <textarea
                   value={draftDescription}
                   onChange={(e) => setDraftDescription(e.target.value)}
                   rows={2}
                   placeholder="What's it about? (optional)"
-                  className="app-input resize-none rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                  className="app-input resize-none rounded-xl px-4 py-3 text-body outline-none"
                 />
                 {draftImportMode ? (
                   <>
@@ -1010,16 +853,16 @@ function HomePageContent() {
                         }
                       }}
                       disabled={!canPickProjectLocation}
-                      className="w-full rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4 text-left transition hover:border-black/[0.12] hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:border-white/[0.14]"
+                      className="w-full rounded-xl border border-edge bg-stage-up p-4 text-left transition hover:border-text-ghost hover:bg-stage-up2 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[12px] font-semibold theme-fg">Select existing directory</p>
-                          <p className="mt-1 text-[11px] theme-muted">
+                          <p className="text-body-sm font-semibold text-text">Select existing directory</p>
+                          <p className="mt-1 text-label text-text-dim">
                             {draftImportPath || "Click to choose the project folder to import."}
                           </p>
                         </div>
-                        <span className="rounded-lg bg-black/[0.05] px-3 py-1.5 text-[11px] font-semibold theme-fg dark:bg-white/[0.08]">
+                        <span className="rounded-lg bg-stage-up2 px-3 py-1.5 text-label text-text-mid">
                           {canPickProjectLocation ? "Browse" : "Desktop only"}
                         </span>
                       </div>
@@ -1028,7 +871,7 @@ function HomePageContent() {
                       value={draftImportPath}
                       onChange={(e) => setDraftImportPath(e.target.value)}
                       placeholder="Or paste the full path"
-                      className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                      className="app-input rounded-xl px-4 py-3 text-body outline-none"
                     />
                   </>
                 ) : (
@@ -1037,16 +880,16 @@ function HomePageContent() {
                       type="button"
                       onClick={() => void handleChooseProjectLocation()}
                       disabled={!canPickProjectLocation}
-                      className="w-full rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4 text-left transition hover:border-black/[0.12] hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:border-white/[0.14]"
+                      className="w-full rounded-xl border border-edge bg-stage-up p-4 text-left transition hover:border-text-ghost hover:bg-stage-up2 disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[12px] font-semibold theme-fg">Project location</p>
-                          <p className="mt-1 text-[11px] theme-muted">
+                          <p className="text-body-sm font-semibold text-text">Project location</p>
+                          <p className="mt-1 text-label text-text-dim">
                             {draftBaseDirectory || defaultProjectRoot || "Click to choose where CodeBuddy should create the project folder."}
                           </p>
                         </div>
-                        <span className="rounded-lg bg-black/[0.05] px-3 py-1.5 text-[11px] font-semibold theme-fg dark:bg-white/[0.08]">
+                        <span className="rounded-lg bg-stage-up2 px-3 py-1.5 text-label text-text-mid">
                           {canPickProjectLocation ? "Choose folder" : "Desktop only"}
                         </span>
                       </div>
@@ -1063,7 +906,7 @@ function HomePageContent() {
                         key={location.label}
                         type="button"
                         onClick={() => handleUseLocationShortcut(location.path)}
-                        className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${draftBaseDirectory === location.path ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                        className={`rounded-lg px-3 py-1.5 text-label transition ${draftBaseDirectory === location.path ? "bg-text text-void" : "bg-stage-up text-text-dim hover:text-text"}`}
                       >
                         {location.label}
                       </button>
@@ -1074,19 +917,19 @@ function HomePageContent() {
                   value={draftBaseDirectory}
                   onChange={(e) => setDraftBaseDirectory(e.target.value)}
                   placeholder={defaultProjectRoot || "Paste or type a folder path"}
-                  className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                  className="app-input rounded-xl px-4 py-3 text-body outline-none"
                 />
-                <p className="text-[11px] theme-muted">
-                  CodeBuddy creates a subfolder using the project name inside this location. You can also type a path that doesn&apos;t exist yet — it will be created for you.
+                <p className="text-label text-text-dim">
+                  CodeBuddy creates a subfolder using the project name inside this location.
                 </p>
                   </>
                 )}
-                <label className="flex items-center gap-3 rounded-2xl border border-black/[0.06] bg-black/[0.02] px-4 py-3 text-[13px] theme-fg dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <label className="flex items-center gap-3 rounded-xl border border-edge bg-stage-up px-4 py-3 text-body-sm text-text">
                   <input
                     type="checkbox"
                     checked={draftCreateGithubRepo}
                     onChange={(event) => setDraftCreateGithubRepo(event.target.checked)}
-                    className="h-4 w-4 rounded border-black/[0.18]"
+                    className="h-4 w-4 rounded border-edge"
                   />
                   Create matching GitHub repo automatically
                 </label>
@@ -1097,7 +940,7 @@ function HomePageContent() {
                         key={visibility}
                         type="button"
                         onClick={() => setDraftGithubVisibility(visibility)}
-                        className={`rounded-lg px-4 py-2 text-[13px] font-medium capitalize transition ${draftGithubVisibility === visibility ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                        className={`rounded-lg px-4 py-2 text-body-sm font-medium capitalize transition ${draftGithubVisibility === visibility ? "bg-text text-void" : "bg-stage-up text-text-dim hover:text-text"}`}
                       >
                         {visibility}
                       </button>
@@ -1111,7 +954,7 @@ function HomePageContent() {
                       setShowCreator(false);
                       setProjectError(null);
                     }}
-                    className="btn-ghost px-4 py-2.5 text-[13px]"
+                    className="btn-ghost px-4 py-2.5 text-body-sm"
                   >
                     Cancel
                   </button>
@@ -1119,7 +962,7 @@ function HomePageContent() {
                     type="button"
                     onClick={() => void handleCreate()}
                     disabled={projectLoading}
-                    className="btn-primary px-5 py-2.5 text-[13px]"
+                    className="btn-primary px-5 py-2.5 text-body-sm"
                   >
                     {projectLoading ? (draftImportMode ? "Importing..." : "Creating...") : (draftImportMode ? "Import project" : "Create project")}
                   </button>
@@ -1136,17 +979,14 @@ function HomePageContent() {
             type="button"
             aria-label="Close"
             onClick={() => setShowFriendCreator(false)}
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            className="absolute inset-0 bg-void/60 backdrop-blur-sm"
           />
-          <div className="app-surface-strong relative w-full max-w-md overflow-hidden rounded-[1.75rem] shadow-2xl">
-            <div className="flex h-24 items-center justify-center bg-gradient-to-br from-[#3b82f6] to-[#14b8a6]">
-              <span className="display-font text-[2.5rem] font-bold text-white/20">Friend</span>
-            </div>
+          <div className="surface relative w-full max-w-md overflow-hidden shadow-panel">
             <div className="p-6">
-              <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+              <h3 className="font-display text-display-sm tracking-tight text-text">
                 Add a coding friend
               </h3>
-              <p className="mt-1.5 text-[13px] theme-muted">
+              <p className="mt-1.5 text-body-sm text-text-dim">
                 Add someone you build with so you can message them from home.
               </p>
               <div className="mt-5 grid gap-3">
@@ -1154,26 +994,26 @@ function HomePageContent() {
                   value={draftFriendName}
                   onChange={(e) => setDraftFriendName(e.target.value)}
                   placeholder="Friend name"
-                  className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                  className="app-input rounded-xl px-4 py-3 text-body outline-none"
                 />
                 <input
                   value={draftFriendFocus}
                   onChange={(e) => setDraftFriendFocus(e.target.value)}
                   placeholder="What do they help with?"
-                  className="app-input rounded-xl px-4 py-3 text-[14px] outline-none transition focus:ring-2 focus:ring-ink/10 dark:focus:ring-white/[0.08]"
+                  className="app-input rounded-xl px-4 py-3 text-body outline-none"
                 />
                 <div className="flex justify-end gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowFriendCreator(false)}
-                    className="btn-ghost px-4 py-2.5 text-[13px]"
+                    className="btn-ghost px-4 py-2.5 text-body-sm"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleCreateFriend}
-                    className="btn-primary px-5 py-2.5 text-[13px]"
+                    className="btn-primary px-5 py-2.5 text-body-sm"
                   >
                     Add friend
                   </button>
@@ -1191,15 +1031,12 @@ function HomePageContent() {
             type="button"
             aria-label="Close"
             onClick={() => { setShowJoinInvite(false); setJoinInviteError(null); setJoinInviteStep("paste"); }}
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            className="absolute inset-0 bg-void/60 backdrop-blur-sm"
           />
-          <div className="app-surface-strong relative w-full max-w-md overflow-hidden rounded-[1.75rem] shadow-2xl">
-            <div className="flex h-24 items-center justify-center bg-gradient-to-br from-violet-600 to-indigo-600">
-              <span className="display-font text-[2.5rem] font-bold text-white/20">Join</span>
-            </div>
+          <div className="surface relative w-full max-w-md overflow-hidden shadow-panel">
             <div className="p-6">
               {joinInviteError && (
-                <div className="mb-4 whitespace-pre-line rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+                <div className="mb-4 whitespace-pre-line rounded-xl border border-coral/20 bg-coral/5 px-3 py-2 text-label text-coral">
                   {joinInviteError}
                 </div>
               )}
@@ -1207,10 +1044,10 @@ function HomePageContent() {
               {/* Step 1: Paste invite code */}
               {joinInviteStep === "paste" && (
                 <>
-                  <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+                  <h3 className="font-display text-display-sm tracking-tight text-text">
                     Join a friend&apos;s project
                   </h3>
-                  <p className="mt-1.5 text-[13px] theme-muted">
+                  <p className="mt-1.5 text-body-sm text-text-dim">
                     Paste the invite code your friend shared with you.
                   </p>
                   <div className="mt-5 grid gap-3">
@@ -1219,13 +1056,13 @@ function HomePageContent() {
                       onChange={(e) => setJoinInviteCode(e.target.value)}
                       placeholder="Paste invite code here..."
                       rows={3}
-                      className="app-input resize-none rounded-xl px-4 py-3 font-mono text-[13px] outline-none transition focus:ring-2 focus:ring-violet-500/20"
+                      className="app-input resize-none rounded-xl px-4 py-3 font-code text-body-sm outline-none"
                     />
                     <div className="flex justify-end gap-2 pt-1">
                       <button
                         type="button"
                         onClick={() => { setShowJoinInvite(false); setJoinInviteError(null); setJoinInviteStep("paste"); }}
-                        className="btn-ghost px-4 py-2.5 text-[13px]"
+                        className="btn-ghost px-4 py-2.5 text-body-sm"
                       >
                         Cancel
                       </button>
@@ -1233,7 +1070,7 @@ function HomePageContent() {
                         type="button"
                         onClick={() => void handleDecodeInvite()}
                         disabled={!joinInviteCode.trim()}
-                        className="btn-primary px-5 py-2.5 text-[13px]"
+                        className="btn-primary px-5 py-2.5 text-body-sm"
                       >
                         Next
                       </button>
@@ -1245,26 +1082,26 @@ function HomePageContent() {
               {/* Step 2: Choose local folder */}
               {joinInviteStep === "setup" && (
                 <>
-                  <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+                  <h3 className="font-display text-display-sm tracking-tight text-text">
                     Set up &ldquo;{joinInviteProjectName}&rdquo;
                   </h3>
-                  <p className="mt-1.5 text-[13px] theme-muted">
+                  <p className="mt-1.5 text-body-sm text-text-dim">
                     Choose where to clone the project on your computer.
                   </p>
 
                   <div className="mt-5 space-y-4">
                     <div>
-                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-wider theme-muted">
+                      <label className="mb-1.5 block text-label text-text-ghost">
                         Project
                       </label>
-                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 dark:border-white/10">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 theme-muted"><path d="M3.505 2.365A41.369 41.369 0 019 2c1.863 0 3.697.124 5.495.365 1.247.167 2.18 1.108 2.435 2.268a4.45 4.45 0 00-.577-.069 43.141 43.141 0 00-4.706 0C9.229 4.696 7.5 6.727 7.5 8.998v2.24c0 1.413.67 2.735 1.76 3.562l-2.98 2.98A.75.75 0 015 17.25v-3.443c-.501-.048-1-.106-1.495-.172C2.033 13.438 1 12.162 1 10.72V5.28c0-1.441 1.033-2.717 2.505-2.914z" /><path d="M14 6c-.762 0-1.52.02-2.271.062C10.157 6.148 9 7.472 9 8.998v2.24c0 1.519 1.147 2.839 2.71 2.935.214.013.428.024.642.034.2.009.385.09.518.224l2.35 2.35a.75.75 0 001.28-.531v-2.07c1.453-.195 2.5-1.463 2.5-2.942V8.998c0-1.526-1.157-2.85-2.729-2.936A41.645 41.645 0 0014 6z" /></svg>
-                        <span className="text-[13px] font-medium theme-fg">{joinInviteProjectName}</span>
+                      <div className="flex items-center gap-2 rounded-xl border border-edge bg-stage-up px-4 py-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-text-dim"><path d="M3.505 2.365A41.369 41.369 0 019 2c1.863 0 3.697.124 5.495.365 1.247.167 2.18 1.108 2.435 2.268a4.45 4.45 0 00-.577-.069 43.141 43.141 0 00-4.706 0C9.229 4.696 7.5 6.727 7.5 8.998v2.24c0 1.413.67 2.735 1.76 3.562l-2.98 2.98A.75.75 0 015 17.25v-3.443c-.501-.048-1-.106-1.495-.172C2.033 13.438 1 12.162 1 10.72V5.28c0-1.441 1.033-2.717 2.505-2.914z" /><path d="M14 6c-.762 0-1.52.02-2.271.062C10.157 6.148 9 7.472 9 8.998v2.24c0 1.519 1.147 2.839 2.71 2.935.214.013.428.024.642.034.2.009.385.09.518.224l2.35 2.35a.75.75 0 001.28-.531v-2.07c1.453-.195 2.5-1.463 2.5-2.942V8.998c0-1.526-1.157-2.85-2.729-2.936A41.645 41.645 0 0014 6z" /></svg>
+                        <span className="text-body-sm font-medium text-text">{joinInviteProjectName}</span>
                       </div>
                     </div>
 
                     <div>
-                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-wider theme-muted">
+                      <label className="mb-1.5 block text-label text-text-ghost">
                         Save to
                       </label>
                       {commonPaths && (
@@ -1283,7 +1120,7 @@ function HomePageContent() {
                                 key={loc.label}
                                 type="button"
                                 onClick={() => setJoinInviteFolder(full)}
-                                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isActive ? "bg-violet-600 text-white" : "app-surface-strong theme-muted hover:text-[var(--fg)]"}`}
+                                className={`rounded-lg px-3 py-1.5 text-label transition ${isActive ? "bg-violet text-white" : "bg-stage-up text-text-dim hover:text-text"}`}
                               >
                                 {loc.label}
                               </button>
@@ -1297,23 +1134,23 @@ function HomePageContent() {
                           value={joinInviteFolder}
                           onChange={(e) => setJoinInviteFolder(e.target.value)}
                           placeholder="C:\Users\you\Projects\my-project"
-                          className="app-input min-w-0 flex-1 rounded-xl px-4 py-3 font-mono text-[12px] outline-none transition focus:ring-2 focus:ring-violet-500/20"
+                          className="app-input min-w-0 flex-1 rounded-xl px-4 py-3 font-code text-label outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => void handlePickJoinFolder()}
-                          className="btn-ghost shrink-0 rounded-xl px-3 py-3 text-[13px]"
+                          className="btn-ghost shrink-0 rounded-xl px-3 py-3 text-body-sm"
                           title="Browse..."
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5"><path d="M3.75 3A1.75 1.75 0 002 4.75v3.26a3.235 3.235 0 011.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0016.25 5h-4.836a.25.25 0 01-.177-.073L9.823 3.513A1.75 1.75 0 008.586 3H3.75zM3.75 9A1.75 1.75 0 002 10.75v4.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-4.5A1.75 1.75 0 0016.25 9H3.75z" /></svg>
                         </button>
                       </div>
                       {joinInviteFolder.trim() && (
-                        <p className="mt-1.5 truncate font-mono text-[11px] text-violet-400/80 dark:text-violet-300/60">
+                        <p className="mt-1.5 truncate font-code text-label text-violet">
                           {joinInviteFolder}
                         </p>
                       )}
-                      <p className="mt-1 text-[11px] theme-muted">
+                      <p className="mt-1 text-label text-text-dim">
                         The repo will be cloned into this folder. A new folder will be created if it doesn&apos;t exist.
                       </p>
                     </div>
@@ -1323,7 +1160,7 @@ function HomePageContent() {
                     <button
                       type="button"
                       onClick={() => { setJoinInviteStep("paste"); setJoinInviteError(null); }}
-                      className="btn-ghost px-4 py-2.5 text-[13px]"
+                      className="btn-ghost px-4 py-2.5 text-body-sm"
                     >
                       Back
                     </button>
@@ -1331,7 +1168,7 @@ function HomePageContent() {
                       type="button"
                       onClick={() => void handleJoinInvite()}
                       disabled={joinInviteLoading || !joinInviteFolder.trim()}
-                      className="btn-primary px-5 py-2.5 text-[13px]"
+                      className="btn-primary px-5 py-2.5 text-body-sm"
                     >
                       {joinInviteLoading ? "Cloning & joining..." : "Clone & join"}
                     </button>
@@ -1349,25 +1186,22 @@ function HomePageContent() {
             type="button"
             aria-label="Close"
             onClick={() => projectDeletingId ? null : setProjectPendingDelete(null)}
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            className="absolute inset-0 bg-void/60 backdrop-blur-sm"
           />
-          <div className="app-surface-strong relative w-full max-w-md overflow-hidden rounded-[1.75rem] shadow-2xl">
-            <div className="flex h-24 items-center justify-center bg-gradient-to-br from-[#ef4444] to-[#b91c1c]">
-              <span className="display-font text-[2.5rem] font-bold text-white/20">Delete</span>
-            </div>
+          <div className="surface relative w-full max-w-md overflow-hidden shadow-panel">
             <div className="p-6">
-              <h3 className="display-font text-[1.3rem] font-semibold tracking-tight theme-fg">
+              <h3 className="font-display text-display-sm tracking-tight text-text">
                 Delete {projectPendingDelete.name}?
               </h3>
-              <p className="mt-2 text-[13px] leading-relaxed theme-muted">
-                Choose exactly what should be deleted. Removing from CodeBuddy only keeps both the local folder and the GitHub repo.
+              <p className="mt-2 text-body-sm leading-relaxed text-text-dim">
+                Choose exactly what should be deleted.
               </p>
               {projectPendingDelete.repoPath ? (
-                <p className="mt-3 rounded-2xl border border-black/[0.06] bg-black/[0.02] px-4 py-3 text-[11px] theme-muted dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <p className="mt-3 rounded-xl border border-edge bg-stage-up px-4 py-3 font-code text-label text-text-dim">
                   {projectPendingDelete.repoPath}
                 </p>
               ) : null}
-              <div className="mt-4 grid gap-3">
+              <div className="mt-4 grid gap-2">
                 {[
                   {
                     id: "codebuddy-only",
@@ -1378,19 +1212,19 @@ function HomePageContent() {
                   {
                     id: "local-only",
                     label: "Delete local files only",
-                    description: "Removes the project folder from this computer but leaves GitHub alone.",
+                    description: "Removes the project folder from this computer.",
                     disabled: false,
                   },
                   {
                     id: "github-only",
                     label: "Delete GitHub repo only",
-                    description: projectPendingDelete.githubRepoUrl ? "Removes the connected GitHub repository but keeps the local folder." : "This project does not have a connected GitHub repo.",
+                    description: projectPendingDelete.githubRepoUrl ? "Removes the GitHub repository but keeps the local folder." : "No connected GitHub repo.",
                     disabled: !projectPendingDelete.githubRepoUrl,
                   },
                   {
                     id: "local-and-github",
                     label: "Delete local files and GitHub repo",
-                    description: projectPendingDelete.githubRepoUrl ? "Fully removes the local folder here and the connected repo on GitHub." : "This option needs a connected GitHub repo.",
+                    description: projectPendingDelete.githubRepoUrl ? "Fully removes the local folder and the connected repo." : "Needs a connected GitHub repo.",
                     disabled: !projectPendingDelete.githubRepoUrl,
                   },
                 ].map((option) => (
@@ -1399,15 +1233,15 @@ function HomePageContent() {
                     type="button"
                     onClick={() => setDeleteMode(option.id as ProjectDeleteMode)}
                     disabled={option.disabled}
-                    className={`rounded-2xl border px-4 py-3 text-left transition ${deleteMode === option.id ? "border-red-300 bg-red-50 text-red-900 shadow-[0_10px_24px_rgba(127,29,29,0.08)] dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100" : option.disabled ? "border-black/[0.04] bg-black/[0.01] text-black/40 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-white/40" : "border-black/[0.06] bg-black/[0.02] theme-fg hover:border-black/[0.12] hover:bg-black/[0.03] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:border-white/[0.14]"}`}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${deleteMode === option.id ? "border-coral/30 bg-coral/5" : option.disabled ? "border-edge bg-stage-up text-text-ghost" : "border-edge bg-stage-up hover:border-text-ghost"}`}
                   >
                     <div className="flex items-start gap-3">
-                      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${deleteMode === option.id ? "border-red-500 bg-red-500" : "border-black/20 dark:border-white/30"}`}>
+                      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${deleteMode === option.id ? "border-coral bg-coral" : "border-text-ghost"}`}>
                         {deleteMode === option.id ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
                       </span>
                       <div>
-                        <p className="font-semibold">{option.label}</p>
-                        <p className="mt-1 text-[11px] theme-muted">{option.description}</p>
+                        <p className="text-body-sm font-semibold text-text">{option.label}</p>
+                        <p className="mt-0.5 text-label text-text-dim">{option.description}</p>
                       </div>
                     </div>
                   </button>
@@ -1421,7 +1255,7 @@ function HomePageContent() {
                     setDeleteMode("local-only");
                   }}
                   disabled={projectDeletingId === projectPendingDelete.id}
-                  className="btn-ghost px-4 py-2.5 text-[13px]"
+                  className="btn-ghost px-4 py-2.5 text-body-sm"
                 >
                   Cancel
                 </button>
@@ -1429,7 +1263,7 @@ function HomePageContent() {
                   type="button"
                   onClick={() => void handleConfirmDeleteProject()}
                   disabled={projectDeletingId === projectPendingDelete.id}
-                  className="rounded-full bg-red-600 px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="rounded-lg bg-coral px-5 py-2.5 text-body-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {projectDeletingId === projectPendingDelete.id ? "Deleting..." : "Confirm delete"}
                 </button>

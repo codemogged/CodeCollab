@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeBuddy UI Redesign — 5 Concept Directions</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #fafaf8;
+    --fg: #0a0a0a;
+    --fg-soft: #5f5a52;
+    --muted: #8a8a8a;
+    --violet: #7c5cfc;
+    --aqua: #4ecdc4;
+    --sun: #ff9f1c;
+    --coral: #ff6b6b;
+    --cream: #fafaf8;
+    --cream-deep: #f0efe8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ─── Cover Page ─── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    color: white;
+    text-align: center;
+    padding: 4rem 2rem;
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,92,252,0.25) 0%, transparent 70%);
+    top: -200px;
+    right: -100px;
+  }
+
+  .cover::after {
+    content: '';
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(78,205,196,0.15) 0%, transparent 70%);
+    bottom: -150px;
+    left: -100px;
+  }
+
+  .cover-logo {
+    width: 80px;
+    height: 80px;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Instrument Sans', sans-serif;
+    font-weight: 700;
+    font-size: 1.8rem;
+    letter-spacing: -0.04em;
+    margin-bottom: 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover h1 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 3.5rem;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+    margin-bottom: 1rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover h1 span {
+    background: linear-gradient(135deg, #a78bfa, #4ecdc4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .cover .subtitle {
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.6);
+    max-width: 500px;
+    margin-bottom: 3rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover .meta {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.35);
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ─── Section Pages ─── */
+  .section-page {
+    page-break-before: always;
+    padding: 3rem 3.5rem;
+    min-height: 100vh;
+  }
+
+  .section-page h2 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.5rem;
+  }
+
+  .section-page .section-subtitle {
+    color: var(--fg-soft);
+    font-size: 0.95rem;
+    margin-bottom: 2.5rem;
+    max-width: 640px;
+    line-height: 1.65;
+  }
+
+  /* ─── TOC ─── */
+  .toc {
+    page-break-after: always;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 4rem;
+  }
+
+  .toc h2 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 2.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .toc-list {
+    list-style: none;
+  }
+
+  .toc-list li {
+    display: flex;
+    align-items: baseline;
+    padding: 1rem 0;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+
+  .toc-num {
+    font-family: 'Instrument Sans', sans-serif;
+    font-weight: 700;
+    font-size: 1.5rem;
+    letter-spacing: -0.02em;
+    color: var(--violet);
+    width: 3rem;
+    flex-shrink: 0;
+  }
+
+  .toc-title {
+    font-family: 'Instrument Sans', sans-serif;
+    font-weight: 600;
+    font-size: 1.15rem;
+    letter-spacing: -0.01em;
+  }
+
+  .toc-desc {
+    font-size: 0.82rem;
+    color: var(--fg-soft);
+    margin-top: 0.25rem;
+  }
+
+  /* ─── Concept Sections ─── */
+  .concept-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .concept-number {
+    font-family: 'Instrument Sans', sans-serif;
+    font-weight: 700;
+    font-size: 3rem;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--violet), var(--aqua));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .concept-name {
+    font-family: 'Instrument Sans', sans-serif;
+    font-weight: 700;
+    font-size: 1.8rem;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .concept-tagline {
+    font-size: 0.9rem;
+    color: var(--fg-soft);
+    line-height: 1.6;
+    max-width: 640px;
+    margin-bottom: 2rem;
+  }
+
+  .concept-pillars {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .pillar {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+    border-radius: 99px;
+    background: rgba(124,92,252,0.08);
+    color: var(--violet);
+  }
+
+  /* ─── Wireframe Containers ─── */
+  .wireframe-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    margin-top: 2rem;
+  }
+
+  .wireframe-block {
+    background: white;
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 1.25rem;
+    overflow: hidden;
+  }
+
+  .wireframe-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: rgba(0,0,0,0.02);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--fg-soft);
+  }
+
+  .wireframe-label .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--violet);
+  }
+
+  .wireframe-body {
+    padding: 1.5rem;
+    min-height: 280px;
+    position: relative;
+    background: #fdfdfc;
+  }
+
+  /* ─── Mock Elements ─── */
+  .mock-sidebar { 
+    position: absolute; left: 0; top: 0; bottom: 0; width: 200px; 
+    border-right: 1px solid rgba(0,0,0,0.05); 
+    padding: 1rem 0.75rem; 
+  }
+  .mock-sidebar-collapsed {
+    width: 56px;
+  }
+  .mock-sidebar-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.4rem 0.6rem; border-radius: 0.6rem; font-size: 0.65rem;
+    margin-bottom: 0.15rem; color: var(--fg-soft);
+  }
+  .mock-sidebar-item.active {
+    background: rgba(0,0,0,0.04); color: var(--fg); font-weight: 600;
+  }
+  .mock-sidebar-item .icon-box {
+    width: 16px; height: 16px; border-radius: 4px; 
+    background: rgba(0,0,0,0.06); flex-shrink: 0;
+  }
+
+  .mock-navbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.5rem 1rem; margin: 0.75rem; border-radius: 1rem;
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(20px);
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .mock-logo {
+    width: 24px; height: 24px; border-radius: 6px; background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
+    color: #fafaf8; font-size: 7px; font-weight: 700; font-family: 'Instrument Sans';
+  }
+  .mock-tabs {
+    display: flex; gap: 0.25rem;
+  }
+  .mock-tab {
+    padding: 0.25rem 0.6rem; border-radius: 99px; font-size: 0.55rem;
+    border: 1px solid rgba(0,0,0,0.08); color: var(--fg-soft); font-weight: 500;
+  }
+  .mock-tab.active {
+    background: #111214; color: #f4efe6; border-color: #111214;
+  }
+  .mock-avatar {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--cream-deep);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 7px; font-weight: 600; color: var(--fg);
+  }
+
+  .mock-card {
+    background: rgba(255,255,255,0.75); border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 1rem; overflow: hidden;
+  }
+  .mock-card-banner {
+    height: 48px; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  }
+  .mock-card-body { padding: 0.6rem; }
+  .mock-card-title { font-size: 0.6rem; font-weight: 600; margin-bottom: 0.2rem; }
+  .mock-card-meta { font-size: 0.5rem; color: var(--muted); }
+
+  .mock-progress-ring {
+    width: 60px; height: 60px; border-radius: 50%;
+    background: conic-gradient(#a78bfa 0deg, #34d399 140deg, rgba(0,0,0,0.04) 140deg);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .mock-progress-ring::after {
+    content: '38%'; position: absolute;
+    width: 44px; height: 44px; border-radius: 50%; background: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.55rem; font-weight: 700;
+  }
+
+  .mock-task-row {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.5rem;
+    border-radius: 0.5rem; font-size: 0.55rem; margin-bottom: 0.15rem;
+  }
+  .mock-task-row:hover { background: rgba(0,0,0,0.02); }
+  .mock-status-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .status-planned { background: #d4cfc7; }
+  .status-building { background: #a78bfa; }
+  .status-review { background: #fbbf24; }
+  .status-done { background: #34d399; }
+
+  .mock-chat-bubble {
+    padding: 0.5rem 0.75rem; border-radius: 1rem; font-size: 0.55rem;
+    max-width: 70%; margin-bottom: 0.4rem; line-height: 1.5;
+  }
+  .mock-chat-user {
+    background: #2d2b29; color: white; margin-left: auto;
+    border-bottom-right-radius: 0.3rem;
+  }
+  .mock-chat-ai {
+    background: transparent; color: var(--fg);
+    display: flex; gap: 0.4rem; align-items: flex-start;
+  }
+  .mock-ai-avatar {
+    width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, #5d8bff, #7c5cfc);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 7px;
+  }
+  .mock-composer {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.7rem; border-radius: 1rem;
+    background: rgba(255,252,247,0.94); border: 1px solid rgba(0,0,0,0.06);
+    font-size: 0.5rem; color: var(--muted);
+  }
+  .mock-send-btn {
+    width: 18px; height: 18px; border-radius: 50%; background: #0a0a0a;
+    flex-shrink: 0;
+  }
+
+  /* ─── Spec Tables ─── */
+  .spec-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+  }
+
+  .spec-card {
+    background: rgba(255,255,255,0.6);
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 1rem;
+    padding: 1.25rem;
+  }
+
+  .spec-card h4 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .spec-card h4 .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--violet);
+  }
+
+  .spec-list {
+    list-style: none;
+    font-size: 0.75rem;
+    line-height: 1.7;
+    color: var(--fg-soft);
+  }
+
+  .spec-list li::before {
+    content: '→ ';
+    color: var(--violet);
+    font-weight: 600;
+  }
+
+  /* ─── Color Palette Swatches ─── */
+  .palette-row {
+    display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap;
+  }
+  .swatch {
+    width: 40px; height: 40px; border-radius: 0.6rem;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .swatch-label {
+    font-size: 0.55rem; text-align: center; margin-top: 0.2rem; color: var(--muted);
+  }
+
+  /* ─── Dividers ─── */
+  .divider {
+    height: 1px;
+    background: rgba(0,0,0,0.06);
+    margin: 2rem 0;
+  }
+
+  /* ─── Comparison Table ─── */
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .comparison-table th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    font-weight: 600;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    border-bottom: 2px solid rgba(0,0,0,0.08);
+  }
+  .comparison-table td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    color: var(--fg-soft);
+    vertical-align: top;
+  }
+  .comparison-table tr:hover td {
+    background: rgba(124,92,252,0.02);
+  }
+  .table-concept-name {
+    font-weight: 600; color: var(--fg);
+  }
+
+  /* helpers */
+  .flex { display: flex; }
+  .flex-col { flex-direction: column; }
+  .gap-1 { gap: 0.25rem; }
+  .gap-2 { gap: 0.5rem; }
+  .gap-3 { gap: 0.75rem; }
+  .gap-4 { gap: 1rem; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .ml-auto { margin-left: auto; }
+  .text-right { text-align: right; }
+  .font-semibold { font-weight: 600; }
+  .text-xs { font-size: 0.65rem; }
+  .text-xxs { font-size: 0.55rem; }
+  .text-muted { color: var(--muted); }
+  .w-full { width: 100%; }
+  .relative { position: relative; }
+  .mt-1 { margin-top: 0.25rem; }
+  .mt-2 { margin-top: 0.5rem; }
+  .mt-3 { margin-top: 0.75rem; }
+  .mt-4 { margin-top: 1rem; }
+  .mb-1 { margin-bottom: 0.25rem; }
+  .mb-2 { margin-bottom: 0.5rem; }
+  .mb-3 { margin-bottom: 0.75rem; }
+  .p-2 { padding: 0.5rem; }
+
+  @media print {
+    .section-page { page-break-before: always; padding: 2rem 2.5rem; }
+    .wireframe-body { min-height: 220px; }
+  }
+
+  .page-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-weight: 600;
+    color: var(--violet);
+    margin-bottom: 1rem;
+  }
+
+  /* concept-specific accent variables */
+  .concept-1 { --accent: #7c5cfc; --accent-light: #ede8ff; }
+  .concept-2 { --accent: #0a0a0a; --accent-light: #f0efe8; }
+  .concept-3 { --accent: #4ecdc4; --accent-light: #d4f5f2; }
+  .concept-4 { --accent: #ff9f1c; --accent-light: #fff0d4; }
+  .concept-5 { --accent: #5d8bff; --accent-light: #e0eaff; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!--  COVER PAGE                                                   -->
+<!-- ============================================================ -->
+<div class="cover">
+  <div class="cover-logo">cb</div>
+  <h1>CodeBuddy<br><span>UI Redesign</span></h1>
+  <p class="subtitle">Five distinct design directions for the Home, Workspace, PM Chat, and Task Chat experiences — built for Windows desktop, designed for everyone.</p>
+  <p class="meta">Production Build v3 · Design Document · April 2026</p>
+</div>
+
+<!-- ============================================================ -->
+<!--  TABLE OF CONTENTS                                            -->
+<!-- ============================================================ -->
+<div class="toc">
+  <h2>Concept Directions</h2>
+  <ul class="toc-list">
+    <li>
+      <span class="toc-num">01</span>
+      <div>
+        <div class="toc-title">Liquid Glass</div>
+        <div class="toc-desc">Apple-inspired frosted glass panels with depth layers, ambient light bleeding through translucent surfaces. Ethereal and premium.</div>
+      </div>
+    </li>
+    <li>
+      <span class="toc-num">02</span>
+      <div>
+        <div class="toc-title">Swiss Grid</div>
+        <div class="toc-desc">Ultra-clean typographic hierarchy, generous whitespace, mono-weight borders. Inspired by Helvetica-era Swiss design and Linear's precision.</div>
+      </div>
+    </li>
+    <li>
+      <span class="toc-num">03</span>
+      <div>
+        <div class="toc-title">Aurora Depth</div>
+        <div class="toc-desc">Subtle gradient meshes with floating card layers. Claude/Anthropic warmth meets spatial depth — cards lift and breathe.</div>
+      </div>
+    </li>
+    <li>
+      <span class="toc-num">04</span>
+      <div>
+        <div class="toc-title">Ink & Paper</div>
+        <div class="toc-desc">High-contrast editorial layout. Bold typography, warm paper textures, ink-black accents. Notion meets a luxury magazine.</div>
+      </div>
+    </li>
+    <li>
+      <span class="toc-num">05</span>
+      <div>
+        <div class="toc-title">Neon Minimal</div>
+        <div class="toc-desc">Dark-first interface with luminous accent glows. Arc browser meets gaming dashboard — electric but refined.</div>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 1: LIQUID GLASS                                      -->
+<!-- ============================================================ -->
+<div class="section-page concept-1">
+  <div class="page-label">Concept 01 of 05</div>
+  <div class="concept-header">
+    <span class="concept-number">01</span>
+    <div>
+      <div class="concept-name">Liquid Glass</div>
+    </div>
+  </div>
+  <p class="concept-tagline">
+    Every panel is a frosted lens into depth. Background elements bleed through at calculated opacities. The UI feels physical — like holding translucent acrylic sheets stacked in space. Inspired by Apple's visionOS, macOS Sonoma, and the existing CodeBuddy glass system — evolved to its fullest expression.
+  </p>
+  <div class="concept-pillars">
+    <span class="pillar">Frosted Layers</span>
+    <span class="pillar">Depth Blur</span>
+    <span class="pillar">Ambient Light</span>
+    <span class="pillar">Floating Panels</span>
+    <span class="pillar">Apple DNA</span>
+  </div>
+
+  <div class="wireframe-grid">
+    <!-- HOME PAGE -->
+    <div class="wireframe-block">
+      <div class="wireframe-label"><span class="dot"></span> Home Page</div>
+      <div class="wireframe-body" style="background: linear-gradient(170deg, #f8f5ef 0%, #f0ede5 100%); overflow: hidden;">
+        <!-- Ambient orbs -->
+        <div style="position: absolute; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(124,92,252,0.08) 0%, transparent 70%); top: -80px; right: -60px;"></div>
+        <div style="position: absolute; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(78,205,196,0.06) 0%, transparent 70%); bottom: -60px; left: 20%;"></div>
+        <!-- Navbar -->
+        <div class="mock-navbar" style="backdrop-filter: blur(24px) saturate(1.6); background: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.4); box-shadow: 0 8px 32px rgba(0,0,0,0.06);">
+          <div class="mock-logo">cb</div>
+          <div class="mock-tabs">
+            <div class="mock-tab active">All Projects</div>
+            <div class="mock-tab">Coding Friends</div>
+          </div>
+          <div class="mock-avatar">CM</div>
+        </div>
+        <!-- Content area -->
+        <div style="padding: 1rem 1.5rem; margin-top: 0.5rem;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 1rem; letter-spacing: -0.02em; margin-bottom: 0.3rem;">Your Projects</div>
+          <div style="font-size: 0.55rem; color: var(--fg-soft); margin-bottom: 1rem;">3 active projects</div>
+          <!-- Project cards grid -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
+            <div class="mock-card" style="backdrop-filter: blur(20px); background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.5); box-shadow: 0 8px 32px rgba(0,0,0,0.06);">
+              <div class="mock-card-banner" style="height: 40px; background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+              <div class="mock-card-body">
+                <div class="mock-card-title">Real Estate Site</div>
+                <div class="mock-card-meta">4 tasks · 2 building</div>
+                <div style="display: flex; gap: 3px; margin-top: 6px;">
+                  <div style="width: 4px; height: 4px; border-radius: 50%; background: #34d399;"></div>
+                  <div style="width: 4px; height: 4px; border-radius: 50%; background: #a78bfa;"></div>
+                  <div style="width: 4px; height: 4px; border-radius: 50%; background: #a78bfa;"></div>
+                  <div style="width: 4px; height: 4px; border-radius: 50%; background: #d4cfc7;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="mock-card" style="backdrop-filter: blur(20px); background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.5); box-shadow: 0 8px 32px rgba(0,0,0,0.06);">
+              <div class="mock-card-banner" style="height: 40px; background: linear-gradient(135deg, #2d1b69, #552586);"></div>
+              <div class="mock-card-body">
+                <div class="mock-card-title">Portfolio App</div>
+                <div class="mock-card-meta">6 tasks · 1 review</div>
+              </div>
+            </div>
+            <div class="mock-card" style="backdrop-filter: blur(20px); background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.5); box-shadow: 0 8px 32px rgba(0,0,0,0.06);">
+              <div class="mock-card-banner" style="height: 40px; background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);"></div>
+              <div class="mock-card-body">
+                <div class="mock-card-title">API Dashboard</div>
+                <div class="mock-card-meta">3 tasks · all planned</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE PAGE -->
+    <div class="wireframe-block">
+      <div class="wireframe-label"><span class="dot"></span> Workspace Page</div>
+      <div class="wireframe-body" style="background: linear-gradient(170deg, #f8f5ef 0%, #f0ede5 100%); padding: 0; display: flex;">
+        <!-- Sidebar -->
+        <div class="mock-sidebar" style="background: rgba(255,255,255,0.45); backdrop-filter: blur(30px) saturate(1.6); border-right: 1px solid rgba(255,255,255,0.4);">
+          <div style="font-size: 0.55rem; font-weight: 700; padding: 0.5rem 0.6rem; margin-bottom: 0.3rem; font-family: 'Instrument Sans';">Real Estate Site</div>
+          <div class="mock-sidebar-item active"><div class="icon-box"></div> Workspace</div>
+          <div class="mock-sidebar-item"><div class="icon-box"></div> PM Chat</div>
+          <div class="mock-sidebar-item"><div class="icon-box"></div> Freestyle</div>
+          <div class="mock-sidebar-item"><div class="icon-box"></div> Files</div>
+          <div class="mock-sidebar-item"><div class="icon-box"></div> Preview</div>
+          <div style="border-top: 1px solid rgba(0,0,0,0.05); margin-top: auto; padding-top: 0.5rem; margin-top: 2rem;">
+            <div class="mock-sidebar-item" style="font-size: 0.5rem; color: var(--muted);">
+              <div class="mock-avatar" style="width: 16px; height: 16px; font-size: 5px;">CM</div>
+              cameron
+            </div>
+          </div>
+        </div>
+        <!-- Main content -->
+        <div style="margin-left: 200px; padding: 1rem 1.25rem; flex: 1;">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.85rem; letter-spacing: -0.01em;">Workspace</div>
+              <div style="font-size: 0.5rem; color: var(--muted);">4 subprojects · 13 tasks</div>
+            </div>
+            <div class="mock-progress-ring" style="width: 45px; height: 45px;">
+              <div style="position: absolute; width: 33px; height: 33px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; font-size: 0.45rem; font-weight: 700;">38%</div>
+            </div>
+          </div>
+          <!-- Task list in glass panel -->
+          <div style="background: rgba(255,255,255,0.5); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.5); border-radius: 0.8rem; padding: 0.6rem;">
+            <div style="font-size: 0.55rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--violet);">Site Foundation & Layout</div>
+            <div class="mock-task-row"><div class="mock-status-dot status-done"></div><span>Initialize Next.js</span><span class="ml-auto text-xxs text-muted">done</span></div>
+            <div class="mock-task-row"><div class="mock-status-dot status-building"></div><span>Build layout</span><span class="ml-auto text-xxs text-muted">building</span></div>
+            <div class="mock-task-row"><div class="mock-status-dot status-planned"></div><span>Create home page</span><span class="ml-auto text-xxs text-muted">planned</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PM CHAT -->
+    <div class="wireframe-block">
+      <div class="wireframe-label"><span class="dot"></span> PM Chat</div>
+      <div class="wireframe-body" style="background: linear-gradient(170deg, #f8f5ef 0%, #f0ede5 100%); padding: 0; display: flex;">
+        <div class="mock-sidebar" style="background: rgba(255,255,255,0.45); backdrop-filter: blur(30px); border-right: 1px solid rgba(255,255,255,0.4); width: 160px;">
+          <div style="font-size: 0.5rem; font-weight: 600; padding: 0.5rem; color: var(--muted);">PROJECT</div>
+          <div class="mock-sidebar-item"><div class="icon-box"></div> Workspace</div>
+          <div class="mock-sidebar-item active"><div class="icon-box"></div> PM Chat</div>
+        </div>
+        <div style="margin-left: 160px; padding: 1rem; flex: 1; display: flex; flex-direction: column;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 600; font-size: 0.7rem; margin-bottom: 0.6rem;">Project Manager Chat</div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem; justify-content: flex-end;">
+            <div class="mock-chat-bubble mock-chat-user" style="backdrop-filter: blur(8px);">I want to add a contact form to the home page</div>
+            <div class="mock-chat-bubble mock-chat-ai">
+              <div class="mock-ai-avatar">✦</div>
+              <div>
+                <div style="line-height: 1.5;">Great idea! I'll create a "Lead Capture" subproject with an inquiry form component and API route.</div>
+                <!-- Build artifact card -->
+                <div style="margin-top: 0.4rem; background: rgba(255,255,255,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.5); border-radius: 0.6rem; padding: 0.4rem;">
+                  <div style="font-size: 0.5rem; font-weight: 600;">📋 Plan Updated</div>
+                  <div style="font-size: 0.45rem; color: var(--muted);">Added 3 tasks to Lead Capture</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mock-composer" style="margin-top: 0.6rem; backdrop-filter: blur(16px); background: rgba(255,252,247,0.7); border: 1px solid rgba(255,255,255,0.4);">
+            <span>Ask the project manager...</span>
+            <div class="mock-send-btn ml-auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TASK CHAT -->
+    <div class="wireframe-block">
+      <div class="wireframe-label"><span class="dot"></span> Task Chat</div>
+      <div class="wireframe-body" style="background: linear-gradient(170deg, #f8f5ef 0%, #f0ede5 100%); padding: 0; display: flex;">
+        <div class="mock-sidebar" style="background: rgba(255,255,255,0.45); backdrop-filter: blur(30px); border-right: 1px solid rgba(255,255,255,0.4); width: 160px;">
+          <div class="mock-sidebar-item active" style="font-size: 0.5rem;"><div class="icon-box" style="background: var(--violet);"></div> Build layout</div>
+        </div>
+        <div style="margin-left: 160px; padding: 1rem; flex: 1; display: flex; flex-direction: column;">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="mock-status-dot status-building" style="width: 8px; height: 8px;"></div>
+            <div style="font-family: 'Instrument Sans'; font-weight: 600; font-size: 0.65rem;">Build shared layout</div>
+            <div style="font-size: 0.45rem; color: var(--muted); padding: 0.15rem 0.4rem; border-radius: 99px; background: rgba(167,139,250,0.1);">building</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem; justify-content: flex-end;">
+            <div class="mock-chat-bubble mock-chat-ai">
+              <div class="mock-ai-avatar">✦</div>
+              <div style="line-height: 1.5;">I've created the header and footer components with the navy blue theme. Run <code style="background: rgba(0,0,0,0.06); padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.5rem;">npm run dev</code> in the Terminal tab to preview.</div>
+            </div>
+            <div class="mock-chat-bubble mock-chat-user">Looks great! Mark this as done.</div>
+          </div>
+          <div class="mock-composer" style="margin-top: 0.6rem; backdrop-filter: blur(16px); background: rgba(255,252,247,0.7);">
+            <span>Continue working on this task...</span>
+            <div class="mock-send-btn ml-auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREESTYLE CHAT -->
+    <div class="wireframe-block">
+      <div class="wireframe-label"><span class="dot"></span> Freestyle Chat</div>
+      <div class="wireframe-body" style="background: linear-gradient(170deg, #f8f5ef 0%, #f0ede5 100%); padding: 0; display: flex;">
+        <div class="mock-sidebar" style="background: rgba(255,255,255,0.45); backdrop-filter: blur(30px); border-right: 1px solid rgba(255,255,255,0.4); width: 160px;">
+          <div style="font-size: 0.5rem; font-weight: 600; padding: 0.5rem; color: var(--muted);">SESSIONS</div>
+          <div class="mock-sidebar-item active" style="font-size: 0.5rem;">Session 1</div>
+          <div class="mock-sidebar-item" style="font-size: 0.5rem;">Debug helper</div>
+          <div class="mock-sidebar-item" style="font-size: 0.5rem; color: var(--violet);">+ New session</div>
+        </div>
+        <div style="margin-left: 160px; flex: 1; display: flex;">
+          <!-- Chat panel -->
+          <div style="flex: 1; padding: 1rem; display: flex; flex-direction: column;">
+            <div style="font-family: 'Instrument Sans'; font-weight: 600; font-size: 0.65rem; margin-bottom: 0.5rem;">Freestyle Coding</div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem; justify-content: flex-end;">
+              <div class="mock-chat-bubble mock-chat-user">Can you fix the CSS grid on mobile?</div>
+              <div class="mock-chat-bubble mock-chat-ai">
+                <div class="mock-ai-avatar">✦</div>
+                <div>
+                  <div>Here's the fix — I changed the grid to stack on screens under 768px:</div>
+                  <div style="margin-top: 0.3rem; background: #0d1117; border-radius: 0.4rem; padding: 0.35rem 0.5rem; font-family: monospace; font-size: 0.45rem; color: #7ee787; border: 1px solid rgba(255,255,255,0.06);">
+                    grid-template-columns: 1fr;<br>
+                    @media (min-width: 768px) {<br>
+                    &nbsp;&nbsp;grid-template-columns: 1fr 1fr;<br>
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mock-composer" style="margin-top: 0.6rem;">
+              <span>Ask anything...</span>
+              <div class="mock-send-btn ml-auto"></div>
+            </div>
+          </div>
+          <!-- File browser side panel -->
+          <div style="width: 140px; border-left: 1px solid rgba(0,0,0,0.05); background: rgba(255,255,255,0.3); padding: 0.5rem; font-size: 0.45rem;">
+            <div style="font-weight: 600; margin-bottom: 0.3rem; font-size: 0.5rem;">Files</div>
+            <div style="color: var(--fg-soft); margin-bottom: 0.15rem;">📁 app/</div>
+            <div style="color: var(--fg-soft); margin-bottom: 0.15rem; padding-left: 0.5rem;">📄 page.tsx</div>
+            <div style="color: var(--fg-soft); margin-bottom: 0.15rem; padding-left: 0.5rem;">📄 layout.tsx</div>
+            <div style="color: var(--fg-soft); margin-bottom: 0.15rem;">📁 components/</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-grid" style="margin-top: 2rem;">
+    <div class="spec-card">
+      <h4><span class="dot"></span> Key Design Decisions</h4>
+      <ul class="spec-list">
+        <li>backdrop-filter: blur(24–30px) saturate(1.6) on every panel</li>
+        <li>3-layer depth: ambient mesh → glass panels → floating cards</li>
+        <li>Borders are white-on-white: rgba(255,255,255,0.4) for inner glow</li>
+        <li>Shadows use warm-tint: rgba(32,24,18,0.08) not pure black</li>
+        <li>Cards lift 3px on hover with spring easing</li>
+        <li>Every panel corner: 1.25rem (20px) minimum radius</li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h4><span class="dot"></span> Color Palette</h4>
+      <div class="palette-row">
+        <div><div class="swatch" style="background: #fafaf8;"></div><div class="swatch-label">cream</div></div>
+        <div><div class="swatch" style="background: #f0efe8;"></div><div class="swatch-label">deep</div></div>
+        <div><div class="swatch" style="background: #7c5cfc;"></div><div class="swatch-label">violet</div></div>
+        <div><div class="swatch" style="background: #4ecdc4;"></div><div class="swatch-label">aqua</div></div>
+        <div><div class="swatch" style="background: #ff9f1c;"></div><div class="swatch-label">sun</div></div>
+        <div><div class="swatch" style="background: #0a0a0a;"></div><div class="swatch-label">ink</div></div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.5rem;">
+        <li>Existing palette — no changes, fully leveraged</li>
+        <li>Ambient orbs: violet, aqua, sun at 6–10% opacity</li>
+        <li>Dark mode: same blur, rgba(24,25,28,0.84) surfaces</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 2: SWISS GRID                                        -->
+<!-- ============================================================ -->
+<div class="section-page concept-2">
+  <div class="page-label">Concept 02 of 05</div>
+  <div class="concept-header">
+    <span class="concept-number" style="background: linear-gradient(135deg, #0a0a0a, #3a3a3a); -webkit-background-clip: text;">02</span>
+    <div>
+      <div class="concept-name">Swiss Grid</div>
+    </div>
+  </div>
+  <p class="concept-tagline">
+    Radical restraint. No glass, no gradients, no ambient effects. Pure typographic hierarchy with mathematical grid precision. Every pixel earns its place. Inspired by Linear, Stripe's dashboard, and Dieter Rams. The interface disappears — content speaks.
+  </p>
+  <div class="concept-pillars">
+    <span class="pillar" style="background: rgba(0,0,0,0.06); color: var(--fg);">Type-First</span>
+    <span class="pillar" style="background: rgba(0,0,0,0.06); color: var(--fg);">Grid Precision</span>
+    <span class="pillar" style="background: rgba(0,0,0,0.06); color: var(--fg);">Mono Borders</span>
+    <span class="pillar" style="background: rgba(0,0,0,0.06); color: var(--fg);">Dense Info</span>
+    <span class="pillar" style="background: rgba(0,0,0,0.06); color: var(--fg);">Linear DNA</span>
+  </div>
+
+  <div class="wireframe-grid">
+    <!-- HOME -->
+    <div class="wireframe-block" style="border-radius: 0.5rem;">
+      <div class="wireframe-label"><span class="dot" style="background: #0a0a0a;"></span> Home Page</div>
+      <div class="wireframe-body" style="background: #ffffff; padding: 0;">
+        <!-- Top bar — completely flat -->
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1.25rem; border-bottom: 1px solid #e5e5e5;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.7rem; letter-spacing: -0.02em;">CodeBuddy</div>
+          <div style="display: flex; gap: 1rem; font-size: 0.55rem; font-weight: 500;">
+            <span style="color: var(--fg); border-bottom: 1.5px solid var(--fg); padding-bottom: 2px;">Projects</span>
+            <span style="color: var(--muted);">Friends</span>
+            <span style="color: var(--muted);">Settings</span>
+          </div>
+          <div class="mock-avatar" style="background: #f5f5f5; border: 1px solid #e5e5e5;">CM</div>
+        </div>
+        <!-- Content — table-style list -->
+        <div style="padding: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+            <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 1.1rem; letter-spacing: -0.025em;">Projects</div>
+            <div style="font-size: 0.55rem; padding: 0.25rem 0.7rem; border: 1px solid #e5e5e5; border-radius: 0.3rem; font-weight: 500;">+ New Project</div>
+          </div>
+          <!-- Table header -->
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 80px; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.3rem; margin-bottom: 0.3rem;">
+            <div style="font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;">Name</div>
+            <div style="font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;">Status</div>
+            <div style="font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;">Tasks</div>
+            <div style="font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600;">Updated</div>
+          </div>
+          <!-- Rows -->
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 80px; padding: 0.45rem 0; border-bottom: 1px solid #f5f5f5; font-size: 0.55rem; align-items: center;">
+            <div style="font-weight: 600;">Real Estate Site</div>
+            <div><span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #a78bfa; margin-right: 4px;"></span>Building</div>
+            <div>4/13</div>
+            <div style="color: var(--muted);">2m ago</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 80px; padding: 0.45rem 0; border-bottom: 1px solid #f5f5f5; font-size: 0.55rem; align-items: center;">
+            <div style="font-weight: 600;">Portfolio App</div>
+            <div><span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fbbf24; margin-right: 4px;"></span>Review</div>
+            <div>5/6</div>
+            <div style="color: var(--muted);">1h ago</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 80px; padding: 0.45rem 0; border-bottom: 1px solid #f5f5f5; font-size: 0.55rem; align-items: center;">
+            <div style="font-weight: 600;">API Dashboard</div>
+            <div><span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4cfc7; margin-right: 4px;"></span>Planned</div>
+            <div>0/3</div>
+            <div style="color: var(--muted);">3d ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wireframe-block" style="border-radius: 0.5rem;">
+      <div class="wireframe-label"><span class="dot" style="background: #0a0a0a;"></span> Workspace Page</div>
+      <div class="wireframe-body" style="background: #ffffff; padding: 0; display: flex;">
+        <!-- Sidebar — text only, no icons needed -->
+        <div style="width: 180px; border-right: 1px solid #e5e5e5; padding: 0.75rem 0;">
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.55rem; font-weight: 700; margin-bottom: 0.3rem; font-family: 'Instrument Sans';">Real Estate Site</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; font-weight: 600; background: #f5f5f5; border-left: 2px solid #0a0a0a;">Workspace</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">PM Chat</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Freestyle</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Files</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Preview</div>
+        </div>
+        <!-- Main -->
+        <div style="flex: 1; padding: 1rem 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem;">
+            <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.85rem;">Task Board</div>
+            <div style="font-size: 0.5rem; color: var(--muted);">4/13 complete</div>
+          </div>
+          <!-- Kanban-style columns -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.5rem;">
+            <div>
+              <div style="font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); font-weight: 600; margin-bottom: 0.3rem; padding-bottom: 0.2rem; border-bottom: 2px solid #d4cfc7;">Planned (6)</div>
+              <div style="background: #fafafa; border: 1px solid #f0f0f0; border-radius: 0.3rem; padding: 0.35rem; margin-bottom: 0.25rem; font-size: 0.5rem;">Create home page</div>
+              <div style="background: #fafafa; border: 1px solid #f0f0f0; border-radius: 0.3rem; padding: 0.35rem; margin-bottom: 0.25rem; font-size: 0.5rem;">Property model</div>
+            </div>
+            <div>
+              <div style="font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.12em; color: #7c5cfc; font-weight: 600; margin-bottom: 0.3rem; padding-bottom: 0.2rem; border-bottom: 2px solid #a78bfa;">Building (3)</div>
+              <div style="background: #faf8ff; border: 1px solid #ede8ff; border-radius: 0.3rem; padding: 0.35rem; margin-bottom: 0.25rem; font-size: 0.5rem;">Build layout</div>
+            </div>
+            <div>
+              <div style="font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.12em; color: #b45309; font-weight: 600; margin-bottom: 0.3rem; padding-bottom: 0.2rem; border-bottom: 2px solid #fbbf24;">Review (0)</div>
+            </div>
+            <div>
+              <div style="font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.12em; color: #059669; font-weight: 600; margin-bottom: 0.3rem; padding-bottom: 0.2rem; border-bottom: 2px solid #34d399;">Done (4)</div>
+              <div style="background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 0.3rem; padding: 0.35rem; margin-bottom: 0.25rem; font-size: 0.5rem;">Init Next.js</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PM CHAT -->
+    <div class="wireframe-block" style="border-radius: 0.5rem;">
+      <div class="wireframe-label"><span class="dot" style="background: #0a0a0a;"></span> PM Chat</div>
+      <div class="wireframe-body" style="background: #ffffff; padding: 0; display: flex;">
+        <div style="width: 160px; border-right: 1px solid #e5e5e5; padding: 0.75rem 0;">
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Workspace</div>
+          <div style="padding: 0.3rem 0.75rem; font-size: 0.52rem; font-weight: 600; background: #f5f5f5; border-left: 2px solid #0a0a0a;">PM Chat</div>
+        </div>
+        <div style="flex: 1; padding: 1rem; display: flex; flex-direction: column;">
+          <div style="border-bottom: 1px solid #e5e5e5; padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+            <div style="font-family: 'Instrument Sans'; font-weight: 600; font-size: 0.7rem;">Project Manager</div>
+            <div style="font-size: 0.45rem; color: var(--muted);">Manages your project plan and task assignments</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem; justify-content: flex-end;">
+            <div style="max-width: 72%; margin-left: auto; background: #0a0a0a; color: white; padding: 0.4rem 0.65rem; border-radius: 0.6rem 0.6rem 0.15rem 0.6rem; font-size: 0.52rem; line-height: 1.5;">Add a contact form page</div>
+            <div style="max-width: 76%; display: flex; gap: 0.3rem;">
+              <div style="font-size: 0.5rem; font-weight: 700; color: var(--violet); flex-shrink: 0;">PM</div>
+              <div style="font-size: 0.52rem; line-height: 1.5; color: var(--fg-soft);">Done. I created a "Lead Capture" subproject with 3 tasks: form component, API route, and contact page.</div>
+            </div>
+          </div>
+          <div style="margin-top: 0.5rem; display: flex; gap: 0.3rem; align-items: center; border: 1px solid #e5e5e5; border-radius: 0.4rem; padding: 0.35rem 0.65rem;">
+            <span style="font-size: 0.5rem; color: var(--muted); flex: 1;">Message project manager...</span>
+            <div style="width: 18px; height: 18px; border-radius: 0.25rem; background: #0a0a0a;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TASK CHAT -->
+    <div class="wireframe-block" style="border-radius: 0.5rem;">
+      <div class="wireframe-label"><span class="dot" style="background: #0a0a0a;"></span> Task Chat</div>
+      <div class="wireframe-body" style="background: #ffffff; padding: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.5rem; margin-bottom: 0.6rem;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: #a78bfa;"></div>
+          <div style="font-family: 'Instrument Sans'; font-weight: 600; font-size: 0.65rem;">Build shared layout</div>
+          <div style="font-size: 0.45rem; color: var(--muted); margin-left: auto;">Site Foundation & Layout</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          <div style="max-width: 76%; display: flex; gap: 0.3rem;">
+            <div style="font-size: 0.5rem; font-weight: 700; color: var(--violet); flex-shrink: 0;">AI</div>
+            <div style="font-size: 0.52rem; line-height: 1.5; color: var(--fg-soft);">Header and footer are built. The nav uses the navy blue theme.</div>
+          </div>
+          <div style="max-width: 72%; margin-left: auto; background: #0a0a0a; color: white; padding: 0.4rem 0.65rem; border-radius: 0.6rem 0.6rem 0.15rem 0.6rem; font-size: 0.52rem;">Mark this as done</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREESTYLE -->
+    <div class="wireframe-block" style="border-radius: 0.5rem;">
+      <div class="wireframe-label"><span class="dot" style="background: #0a0a0a;"></span> Freestyle Chat</div>
+      <div class="wireframe-body" style="background: #ffffff; padding: 0; display: flex;">
+        <div style="flex: 1; padding: 1rem; display: flex; flex-direction: column;">
+          <!-- Session tabs -->
+          <div style="display: flex; gap: 0; margin-bottom: 0.6rem; border-bottom: 1px solid #e5e5e5;">
+            <div style="font-size: 0.5rem; padding: 0.3rem 0.6rem; font-weight: 600; border-bottom: 1.5px solid #0a0a0a;">Session 1</div>
+            <div style="font-size: 0.5rem; padding: 0.3rem 0.6rem; color: var(--muted);">Debug</div>
+            <div style="font-size: 0.5rem; padding: 0.3rem 0.6rem; color: var(--muted);">+</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem; justify-content: flex-end;">
+            <div style="max-width: 72%; margin-left: auto; background: #0a0a0a; color: white; padding: 0.4rem 0.65rem; border-radius: 0.6rem 0.6rem 0.15rem 0.6rem; font-size: 0.52rem;">Fix the CSS grid</div>
+            <div style="max-width: 76%; font-size: 0.52rem; line-height: 1.5; color: var(--fg-soft);">
+              <span style="font-weight: 700; color: var(--violet);">AI</span> Updated. The grid now stacks on mobile.
+              <div style="margin-top: 0.3rem; background: #fafafa; border: 1px solid #e5e5e5; border-radius: 0.3rem; padding: 0.3rem 0.5rem; font-family: monospace; font-size: 0.45rem;">grid-template-columns: 1fr;</div>
+            </div>
+          </div>
+        </div>
+        <!-- Editor rail -->
+        <div style="width: 120px; border-left: 1px solid #e5e5e5; padding: 0.5rem; font-size: 0.45rem;">
+          <div style="font-weight: 600; margin-bottom: 0.3rem;">Files</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0;">app/page.tsx</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0;">app/layout.tsx</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0;">globals.css</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-grid" style="margin-top: 2rem;">
+    <div class="spec-card" style="border-radius: 0.5rem;">
+      <h4><span class="dot" style="background: #0a0a0a;"></span> Key Design Decisions</h4>
+      <ul class="spec-list">
+        <li>Zero blur/glass — all surfaces are solid white or #fafafa</li>
+        <li>1px #e5e5e5 borders everywhere — predictable visual grid</li>
+        <li>Active state: left border accent (2px solid) instead of bg fill</li>
+        <li>Workspace uses kanban columns instead of task list</li>
+        <li>Chat bubbles are stark: black on white, no rounded glass</li>
+        <li>Typography does all the heavy lifting — weights 500/600/700</li>
+      </ul>
+    </div>
+    <div class="spec-card" style="border-radius: 0.5rem;">
+      <h4><span class="dot" style="background: #0a0a0a;"></span> Color Palette</h4>
+      <div class="palette-row">
+        <div><div class="swatch" style="background: #ffffff;"></div><div class="swatch-label">white</div></div>
+        <div><div class="swatch" style="background: #fafafa;"></div><div class="swatch-label">bg</div></div>
+        <div><div class="swatch" style="background: #e5e5e5;"></div><div class="swatch-label">border</div></div>
+        <div><div class="swatch" style="background: #0a0a0a;"></div><div class="swatch-label">ink</div></div>
+        <div><div class="swatch" style="background: #8a8a8a;"></div><div class="swatch-label">muted</div></div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.5rem;">
+        <li>Monochrome base — color only for status dots</li>
+        <li>Status colors remain: violet, amber, emerald, stone</li>
+        <li>Dark mode: #0a0a0a bg, white text, #222 borders</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 3: AURORA DEPTH                                      -->
+<!-- ============================================================ -->
+<div class="section-page concept-3">
+  <div class="page-label">Concept 03 of 05</div>
+  <div class="concept-header">
+    <span class="concept-number" style="background: linear-gradient(135deg, #4ecdc4, #7c5cfc); -webkit-background-clip: text;">03</span>
+    <div>
+      <div class="concept-name">Aurora Depth</div>
+    </div>
+  </div>
+  <p class="concept-tagline">
+    Warm, living gradients shift subtly behind elevated card layers. Think Anthropic's Claude.ai warmth crossed with Notion's structural clarity. Cards float on soft shadows in a layered z-space. The interface breathes — gradient mesh backgrounds animate at 0.02fps, barely perceptible but emotionally calming.
+  </p>
+  <div class="concept-pillars">
+    <span class="pillar" style="background: rgba(78,205,196,0.1); color: #0d9488;">Warm Gradients</span>
+    <span class="pillar" style="background: rgba(78,205,196,0.1); color: #0d9488;">Card Layers</span>
+    <span class="pillar" style="background: rgba(78,205,196,0.1); color: #0d9488;">Soft Shadows</span>
+    <span class="pillar" style="background: rgba(78,205,196,0.1); color: #0d9488;">Breathing Motion</span>
+    <span class="pillar" style="background: rgba(78,205,196,0.1); color: #0d9488;">Anthropic DNA</span>
+  </div>
+
+  <div class="wireframe-grid">
+    <!-- HOME -->
+    <div class="wireframe-block" style="border: none; box-shadow: 0 2px 24px rgba(0,0,0,0.06);">
+      <div class="wireframe-label" style="background: rgba(78,205,196,0.06);"><span class="dot" style="background: #4ecdc4;"></span> Home Page</div>
+      <div class="wireframe-body" style="background: linear-gradient(155deg, #fdf6ee 0%, #f3ede4 30%, #eef0f5 70%, #f0eef6 100%); padding: 0; overflow: hidden;">
+        <!-- Gradient mesh blobs -->
+        <div style="position: absolute; width: 400px; height: 400px; border-radius: 50%; background: radial-gradient(circle, rgba(167,139,250,0.12) 0%, transparent 60%); top: -120px; left: -80px; filter: blur(60px);"></div>
+        <div style="position: absolute; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(78,205,196,0.10) 0%, transparent 60%); bottom: -100px; right: -50px; filter: blur(50px);"></div>
+        <!-- Navbar — elevated card style -->
+        <div style="margin: 0.75rem; padding: 0.5rem 1rem; border-radius: 1.2rem; background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between;">
+          <div class="mock-logo" style="border-radius: 0.55rem;">cb</div>
+          <div class="mock-tabs">
+            <div class="mock-tab active" style="background: #0a0a0a; border: none; color: white;">Projects</div>
+            <div class="mock-tab" style="border: none; color: var(--fg-soft);">Friends</div>
+          </div>
+          <div class="mock-avatar">CM</div>
+        </div>
+        <!-- Project cards — elevated with deep shadows -->
+        <div style="padding: 0.75rem 1.5rem;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em; margin-bottom: 0.15rem;">Good evening, Cameron</div>
+          <div style="font-size: 0.55rem; color: var(--fg-soft); margin-bottom: 1rem;">3 projects in progress</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div style="background: white; border-radius: 1.1rem; box-shadow: 0 8px 30px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.03); overflow: hidden;">
+              <div style="height: 44px; background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+              <div style="padding: 0.65rem;">
+                <div style="font-size: 0.62rem; font-weight: 600; margin-bottom: 0.15rem;">Real Estate Site</div>
+                <div style="font-size: 0.48rem; color: var(--muted); margin-bottom: 0.4rem;">4/13 tasks · 2 active</div>
+                <div style="height: 3px; border-radius: 2px; background: #f0f0f0;">
+                  <div style="height: 100%; width: 31%; border-radius: 2px; background: linear-gradient(90deg, #a78bfa, #34d399);"></div>
+                </div>
+              </div>
+            </div>
+            <div style="background: white; border-radius: 1.1rem; box-shadow: 0 8px 30px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.03); overflow: hidden;">
+              <div style="height: 44px; background: linear-gradient(135deg, #f093fb, #f5576c);"></div>
+              <div style="padding: 0.65rem;">
+                <div style="font-size: 0.62rem; font-weight: 600; margin-bottom: 0.15rem;">Portfolio App</div>
+                <div style="font-size: 0.48rem; color: var(--muted); margin-bottom: 0.4rem;">5/6 tasks · review</div>
+                <div style="height: 3px; border-radius: 2px; background: #f0f0f0;">
+                  <div style="height: 100%; width: 83%; border-radius: 2px; background: linear-gradient(90deg, #a78bfa, #34d399);"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wireframe-block" style="border: none; box-shadow: 0 2px 24px rgba(0,0,0,0.06);">
+      <div class="wireframe-label" style="background: rgba(78,205,196,0.06);"><span class="dot" style="background: #4ecdc4;"></span> Workspace Page</div>
+      <div class="wireframe-body" style="background: linear-gradient(155deg, #fdf6ee, #f3ede4 50%, #f0eef6); padding: 0; display: flex;">
+        <div style="width: 190px; padding: 0.75rem; background: white; box-shadow: 4px 0 20px rgba(0,0,0,0.03);">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.58rem; margin-bottom: 0.5rem;">Real Estate Site</div>
+          <div style="padding: 0.3rem 0.5rem; border-radius: 0.5rem; background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(78,205,196,0.06)); font-size: 0.52rem; font-weight: 600; margin-bottom: 0.15rem;">● Workspace</div>
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.52rem; color: var(--fg-soft);">PM Chat</div>
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.52rem; color: var(--fg-soft);">Freestyle</div>
+        </div>
+        <div style="flex: 1; padding: 1rem;">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.9rem;">Task Board</div>
+              <div style="font-size: 0.5rem; color: var(--muted);">Site Foundation & Layout</div>
+            </div>
+            <div class="mock-progress-ring" style="width: 50px; height: 50px; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
+              <div style="position: absolute; width: 36px; height: 36px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; font-weight: 700;">31%</div>
+            </div>
+          </div>
+          <!-- Task cards as elevated mini-cards -->
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="background: white; border-radius: 0.7rem; padding: 0.5rem 0.65rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 0.4rem; font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 50%; background: #34d399;"></div>
+              <span style="font-weight: 500;">Initialize Next.js</span>
+              <span class="ml-auto text-xxs text-muted">done</span>
+            </div>
+            <div style="background: white; border-radius: 0.7rem; padding: 0.5rem 0.65rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(167,139,250,0.15); display: flex; align-items: center; gap: 0.4rem; font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 8px rgba(167,139,250,0.4);"></div>
+              <span style="font-weight: 600;">Build layout</span>
+              <span class="ml-auto text-xxs" style="color: #7c5cfc;">building</span>
+            </div>
+            <div style="background: white; border-radius: 0.7rem; padding: 0.5rem 0.65rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 0.4rem; font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 50%; background: #d4cfc7;"></div>
+              <span>Create home page</span>
+              <span class="ml-auto text-xxs text-muted">planned</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PM CHAT / TASK CHAT / FREESTYLE - condensed descriptions -->
+    <div class="wireframe-block" style="border: none; box-shadow: 0 2px 24px rgba(0,0,0,0.06);">
+      <div class="wireframe-label" style="background: rgba(78,205,196,0.06);"><span class="dot" style="background: #4ecdc4;"></span> PM Chat + Task Chat</div>
+      <div class="wireframe-body" style="background: linear-gradient(155deg, #fdf6ee, #f0eef6); padding: 1rem;">
+        <div style="font-size: 0.6rem; font-weight: 600; margin-bottom: 0.5rem;">Chat Design Language</div>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- User bubble -->
+          <div style="max-width: 70%; margin-left: auto; background: linear-gradient(135deg, #2d2b29, #1a1917); color: white; padding: 0.55rem 0.8rem; border-radius: 1.2rem 1.2rem 0.25rem 1.2rem; font-size: 0.52rem; box-shadow: 0 8px 24px rgba(32,24,18,0.15);">
+            Add a contact form to the landing page
+          </div>
+          <!-- AI response with card -->
+          <div style="max-width: 78%; display: flex; gap: 0.35rem; align-items: flex-start;">
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4ecdc4, #7c5cfc); display: flex; align-items: center; justify-content: center; color: white; font-size: 8px; flex-shrink: 0; box-shadow: 0 4px 12px rgba(124,92,252,0.2);">✦</div>
+            <div>
+              <div style="font-size: 0.52rem; line-height: 1.6; color: var(--fg-soft);">Created the "Lead Capture" subproject with 3 tasks:</div>
+              <div style="margin-top: 0.35rem; background: white; border-radius: 0.7rem; padding: 0.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.05);">
+                <div style="font-size: 0.5rem; font-weight: 600; margin-bottom: 0.15rem;">📋 Plan Updated</div>
+                <div style="font-size: 0.45rem; color: var(--muted);">+3 tasks added · Lead Capture</div>
+                <div style="margin-top: 0.3rem; display: flex; gap: 0.25rem;">
+                  <div style="font-size: 0.42rem; padding: 0.15rem 0.4rem; border-radius: 99px; background: rgba(78,205,196,0.1); color: #0d9488;">View Plan</div>
+                  <div style="font-size: 0.42rem; padding: 0.15rem 0.4rem; border-radius: 99px; background: rgba(0,0,0,0.04); color: var(--fg-soft);">Details</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Composer -->
+        <div style="margin-top: 0.75rem; background: white; border-radius: 1.1rem; padding: 0.45rem 0.7rem; box-shadow: 0 4px 16px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 0.3rem;">
+          <span style="font-size: 0.5rem; color: var(--muted); flex: 1;">Message...</span>
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #4ecdc4, #7c5cfc);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREESTYLE -->
+    <div class="wireframe-block" style="border: none; box-shadow: 0 2px 24px rgba(0,0,0,0.06);">
+      <div class="wireframe-label" style="background: rgba(78,205,196,0.06);"><span class="dot" style="background: #4ecdc4;"></span> Freestyle Chat</div>
+      <div class="wireframe-body" style="background: linear-gradient(155deg, #fdf6ee, #f0eef6); padding: 0; display: flex;">
+        <div style="flex: 1; padding: 1rem; display: flex; flex-direction: column;">
+          <!-- Tabbed sessions as pill bar -->
+          <div style="display: flex; gap: 0.3rem; margin-bottom: 0.6rem;">
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; border-radius: 99px; background: #0a0a0a; color: white; font-weight: 500;">Session 1</div>
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; border-radius: 99px; background: rgba(0,0,0,0.04); color: var(--fg-soft);">Debug</div>
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; border-radius: 99px; color: var(--violet);">+</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem; justify-content: flex-end;">
+            <div style="max-width: 68%; margin-left: auto; background: linear-gradient(135deg, #2d2b29, #1a1917); color: white; padding: 0.45rem 0.7rem; border-radius: 1rem 1rem 0.2rem 1rem; font-size: 0.5rem; box-shadow: 0 6px 20px rgba(0,0,0,0.12);">Fix CSS grid for mobile</div>
+            <div style="max-width: 76%; display: flex; gap: 0.3rem; align-items: flex-start;">
+              <div style="width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #4ecdc4, #7c5cfc); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 7px;">✦</div>
+              <div>
+                <div style="font-size: 0.5rem; color: var(--fg-soft); line-height: 1.5;">Fixed. The grid stacks below 768px:</div>
+                <div style="margin-top: 0.25rem; background: #0d1117; border-radius: 0.5rem; padding: 0.35rem; font-family: monospace; font-size: 0.42rem; color: #7ee787; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">grid-template-columns: 1fr;</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Side panel -->
+        <div style="width: 130px; background: white; box-shadow: -4px 0 20px rgba(0,0,0,0.03); padding: 0.6rem; font-size: 0.45rem;">
+          <div style="font-weight: 600; margin-bottom: 0.4rem;">File Browser</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0;">📁 app</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0; padding-left: 12px;">📄 page.tsx</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0; padding-left: 12px;">📄 layout.tsx</div>
+          <div style="color: var(--fg-soft); padding: 0.15rem 0;">📁 components</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-grid" style="margin-top: 2rem;">
+    <div class="spec-card">
+      <h4><span class="dot" style="background: #4ecdc4;"></span> Key Design Decisions</h4>
+      <ul class="spec-list">
+        <li>Gradient mesh background: warm peach → cool lavender, ultra-slow drift</li>
+        <li>Cards are opaque white with deep soft shadows (8–30px spread)</li>
+        <li>Active task gets a violet ring glow: 0 0 0 1px rgba(violet, 0.15)</li>
+        <li>AI avatar uses aqua→violet gradient (Anthropic-inspired warmth)</li>
+        <li>Progress bars use gradient fills instead of solid colors</li>
+        <li>Home page greets by time of day: "Good evening, Cameron"</li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h4><span class="dot" style="background: #4ecdc4;"></span> Color Palette</h4>
+      <div class="palette-row">
+        <div><div class="swatch" style="background: #fdf6ee;"></div><div class="swatch-label">warm</div></div>
+        <div><div class="swatch" style="background: #f0eef6;"></div><div class="swatch-label">cool</div></div>
+        <div><div class="swatch" style="background: #ffffff;"></div><div class="swatch-label">card</div></div>
+        <div><div class="swatch" style="background: #4ecdc4;"></div><div class="swatch-label">aqua</div></div>
+        <div><div class="swatch" style="background: #7c5cfc;"></div><div class="swatch-label">violet</div></div>
+        <div><div class="swatch" style="background: #2d2b29;"></div><div class="swatch-label">bubble</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 4: INK & PAPER                                      -->
+<!-- ============================================================ -->
+<div class="section-page concept-4">
+  <div class="page-label">Concept 04 of 05</div>
+  <div class="concept-header">
+    <span class="concept-number" style="background: linear-gradient(135deg, #ff9f1c, #ff6b6b); -webkit-background-clip: text;">04</span>
+    <div>
+      <div class="concept-name">Ink & Paper</div>
+    </div>
+  </div>
+  <p class="concept-tagline">
+    High-contrast editorial design. Oversized typography commands attention. Warm paper-texture backgrounds paired with bold ink-black elements create a luxury magazine feeling. Every section is a spread. Inspired by Notion's content-forward approach, The New York Times digital design, and Apple's product pages.
+  </p>
+  <div class="concept-pillars">
+    <span class="pillar" style="background: rgba(255,159,28,0.1); color: #b45309;">Bold Type</span>
+    <span class="pillar" style="background: rgba(255,159,28,0.1); color: #b45309;">Editorial Flow</span>
+    <span class="pillar" style="background: rgba(255,159,28,0.1); color: #b45309;">Paper Texture</span>
+    <span class="pillar" style="background: rgba(255,159,28,0.1); color: #b45309;">High Contrast</span>
+    <span class="pillar" style="background: rgba(255,159,28,0.1); color: #b45309;">Notion DNA</span>
+  </div>
+
+  <div class="wireframe-grid">
+    <!-- HOME -->
+    <div class="wireframe-block" style="border-radius: 0.3rem; border: 2px solid #0a0a0a;">
+      <div class="wireframe-label" style="border-bottom: 2px solid #0a0a0a; background: #0a0a0a; color: white;"><span class="dot" style="background: #ff9f1c;"></span> Home Page</div>
+      <div class="wireframe-body" style="background: #faf7f2; padding: 0;">
+        <!-- Masthead -->
+        <div style="padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(0,0,0,0.08); display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 800; font-size: 0.85rem; letter-spacing: -0.03em;">CodeBuddy</div>
+          <div style="display: flex; gap: 0.75rem; font-size: 0.52rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;">
+            <span style="border-bottom: 2px solid #0a0a0a; padding-bottom: 2px;">Projects</span>
+            <span style="color: var(--muted);">Friends</span>
+          </div>
+          <div class="mock-avatar" style="background: #0a0a0a; color: #faf7f2;">CM</div>
+        </div>
+        <!-- Hero section -->
+        <div style="padding: 1.5rem 1.25rem 1rem;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 800; font-size: 1.6rem; letter-spacing: -0.04em; line-height: 0.95; margin-bottom: 0.3rem;">Your<br>Projects.</div>
+          <div style="font-size: 0.55rem; color: var(--fg-soft); margin-bottom: 1rem;">3 active — 2 building, 1 planned</div>
+          <!-- Magazine-style card layout -->
+          <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 0.5rem;">
+            <div style="border: 2px solid #0a0a0a; border-radius: 0.3rem; overflow: hidden;">
+              <div style="height: 50px; background: #0a0a0a; display: flex; align-items: flex-end; padding: 0.35rem;">
+                <div style="color: white; font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.6rem;">Real Estate Site</div>
+              </div>
+              <div style="padding: 0.5rem;">
+                <div style="font-size: 0.48rem; color: var(--fg-soft); line-height: 1.5;">A leasing website with property listings and lead capture. 4 out of 13 tasks complete.</div>
+                <div style="margin-top: 0.4rem; height: 4px; background: #f0efe8; border-radius: 2px;">
+                  <div style="height: 100%; width: 31%; background: #0a0a0a; border-radius: 2px;"></div>
+                </div>
+              </div>
+            </div>
+            <div style="border: 1px solid rgba(0,0,0,0.12); border-radius: 0.3rem; padding: 0.5rem;">
+              <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.55rem; margin-bottom: 0.15rem;">Portfolio App</div>
+              <div style="font-size: 0.45rem; color: var(--muted);">5/6 tasks</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wireframe-block" style="border-radius: 0.3rem; border: 2px solid #0a0a0a;">
+      <div class="wireframe-label" style="border-bottom: 2px solid #0a0a0a; background: #0a0a0a; color: white;"><span class="dot" style="background: #ff9f1c;"></span> Workspace Page</div>
+      <div class="wireframe-body" style="background: #faf7f2; padding: 0; display: flex;">
+        <!-- Sidebar — editorial TOC style -->
+        <div style="width: 180px; border-right: 2px solid #0a0a0a; padding: 0.75rem 0;">
+          <div style="padding: 0 0.75rem; font-family: 'Instrument Sans'; font-weight: 800; font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;">Navigation</div>
+          <div style="padding: 0.35rem 0.75rem; font-size: 0.52rem; font-weight: 700; border-left: 3px solid #0a0a0a;">Workspace</div>
+          <div style="padding: 0.35rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">PM Chat</div>
+          <div style="padding: 0.35rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Freestyle</div>
+          <div style="padding: 0.35rem 0.75rem; font-size: 0.52rem; color: var(--fg-soft);">Files</div>
+        </div>
+        <div style="flex: 1; padding: 1rem 1.25rem;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 800; font-size: 1rem; letter-spacing: -0.03em; margin-bottom: 0.15rem;">Task Board</div>
+          <div style="font-size: 0.5rem; color: var(--muted); margin-bottom: 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 0.5rem;">Site Foundation & Layout — 1 of 3 done</div>
+          <!-- Task rows — newspaper column style -->
+          <div style="display: flex; flex-direction: column; gap: 0;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 1px; background: #34d399;"></div>
+              <span style="font-weight: 600; text-decoration: line-through; color: var(--muted);">Initialize Next.js</span>
+              <span class="ml-auto text-xxs" style="font-weight: 700;">DONE</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 1px; background: #a78bfa;"></div>
+              <span style="font-weight: 700;">Build layout</span>
+              <span class="ml-auto text-xxs" style="color: var(--violet); font-weight: 700;">IN PROGRESS</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.52rem;">
+              <div style="width: 8px; height: 8px; border-radius: 1px; background: #d4cfc7;"></div>
+              <span>Create home page</span>
+              <span class="ml-auto text-xxs text-muted">QUEUED</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHATS -->
+    <div class="wireframe-block" style="border-radius: 0.3rem; border: 2px solid #0a0a0a;">
+      <div class="wireframe-label" style="border-bottom: 2px solid #0a0a0a; background: #0a0a0a; color: white;"><span class="dot" style="background: #ff9f1c;"></span> PM Chat + Task Chat</div>
+      <div class="wireframe-body" style="background: #faf7f2; padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+          <!-- User -->
+          <div style="max-width: 68%; margin-left: auto; background: #0a0a0a; color: #faf7f2; padding: 0.55rem 0.8rem; border-radius: 0.3rem; font-size: 0.52rem; font-weight: 500;">Add a contact form to the landing page</div>
+          <!-- AI -->
+          <div style="max-width: 76%;">
+            <div style="font-size: 0.48rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-bottom: 0.15rem; color: var(--violet);">Project Manager</div>
+            <div style="font-size: 0.52rem; line-height: 1.7; border-left: 3px solid #0a0a0a; padding-left: 0.6rem;">Created "Lead Capture" subproject. Added 3 tasks: inquiry form, API route, and contact page. The plan has been updated.</div>
+          </div>
+        </div>
+        <!-- Composer -->
+        <div style="margin-top: 0.75rem; display: flex; gap: 0.3rem; border: 2px solid #0a0a0a; border-radius: 0.3rem; padding: 0.4rem 0.65rem; align-items: center;">
+          <span style="font-size: 0.5rem; color: var(--muted); flex: 1;">Your message...</span>
+          <div style="font-size: 0.48rem; font-weight: 700; background: #0a0a0a; color: #faf7f2; padding: 0.2rem 0.5rem; border-radius: 0.2rem;">SEND</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREESTYLE -->
+    <div class="wireframe-block" style="border-radius: 0.3rem; border: 2px solid #0a0a0a;">
+      <div class="wireframe-label" style="border-bottom: 2px solid #0a0a0a; background: #0a0a0a; color: white;"><span class="dot" style="background: #ff9f1c;"></span> Freestyle Chat</div>
+      <div class="wireframe-body" style="background: #faf7f2; padding: 1rem;">
+        <!-- Tabs -->
+        <div style="display: flex; gap: 0; margin-bottom: 0.6rem;">
+          <div style="font-size: 0.5rem; padding: 0.25rem 0.6rem; font-weight: 700; border: 2px solid #0a0a0a; border-radius: 0.2rem; margin-right: 0.25rem;">Session 1</div>
+          <div style="font-size: 0.5rem; padding: 0.25rem 0.6rem; color: var(--muted);">Debug</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <div style="max-width: 65%; margin-left: auto; background: #0a0a0a; color: #faf7f2; padding: 0.45rem 0.7rem; border-radius: 0.3rem; font-size: 0.52rem;">Fix CSS grid</div>
+          <div style="max-width: 76%;">
+            <div style="font-size: 0.48rem; font-weight: 700; color: var(--violet); margin-bottom: 0.15rem;">AGENT</div>
+            <div style="font-size: 0.52rem; line-height: 1.6;">Fixed. Grid stacks below 768px.</div>
+            <div style="margin-top: 0.25rem; background: #0a0a0a; color: #e5e5e5; padding: 0.4rem; border-radius: 0.2rem; font-family: monospace; font-size: 0.45rem;">
+              <span style="color: #ff9f1c;">grid-template-columns</span>: 1fr;
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-grid" style="margin-top: 2rem;">
+    <div class="spec-card" style="border: 2px solid #0a0a0a; border-radius: 0.3rem;">
+      <h4><span class="dot" style="background: #ff9f1c;"></span> Key Design Decisions</h4>
+      <ul class="spec-list">
+        <li>2px solid borders replace all subtle/transparent borders</li>
+        <li>Square status dots (border-radius: 1px) instead of circles</li>
+        <li>AI responses use left border-quote style (3px solid ink)</li>
+        <li>Chat bubbles: sharp corners (0.3rem) not rounded</li>
+        <li>Oversized display type dominates — up to 1.6rem in wireframe</li>
+        <li>Background: warm paper #faf7f2 with no gradients or glass</li>
+      </ul>
+    </div>
+    <div class="spec-card" style="border: 2px solid #0a0a0a; border-radius: 0.3rem;">
+      <h4><span class="dot" style="background: #ff9f1c;"></span> Color Palette</h4>
+      <div class="palette-row">
+        <div><div class="swatch" style="background: #faf7f2;"></div><div class="swatch-label">paper</div></div>
+        <div><div class="swatch" style="background: #0a0a0a;"></div><div class="swatch-label">ink</div></div>
+        <div><div class="swatch" style="background: #ff9f1c;"></div><div class="swatch-label">accent</div></div>
+        <div><div class="swatch" style="background: #f0efe8;"></div><div class="swatch-label">matte</div></div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.5rem;">
+        <li>Two-color system: ink + paper. Sun for highlights only</li>
+        <li>Dark mode: paper → #0a0a0a, ink → #faf7f2</li>
+        <li>Code blocks: ink-black bg with sun-colored syntax</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 5: NEON MINIMAL                                     -->
+<!-- ============================================================ -->
+<div class="section-page concept-5">
+  <div class="page-label">Concept 05 of 05</div>
+  <div class="concept-header">
+    <span class="concept-number" style="background: linear-gradient(135deg, #5d8bff, #4ecdc4); -webkit-background-clip: text;">05</span>
+    <div>
+      <div class="concept-name">Neon Minimal</div>
+    </div>
+  </div>
+  <p class="concept-tagline">
+    Dark-first. Luminous accent glows punctuate a deep charcoal canvas. Clean lines, minimal chrome. The interface recedes; your content and code glow. Inspired by Arc browser, Vercel's dashboard, and gaming UIs — refined for professional use. Electric but never garish.
+  </p>
+  <div class="concept-pillars">
+    <span class="pillar" style="background: rgba(93,139,255,0.12); color: #5d8bff;">Dark Canvas</span>
+    <span class="pillar" style="background: rgba(93,139,255,0.12); color: #5d8bff;">Accent Glow</span>
+    <span class="pillar" style="background: rgba(93,139,255,0.12); color: #5d8bff;">Minimal Chrome</span>
+    <span class="pillar" style="background: rgba(93,139,255,0.12); color: #5d8bff;">Code Forward</span>
+    <span class="pillar" style="background: rgba(93,139,255,0.12); color: #5d8bff;">Arc/Vercel DNA</span>
+  </div>
+
+  <div class="wireframe-grid">
+    <!-- HOME -->
+    <div class="wireframe-block" style="border-color: rgba(255,255,255,0.08);">
+      <div class="wireframe-label" style="background: #111214; color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.06);"><span class="dot" style="background: #5d8bff;"></span> Home Page</div>
+      <div class="wireframe-body" style="background: #0d0e10; padding: 0; overflow: hidden;">
+        <!-- Ambient glow -->
+        <div style="position: absolute; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(93,139,255,0.08) 0%, transparent 60%); top: -100px; right: -50px;"></div>
+        <div style="position: absolute; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(78,205,196,0.06) 0%, transparent 60%); bottom: -80px; left: 10%;"></div>
+        <!-- Nav -->
+        <div style="padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.65rem; color: #f2efe8; letter-spacing: -0.02em;">CodeBuddy</div>
+          <div style="display: flex; gap: 0.25rem;">
+            <div style="padding: 0.2rem 0.5rem; border-radius: 99px; background: rgba(255,255,255,0.08); color: #f2efe8; font-size: 0.5rem; font-weight: 500;">Projects</div>
+            <div style="padding: 0.2rem 0.5rem; border-radius: 99px; color: rgba(255,255,255,0.35); font-size: 0.5rem;">Friends</div>
+          </div>
+          <div class="mock-avatar" style="background: rgba(255,255,255,0.08); color: #f2efe8; border: 1px solid rgba(255,255,255,0.08);">CM</div>
+        </div>
+        <!-- Content -->
+        <div style="padding: 1rem 1.25rem;">
+          <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 1rem; color: #f2efe8; letter-spacing: -0.02em; margin-bottom: 0.15rem;">Projects</div>
+          <div style="font-size: 0.5rem; color: rgba(255,255,255,0.35); margin-bottom: 1rem;">3 active</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 0.8rem; overflow: hidden;">
+              <div style="height: 38px; background: linear-gradient(135deg, rgba(93,139,255,0.3), rgba(124,92,252,0.3)); border-bottom: 1px solid rgba(255,255,255,0.06);"></div>
+              <div style="padding: 0.5rem;">
+                <div style="font-size: 0.55rem; font-weight: 600; color: #f2efe8; margin-bottom: 0.1rem;">Real Estate Site</div>
+                <div style="font-size: 0.45rem; color: rgba(255,255,255,0.35); margin-bottom: 0.35rem;">4/13 tasks</div>
+                <div style="height: 2px; background: rgba(255,255,255,0.06); border-radius: 1px;">
+                  <div style="height: 100%; width: 31%; border-radius: 1px; background: linear-gradient(90deg, #5d8bff, #4ecdc4); box-shadow: 0 0 8px rgba(93,139,255,0.4);"></div>
+                </div>
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 0.8rem; overflow: hidden;">
+              <div style="height: 38px; background: linear-gradient(135deg, rgba(248,113,113,0.2), rgba(251,191,36,0.2)); border-bottom: 1px solid rgba(255,255,255,0.06);"></div>
+              <div style="padding: 0.5rem;">
+                <div style="font-size: 0.55rem; font-weight: 600; color: #f2efe8;">Portfolio App</div>
+                <div style="font-size: 0.45rem; color: rgba(255,255,255,0.35);">5/6 tasks</div>
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 0.8rem; display: flex; align-items: center; justify-content: center;">
+              <div style="font-size: 0.6rem; color: rgba(255,255,255,0.15);">+</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wireframe-block" style="border-color: rgba(255,255,255,0.08);">
+      <div class="wireframe-label" style="background: #111214; color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.06);"><span class="dot" style="background: #5d8bff;"></span> Workspace Page</div>
+      <div class="wireframe-body" style="background: #0d0e10; padding: 0; display: flex;">
+        <!-- Sidebar -->
+        <div style="width: 180px; border-right: 1px solid rgba(255,255,255,0.06); padding: 0.75rem 0.5rem; background: rgba(255,255,255,0.02);">
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.52rem; font-weight: 600; color: #f2efe8; margin-bottom: 0.3rem; font-family: 'Instrument Sans';">Real Estate Site</div>
+          <div style="padding: 0.3rem 0.5rem; border-radius: 0.4rem; background: rgba(93,139,255,0.12); color: #5d8bff; font-size: 0.5rem; font-weight: 500; margin-bottom: 0.1rem;">Workspace</div>
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.5rem; color: rgba(255,255,255,0.35);">PM Chat</div>
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.5rem; color: rgba(255,255,255,0.35);">Freestyle</div>
+          <div style="padding: 0.3rem 0.5rem; font-size: 0.5rem; color: rgba(255,255,255,0.35);">Files</div>
+        </div>
+        <div style="flex: 1; padding: 1rem;">
+          <div class="flex items-center justify-between mb-3">
+            <div style="font-family: 'Instrument Sans'; font-weight: 700; font-size: 0.85rem; color: #f2efe8;">Tasks</div>
+            <div class="mock-progress-ring" style="width: 42px; height: 42px; background: conic-gradient(#5d8bff 0deg, #4ecdc4 112deg, rgba(255,255,255,0.06) 112deg);">
+              <div style="position: absolute; width: 30px; height: 30px; border-radius: 50%; background: #0d0e10; display: flex; align-items: center; justify-content: center; font-size: 0.42rem; font-weight: 700; color: #f2efe8;">31%</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.5rem; border-radius: 0.4rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); font-size: 0.5rem; color: rgba(255,255,255,0.5);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.4);"></div>
+              <span style="text-decoration: line-through;">Initialize Next.js</span>
+              <span class="ml-auto" style="font-size: 0.42rem; color: #34d399;">done</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.5rem; border-radius: 0.4rem; background: rgba(93,139,255,0.06); border: 1px solid rgba(93,139,255,0.15); font-size: 0.5rem; color: #f2efe8;">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #5d8bff; box-shadow: 0 0 8px rgba(93,139,255,0.5);"></div>
+              <span style="font-weight: 600;">Build layout</span>
+              <span class="ml-auto" style="font-size: 0.42rem; color: #5d8bff;">building</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.5rem; border-radius: 0.4rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); font-size: 0.5rem; color: rgba(255,255,255,0.4);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.15);"></div>
+              <span>Create home page</span>
+              <span class="ml-auto" style="font-size: 0.42rem; color: rgba(255,255,255,0.25);">planned</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHATS -->
+    <div class="wireframe-block" style="border-color: rgba(255,255,255,0.08);">
+      <div class="wireframe-label" style="background: #111214; color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.06);"><span class="dot" style="background: #5d8bff;"></span> PM Chat + Task Chat</div>
+      <div class="wireframe-body" style="background: #0d0e10; padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- User -->
+          <div style="max-width: 68%; margin-left: auto; background: linear-gradient(135deg, #5d8bff, #4ecdc4); color: white; padding: 0.5rem 0.75rem; border-radius: 1rem 1rem 0.25rem 1rem; font-size: 0.52rem; box-shadow: 0 4px 16px rgba(93,139,255,0.25);">Add a contact form</div>
+          <!-- AI -->
+          <div style="max-width: 76%; display: flex; gap: 0.35rem; align-items: flex-start;">
+            <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(93,139,255,0.15); border: 1px solid rgba(93,139,255,0.3); display: flex; align-items: center; justify-content: center; color: #5d8bff; font-size: 8px; flex-shrink: 0;">✦</div>
+            <div>
+              <div style="font-size: 0.52rem; line-height: 1.6; color: rgba(255,255,255,0.6);">Created "Lead Capture" with 3 tasks. Plan updated.</div>
+              <div style="margin-top: 0.3rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 0.5rem; padding: 0.35rem 0.5rem;">
+                <div style="font-size: 0.48rem; font-weight: 600; color: #f2efe8;">📋 Plan Updated</div>
+                <div style="font-size: 0.42rem; color: rgba(255,255,255,0.3);">+3 tasks · Lead Capture</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 0.6rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 0.8rem; padding: 0.4rem 0.65rem; display: flex; align-items: center;">
+          <span style="font-size: 0.5rem; color: rgba(255,255,255,0.2); flex: 1;">Message...</span>
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #5d8bff, #4ecdc4); box-shadow: 0 0 12px rgba(93,139,255,0.3);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FREESTYLE -->
+    <div class="wireframe-block" style="border-color: rgba(255,255,255,0.08);">
+      <div class="wireframe-label" style="background: #111214; color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.06);"><span class="dot" style="background: #5d8bff;"></span> Freestyle Chat</div>
+      <div class="wireframe-body" style="background: #0d0e10; padding: 0; display: flex;">
+        <div style="flex: 1; padding: 1rem; display: flex; flex-direction: column;">
+          <div style="display: flex; gap: 0.25rem; margin-bottom: 0.6rem;">
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; border-radius: 99px; background: rgba(93,139,255,0.15); color: #5d8bff; font-weight: 500;">Session 1</div>
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; color: rgba(255,255,255,0.25);">Debug</div>
+            <div style="font-size: 0.48rem; padding: 0.2rem 0.5rem; color: rgba(255,255,255,0.15);">+</div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.4rem; justify-content: flex-end;">
+            <div style="max-width: 65%; margin-left: auto; background: linear-gradient(135deg, #5d8bff, #4ecdc4); color: white; padding: 0.4rem 0.65rem; border-radius: 0.8rem 0.8rem 0.2rem 0.8rem; font-size: 0.5rem; box-shadow: 0 4px 14px rgba(93,139,255,0.2);">Fix CSS grid</div>
+            <div style="max-width: 76%; display: flex; gap: 0.3rem;">
+              <div style="width: 16px; height: 16px; border-radius: 50%; background: rgba(93,139,255,0.15); border: 1px solid rgba(93,139,255,0.25); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #5d8bff; font-size: 6px;">✦</div>
+              <div>
+                <div style="font-size: 0.48rem; color: rgba(255,255,255,0.5);">Grid stacks on mobile:</div>
+                <div style="margin-top: 0.2rem; background: #161b22; border: 1px solid rgba(255,255,255,0.06); border-radius: 0.4rem; padding: 0.3rem; font-family: monospace; font-size: 0.42rem; color: #7ee787; box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);">grid-template-columns: 1fr;</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="width: 130px; border-left: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); padding: 0.5rem; font-size: 0.43rem; color: rgba(255,255,255,0.35);">
+          <div style="font-weight: 600; color: rgba(255,255,255,0.5); margin-bottom: 0.3rem;">Files</div>
+          <div style="padding: 0.12rem 0;">📁 app</div>
+          <div style="padding: 0.12rem 0; padding-left: 0.6rem; color: #5d8bff;">📄 page.tsx</div>
+          <div style="padding: 0.12rem 0; padding-left: 0.6rem;">📄 layout.tsx</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-grid" style="margin-top: 2rem;">
+    <div class="spec-card" style="background: #111214; border-color: rgba(255,255,255,0.06); color: #f2efe8;">
+      <h4 style="color: #f2efe8;"><span class="dot" style="background: #5d8bff;"></span> Key Design Decisions</h4>
+      <ul class="spec-list" style="color: rgba(255,255,255,0.5);">
+        <li>Dark-first: #0d0e10 canvas, rgba(255,255,255,0.04) card surfaces</li>
+        <li>Accent glow: status dots get box-shadow (0 0 8px color/40%)</li>
+        <li>User bubbles: gradient fill (blue→aqua) instead of solid dark</li>
+        <li>Progress bars glow: box-shadow 0 0 8px on the fill</li>
+        <li>Active sidebar item: blue-tinted bg instead of ink fill</li>
+        <li>Light mode is available but dark is the default experience</li>
+      </ul>
+    </div>
+    <div class="spec-card" style="background: #111214; border-color: rgba(255,255,255,0.06); color: #f2efe8;">
+      <h4 style="color: #f2efe8;"><span class="dot" style="background: #5d8bff;"></span> Color Palette</h4>
+      <div class="palette-row">
+        <div><div class="swatch" style="background: #0d0e10; border-color: rgba(255,255,255,0.1);"></div><div class="swatch-label" style="color: rgba(255,255,255,0.35);">canvas</div></div>
+        <div><div class="swatch" style="background: #111214; border-color: rgba(255,255,255,0.1);"></div><div class="swatch-label" style="color: rgba(255,255,255,0.35);">surface</div></div>
+        <div><div class="swatch" style="background: #5d8bff;"></div><div class="swatch-label" style="color: rgba(255,255,255,0.35);">blue</div></div>
+        <div><div class="swatch" style="background: #4ecdc4;"></div><div class="swatch-label" style="color: rgba(255,255,255,0.35);">aqua</div></div>
+        <div><div class="swatch" style="background: #f2efe8;"></div><div class="swatch-label" style="color: rgba(255,255,255,0.35);">text</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  COMPARISON TABLE                                             -->
+<!-- ============================================================ -->
+<div class="section-page">
+  <div class="page-label">Comparison</div>
+  <h2 style="margin-bottom: 0.3rem;">At a Glance</h2>
+  <p class="section-subtitle">Side-by-side comparison of all five concepts across key design dimensions.</p>
+
+  <table class="comparison-table">
+    <thead>
+      <tr>
+        <th>Dimension</th>
+        <th>01 Liquid Glass</th>
+        <th>02 Swiss Grid</th>
+        <th>03 Aurora Depth</th>
+        <th>04 Ink & Paper</th>
+        <th>05 Neon Minimal</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="table-concept-name">Surface Style</td>
+        <td>Frosted translucent</td>
+        <td>Solid white/gray</td>
+        <td>Opaque white + mesh bg</td>
+        <td>Warm paper texture</td>
+        <td>Dark charcoal + glow</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Border Treatment</td>
+        <td>White-on-white glass</td>
+        <td>1px solid #e5e5e5</td>
+        <td>Shadow-only (borderless)</td>
+        <td>2px solid ink-black</td>
+        <td>1px rgba(white, 0.06)</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Primary Font</td>
+        <td>Instrument Sans + Inter</td>
+        <td>Instrument Sans + Inter</td>
+        <td>Instrument Sans + Inter</td>
+        <td>Instrument Sans 800</td>
+        <td>Instrument Sans + Inter</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Workspace Layout</td>
+        <td>Task list (current)</td>
+        <td>Kanban columns</td>
+        <td>Elevated task cards</td>
+        <td>Newspaper rows</td>
+        <td>Task list with glow</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Chat Bubbles</td>
+        <td>Round glass + dark user</td>
+        <td>Sharp rectangles</td>
+        <td>Round + deep shadows</td>
+        <td>Sharp + border-quote AI</td>
+        <td>Gradient user + dark AI</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Corner Radius</td>
+        <td>1.25rem+ (rounded)</td>
+        <td>0.3–0.5rem (sharp)</td>
+        <td>0.7–1.1rem (medium)</td>
+        <td>0.2–0.3rem (near-square)</td>
+        <td>0.4–0.8rem (medium)</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Best For</td>
+        <td>Premium feel, Apple fans</td>
+        <td>Power users, data-dense</td>
+        <td>Warm, approachable, clean</td>
+        <td>Bold personality, editorial</td>
+        <td>Devs, dark-mode lovers</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Dark Mode</td>
+        <td>Glass darkens to rgba-dark</td>
+        <td>Full inversion #0a0a0a</td>
+        <td>Mesh shifts to cool tones</td>
+        <td>Paper/ink swap cleanly</td>
+        <td>Already dark-first</td>
+      </tr>
+      <tr>
+        <td class="table-concept-name">Inspiration</td>
+        <td>Apple visionOS, macOS</td>
+        <td>Linear, Stripe, Swiss</td>
+        <td>Claude.ai, Notion</td>
+        <td>NYT, Notion, magazines</td>
+        <td>Arc, Vercel, gaming UIs</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="divider"></div>
+
+  <h2 style="font-size: 1.4rem; margin-bottom: 0.3rem;">Recommendation</h2>
+  <p class="section-subtitle">
+    <strong>Concept 03 (Aurora Depth)</strong> or <strong>Concept 01 (Liquid Glass)</strong> best align with CodeBuddy's existing design language and target audience. Both maintain the warm, approachable aesthetic that makes the app welcoming to non-technical users while still feeling premium and modern. Concept 03 adds more perceived depth and warmth (Anthropic/Claude influence), while Concept 01 doubles down on the existing glass system.
+  </p>
+  <p class="section-subtitle">
+    <strong>Concept 02 (Swiss Grid)</strong> is the strongest choice if you want a dramatic departure — cleaner, denser, more "professional tool" than "creative workspace." <strong>Concept 05 (Neon Minimal)</strong> appeals to developer audiences but may alienate non-technical users. <strong>Concept 04 (Ink & Paper)</strong> is the most distinctive personality but requires the most departure from current implementation.
+  </p>
+  <p class="section-subtitle" style="font-style: italic; color: var(--muted); margin-top: 1rem;">
+    You can also mix elements across concepts — for example, Aurora Depth's card shadows with Liquid Glass's translucent sidebar, or Swiss Grid's kanban workspace inside any other concept's visual shell.
+  </p>
+</div>
+
+</body>
+</html>

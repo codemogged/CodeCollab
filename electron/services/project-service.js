@@ -1,3 +1,15 @@
+/**
+ * Project Service — manages project lifecycle, AI agent execution, and P2P collaboration.
+ *
+ * TESTING GUIDE (Electron main process):
+ * 1. Claude streaming: Claude CLI now uses spawn() instead of execFile() for real-time output.
+ *    - Verify: Send a Claude prompt → output should stream token-by-token, not buffer until completion.
+ *    - No maxBuffer limit (was 1MB with execFile).
+ * 2. CLI detection: Check console for "[readConfiguredCommands] claudeCli:" at startup.
+ * 3. Agent events: onAgentStarted → onAgentOutput (multiple chunks) → onAgentCompleted.
+ * 4. stderr filtering: Claude warnings about stdin are filtered; real errors pass through.
+ * 5. Safe PATH: Dangerous commands (code, explorer, powershell) are jailed to no-op wrappers.
+ */
 const fs = require("fs/promises");
 const fsSync = require("fs");
 const os = require("os");
@@ -168,6 +180,14 @@ function formatRelativeTime(timestamp) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+/** Short date+clock string, e.g. "Apr 19, 3:42 PM". */
+function formatTimeShort(ts = Date.now()) {
+  const d = new Date(ts);
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${date}, ${time}`;
+}
+
 function sanitizeFileSegment(value) {
   return String(value || "context")
     .toLowerCase()
@@ -189,12 +209,27 @@ function parseJsonObjectFromText(value) {
   try {
     return JSON.parse(stripped);
   } catch {
+    // Brace-matching: find the first complete JSON object even if
+    // the CLI appended commentary or extra text after the JSON.
     const start = stripped.indexOf("{");
-    const end = stripped.lastIndexOf("}");
+    if (start === -1) throw new Error("CLI did not return valid JSON.");
 
-    if (start === -1 || end === -1 || end <= start) {
-      throw new Error("CLI did not return valid JSON.");
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+
+    for (let i = start; i < stripped.length; i++) {
+      const ch = stripped[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) { end = i; break; } }
     }
+
+    if (end === -1) throw new Error("CLI did not return valid JSON.");
 
     return JSON.parse(stripped.slice(start, end + 1));
   }
@@ -299,7 +334,7 @@ function normalizeGeneratedPlan(project, prompt, payload) {
       from: "Cameron",
       initials: "CM",
       text: prompt,
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isMine: true,
     },
     {
@@ -307,7 +342,7 @@ function normalizeGeneratedPlan(project, prompt, payload) {
       from: "Project Manager",
       initials: "✦",
       text: aiSummary,
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isAI: true,
     },
   ];
@@ -380,6 +415,13 @@ function buildConversationTranscript(messages = []) {
 
 function buildRecentConversationTranscript(messages = [], limit = FOLLOW_UP_TRANSCRIPT_LIMIT) {
   return buildConversationTranscript(messages.slice(-limit));
+}
+
+/**
+ * Estimate the char count of a set of messages as they'd appear in a prompt transcript.
+ */
+function estimateTranscriptChars(messages = []) {
+  return messages.reduce((sum, m) => sum + (m.text?.length || 0) + 40, 0); // +40 for header
 }
 
 function isMissingCommandError(error, commandName) {
@@ -784,6 +826,32 @@ function extractTaskAgentMetadata(rawOutput) {
   };
 }
 
+// ── Shared summary-synthesis instruction — appended to every agent prompt ──
+// The model produces BOTH the raw work AND a user-facing summary in one run.
+const RESPONSE_SUMMARY_INSTRUCTIONS = [
+  "",
+  "=== RESPONSE SUMMARY REQUIREMENT ===",
+  "After you finish ALL of your work (reasoning, tool use, code changes, explanations),",
+  "you MUST end your response with a dedicated summary section.",
+  "",
+  "Write a markdown heading: ## Summary",
+  "Under it, write a short, clear, non-technical digest of what happened and what the user should know.",
+  "Rules for the summary:",
+  "- 2-6 sentences maximum. Be concise.",
+  "- Written for a non-technical user who will NOT read the full response above.",
+  "- State what was done, what changed, and any immediate next steps.",
+  "- Do NOT repeat raw code, file paths, or tool output in the summary.",
+  "- Do NOT include reasoning, investigation details, or intermediate steps.",
+  "- The summary must stand alone as a complete answer.",
+  "- If the task is not finished, briefly explain what is left.",
+  "",
+  "The ## Summary section must appear AFTER all of your work but BEFORE any TASK_STATUS metadata lines.",
+  "If the response also has a '## Attention User Input Required' section, put Summary BEFORE that section.",
+  "You MUST always include ## Summary — never skip it.",
+  "=== END RESPONSE SUMMARY REQUIREMENT ===",
+  "",
+].join("\n");
+
 function buildTaskAgentSystemPrompt(taskContext, thread) {
   return [
     "You are a hands-on task agent inside CodeBuddy — a desktop coding workspace that keeps everything native to the platform.",
@@ -826,12 +894,14 @@ function buildTaskAgentSystemPrompt(taskContext, thread) {
     "---",
     "## Attention User Input Required",
     "Then list each item the user needs to provide, explain what it is, and give clear steps on how to obtain it.",
-    "This section MUST ALWAYS be the very last thing in your response (before the TASK_STATUS metadata line), with no other content after it except the TASK_STATUS line.",
+    "This section MUST ALWAYS be the very last thing in your response (before the Summary and TASK_STATUS metadata lines), with no other content after it except Summary and TASK_STATUS.",
     "If no user input is required, do not include this section at all.",
+    "",
+    RESPONSE_SUMMARY_INSTRUCTIONS,
     "",
     "End EVERY reply with exactly one metadata line: TASK_STATUS: planned, TASK_STATUS: building, TASK_STATUS: review, or TASK_STATUS: done.",
     "Optionally add a second line: TASK_STATUS_REASON: <short reason>.",
-    "Those metadata lines must be the final lines in the reply.",
+    "Those metadata lines must be the VERY LAST lines in the reply (after ## Summary).",
     "",
     `Task title: ${taskContext?.task?.title || thread?.title || "Current task"}`,
     `Task note: ${taskContext?.task?.note || thread?.purpose || "No task note provided."}`,
@@ -901,9 +971,14 @@ async function fileExists(targetPath) {
 }
 
 function createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService }) {
-  const BUILD_TAG = "v37";
+  const BUILD_TAG = "v105-sync-fixes";
   console.log(`[project-service] loaded — build ${BUILD_TAG}`);
   let eventSender = null;
+
+  /** Base directory for all checkpoint storage (outside project repos). */
+  function getCheckpointBase(projectId) {
+    return path.join(app.getPath("userData"), "checkpoints", projectId);
+  }
 
   function emitAgentEvent(channel, payload) {
     eventSender?.(channel, {
@@ -1006,6 +1081,87 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Context compaction
+  // Thresholds (chars):
+  //   COMPACT_TRIGGER  — total chars in baseMessages before we compact
+  //   COMPACT_TARGET   — desired chars after compaction (we keep this many recent chars)
+  //   COMPACT_KEEP     — always keep at least this many recent messages verbatim
+  // ---------------------------------------------------------------------------
+  const COMPACT_TRIGGER = 20000;
+  const COMPACT_KEEP    = 3;
+
+  /**
+   * If `messages` total chars exceeds COMPACT_TRIGGER, summarise the older portion
+   * with a quick non-agent Claude call and return the compacted array.
+   * Also persists the compacted array back to settings so future calls start leaner.
+   *
+   * @param {object[]} messages       — full message array for the thread
+   * @param {object}   commands       — CLI commands from readConfiguredCommands
+   * @param {string}   provider       — "claude" | "copilot" | "codex"
+   * @param {string}   selectedModel  — model id
+   * @param {string}   repoPath       — project repo dir (used as cwd for summary call)
+   * @param {Function} onCompacted    — async callback(compactedMessages) to persist
+   * @returns {object[]} — original or compacted message array
+   */
+  async function compactMessagesIfNeeded(messages, commands, provider, selectedModel, repoPath, onCompacted) {
+    const totalChars = estimateTranscriptChars(messages);
+    if (!messages || messages.length <= COMPACT_KEEP + 1) return messages;
+    if (totalChars <= COMPACT_TRIGGER) return messages;
+
+    const toCompact  = messages.slice(0, -COMPACT_KEEP);
+    const toKeep     = messages.slice(-COMPACT_KEEP);
+    const transcript = buildConversationTranscript(toCompact);
+
+    console.log(`[compact] Triggered: ${totalChars} chars, compacting ${toCompact.length} messages (keeping last ${COMPACT_KEEP})`);
+
+    const summaryPrompt = [
+      "You are a technical summarizer for an AI coding assistant.",
+      "Summarize the following conversation history concisely.",
+      "Preserve: what was built/changed, decisions made, current state, any errors or blockers, passwords/tokens/env vars mentioned.",
+      "Output plain text only. Maximum 400 words. No headings, no bullet points — just paragraphs.",
+      "",
+      "=== CONVERSATION TO SUMMARIZE ===",
+      transcript,
+      "=== END ===",
+    ].join("\n");
+
+    try {
+      const summaryRaw = await runProviderCli(
+        commands, provider, summaryPrompt,
+        selectedModel, { agentMode: false },
+        repoPath, null
+      );
+      const summaryText = (summaryRaw || "").trim();
+      if (!summaryText) throw new Error("empty summary");
+
+      const summaryMessage = {
+        id: `compact-${Date.now()}`,
+        from: "System",
+        text: `[${toCompact.length} earlier messages compacted]\n\n${summaryText}`,
+        time: formatTimeShort(Date.now()),
+        isCompacted: true,
+      };
+
+      const compacted = [summaryMessage, ...toKeep];
+      console.log(`[compact] Done. Reduced ${messages.length} messages → ${compacted.length}. New char estimate: ${estimateTranscriptChars(compacted)}`);
+
+      // Persist so next call also starts with the compacted history
+      if (typeof onCompacted === "function") {
+        try {
+          await onCompacted(compacted);
+        } catch (persistErr) {
+          console.warn("[compact] Failed to persist compacted messages:", persistErr.message);
+        }
+      }
+
+      return compacted;
+    } catch (err) {
+      console.warn("[compact] Summarization failed, continuing with full context:", err.message);
+      return messages;
+    }
+  }
+
   /**
    * Load the most recent peer agent context snapshot for a task/session.
    * Returns a formatted string to inject into the system prompt, or null.
@@ -1082,49 +1238,96 @@ function createProjectService({ app, settingsService, toolingService, p2pService
    * @param {string} provider — "claude", "copilot", or "codex"
    * @param {string} prompt — the full prompt text
    * @param {string} selectedModel — model ID to pass via --model
-   * @param {object} opts — { agentMode: boolean }  (agent mode adds tool/dir flags)
-   * @returns {{ cli: string, args: string[] }}
+   * @param {object} opts — { agentMode: boolean, approvalMode: "auto"|"manual" }
+   * @returns {{ cli: string, args: string[], manualApproval?: boolean }}
    */
   function buildCliInvocation(commands, provider, prompt, selectedModel, opts = {}) {
-    const { agentMode = false } = opts;
+    const { agentMode = false, approvalMode = "auto" } = opts;
+    // manualApproval: only relevant in agent mode; uses -p flag to free stdin for approval writes
+    const manualApproval = agentMode && approvalMode === "manual";
 
     if (provider === "claude") {
-      const args = ["-p", prompt];
+      // Strategy:
+      //   On Windows: always pass prompt via stdin (then close) to avoid ENAMETOOLONG
+      //   regardless of approval mode — the Windows 32767-char command-line limit means
+      //   large prompts passed via -p reliably fail.
+      //   Claude Code in non-interactive (piped) mode does NOT read stdin for permission
+      //   prompts — it checks isTTY and auto-denies when stdin is a pipe. Writing y/n to
+      //   stdin after spawn has no effect. The only reliable way for Claude to write files
+      //   in piped mode is --dangerously-skip-permissions.
+      const useStdin = process.platform === "win32";
+
+      const args = useStdin ? [] : ["-p", prompt];
       if (agentMode) {
         args.push("--add-dir", ".");
       }
+      // Always skip permission prompts — interactive stdin-based approval does not work
+      // when Claude is spawned as a child process with a piped (non-TTY) stdin.
       args.push("--dangerously-skip-permissions");
+      // Use stream-json for real-time output (Claude buffers stdout in plain text mode)
+      args.push("--output-format", "stream-json", "--verbose");
       if (selectedModel && selectedModel !== "auto") {
         args.push("--model", selectedModel);
       }
-      return { cli: commands.claudeCli, args };
+      if (useStdin) {
+        return { cli: commands.claudeCli, args, stdinData: prompt, streamJson: true };
+      }
+      return { cli: commands.claudeCli, args, streamJson: true };
     }
 
     if (provider === "codex") {
-      // codex exec [prompt] --full-auto [--model <model>]
+      // codex exec -s workspace-write [--model <model>]
       // On Windows, long prompts with newlines cause EINVAL when passed as args
       // to .cmd files (Node.js CVE-2024-27980 security fix). Codex CLI reads
       // instructions from stdin when piped, so we pass the prompt via stdin.
       // NOTE: --model only works with API key auth (OPENAI_API_KEY). ChatGPT
       // OAuth users (codex login) must omit --model and use the server default.
       // The "default" model ID signals "omit --model".
-      const args = ["exec", "--full-auto"];
+      // NOTE: --full-auto overrides explicit -s flag in Codex v0.118.0,
+      // and -s workspace-write silently falls back to read-only.
+      // Use -s danger-full-access for auto mode; workspace-write for manual approval mode.
+      const safetyMode = manualApproval ? "workspace-write" : "danger-full-access";
+      const args = ["exec", "-s", safetyMode, "--json", "--ephemeral"];
       if (selectedModel && selectedModel !== "auto" && selectedModel !== "default") {
         args.push("--model", selectedModel);
       }
-      return { cli: commands.codexCli, args, stdinData: prompt };
+
+      // On Windows, codex.cmd is a batch wrapper that runs `node codex.js`.
+      // Spawning .cmd files requires shell:true which makes cmd.exe fully buffer
+      // stdout — zero data events fire until process exit (no live streaming).
+      // Fix: resolve the actual JS entry point and spawn node directly.
+      let cli = commands.codexCli;
+      if (process.platform === "win32" && /\.cmd$/i.test(cli)) {
+        const jsEntry = path.join(path.dirname(cli), "node_modules", "@openai", "codex", "bin", "codex.js");
+        if (fsSync.existsSync(jsEntry)) {
+          return { cli: "node", args: [jsEntry, ...args], stdinData: prompt, codexJson: true };
+        }
+      }
+      return { cli, args, stdinData: prompt, codexJson: true };
     }
 
     // Copilot
-    const args = [...commands.copilotPrefix, "-p", prompt];
+    // In manual approval mode: use -p flag so stdin stays open for approval writes.
+    // In auto mode on Windows: pass prompt via stdin to avoid ENAMETOOLONG on long prompts.
+    const copilotUseStdin = !manualApproval && process.platform === "win32";
+    const args = copilotUseStdin ? [...commands.copilotPrefix] : [...commands.copilotPrefix, "-p", prompt];
     if (agentMode) {
-      args.push("--allow-all-tools", "--add-dir", ".");
+      // In auto mode allow all tools; in manual mode Copilot will pause for approvals
+      if (!manualApproval) {
+        args.push("--allow-all-tools");
+      }
+      args.push("--add-dir", ".");
     }
     args.push("--no-color", "-s");
+    // Use JSONL output for structured tool-call events and streaming deltas
+    args.push("--output-format", "json");
     if (selectedModel && selectedModel !== "auto") {
       args.push("--model", selectedModel);
     }
-    return { cli: commands.copilotCli, args };
+    if (copilotUseStdin) {
+      return { cli: commands.copilotCli, args, stdinData: prompt, copilotJson: true };
+    }
+    return { cli: commands.copilotCli, args, copilotJson: true, manualApproval };
   }
 
   /**
@@ -1132,10 +1335,76 @@ function createProjectService({ app, settingsService, toolingService, p2pService
    * When codex fails with "not supported when using Codex with a ChatGPT account",
    * this retries without --model (letting the server pick its default model).
    */
+  function classifyAgentError(err, provider, cli) {
+    const msg = err?.message || "";
+    const stderr = (err?.stderr || "").toLowerCase();
+    const stdout = (err?.stdout || "").toLowerCase();
+    const combined = `${msg} ${stderr} ${stdout}`.toLowerCase();
+    const exitCode = err?.exitCode;
+
+    const providerName = provider === "claude" ? "Claude" : provider === "codex" ? "Codex" : "Copilot";
+
+    // Not installed
+    if (isMissingCommandError(err, cli)) {
+      const hints = {
+        claude: "**Claude Code CLI not found.**\n\nInstall it:\n```\nnpm install -g @anthropic-ai/claude-code\n```\nThen authenticate:\n```\nclaude auth login\n```",
+        copilot: "**GitHub Copilot CLI not found.**\n\nInstall it:\n```\ngh extension install github/gh-copilot\n```\nThen authenticate:\n```\ngh auth login\n```",
+        codex: "**OpenAI Codex CLI not found.**\n\nInstall it:\n```\nnpm install -g @openai/codex\n```\nThen authenticate:\n```\ncodex login\n```",
+      };
+      return new Error(hints[provider] || `The ${provider} CLI was not found. Make sure it is installed and on your PATH.`);
+    }
+
+    // Permission denied on the binary itself
+    if (msg.includes("EACCES") || combined.includes("permission denied")) {
+      return new Error(`**${providerName} CLI: permission denied.**\n\nThe CLI binary could not be executed. Try:\n\`\`\`\nchmod +x "${cli}"\n\`\`\`\nor reinstall the CLI.`);
+    }
+
+    // Not authenticated / login required
+    if (
+      /not (logged in|authenticated|authorized|signed in)/i.test(combined) ||
+      /login required|please log in|please sign in|authentication required|unauthenticated/i.test(combined) ||
+      (provider === "claude" && /claude.*auth|no.*api.*key|invalid.*api.*key|anthropic.*auth/i.test(combined)) ||
+      (provider === "copilot" && /gh auth|not authenticated|no github/i.test(combined)) ||
+      (provider === "codex" && /openai.*auth|api.*key.*required|codex.*login/i.test(combined))
+    ) {
+      const loginCmd = provider === "claude" ? "claude auth login" : provider === "codex" ? "codex login" : "gh auth login";
+      return new Error(`**${providerName} is not authenticated.**\n\nRun this in a terminal to sign in:\n\`\`\`\n${loginCmd}\n\`\`\``);
+    }
+
+    // Rate limited / quota exceeded
+    if (/rate.?limit|too many requests|429|quota exceeded|insufficient.?credits/i.test(combined)) {
+      return new Error(`**${providerName}: rate limit or quota exceeded.**\n\nWait a moment and try again, or check your usage limits in your ${providerName} account.`);
+    }
+
+    // Model not found / not available
+    if (/model.*not found|model.*not.*available|unknown model|invalid model/i.test(combined)) {
+      return new Error(`**${providerName}: selected model is not available.**\n\nTry switching to a different model in the composer.`);
+    }
+
+    // Context window / token limit exceeded
+    if (/context.*length|token.*limit|too.*long|maximum.*tokens|prompt.*too/i.test(combined)) {
+      return new Error(`**${providerName}: conversation too long for this model's context window.**\n\nUse the **Compact** button to summarise older messages, or start a new session.`);
+    }
+
+    // Network / connectivity
+    if (/ECONNREFUSED|ENOTFOUND|ECONNRESET|network|no internet|connection refused|could not connect|timeout|ETIMEDOUT/i.test(combined)) {
+      return new Error(`**${providerName}: network connection failed.**\n\nCheck your internet connection and try again.`);
+    }
+
+    // Non-zero exit with stderr content — surface it clearly
+    if (exitCode != null && exitCode !== 0) {
+      const detail = (err.stderr || "").trim() || (err.stdout || "").trim();
+      const detailBlock = detail ? `\n\`\`\`\n${detail.slice(0, 600)}\n\`\`\`` : "";
+      return new Error(`**${providerName} exited with code ${exitCode}.**${detailBlock}\n\nIf this keeps happening, open a terminal and run the CLI manually to see the full error.`);
+    }
+
+    return null; // No classification — let caller re-throw as-is
+  }
+
   async function runProviderCli(commands, provider, prompt, selectedModel, opts, cwd, requestMeta) {
-    const { cli, args, stdinData } = buildCliInvocation(commands, provider, prompt, selectedModel, opts);
+    const { cli, args, stdinData, streamJson, copilotJson, codexJson, manualApproval } = buildCliInvocation(commands, provider, prompt, selectedModel, opts);
     try {
-      return await runProgram(cli, args, cwd, requestMeta, stdinData || null);
+      return await runProgram(cli, args, cwd, requestMeta, stdinData || null, streamJson || false, copilotJson || false, codexJson || false, manualApproval || false);
     } catch (err) {
       const errText = `${err.stderr || ""} ${err.stdout || ""} ${err.message || ""}`;
       if (provider === "codex" && selectedModel !== "default" && /not supported when using Codex with a ChatGPT account/i.test(errText)) {
@@ -1146,9 +1415,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
           chunk: "\n⚠ Model not available with ChatGPT account — retrying with default model...\n",
         });
         const retry = buildCliInvocation(commands, provider, prompt, "default", opts);
-        return await runProgram(retry.cli, retry.args, cwd, requestMeta, retry.stdinData || null);
+        return await runProgram(retry.cli, retry.args, cwd, requestMeta, retry.stdinData || null, retry.streamJson || false, retry.copilotJson || false, retry.codexJson || false, retry.manualApproval || false);
       }
-      throw err;
+      const classified = classifyAgentError(err, provider, cli);
+      throw classified || err;
     }
   }
 
@@ -1184,36 +1454,28 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     // If no standalone binary and Copilot is enabled, try to find or install it
     if (!hasCopilotBinary && settings.featureFlags?.githubCopilotCli !== false) {
-      console.log("[readConfiguredCommands] No copilot binary on PATH. Attempting install via tooling-service...");
       try {
         const installResult = await toolingService.installCopilot();
-        console.log("[readConfiguredCommands] installCopilot result:", JSON.stringify(installResult, null, 2));
         if (installResult.success) {
-          // Refresh PATH and re-resolve
           await refreshSystemPath();
           copilotPath = await resolveCommandPath("copilot");
           hasCopilotBinary = await fileExists(copilotPath);
-          console.log("[readConfiguredCommands] after install — copilotPath:", copilotPath, "hasCopilotBinary:", hasCopilotBinary);
+          console.log(`[cli-install] copilot installed: ${hasCopilotBinary}`);
         } else {
-          console.log("[readConfiguredCommands] All install strategies failed. Full log:");
-          for (const line of (installResult.log || [])) {
-            console.log("[readConfiguredCommands]   ", line);
-          }
+          console.warn("[cli-install] copilot install failed (install strategies exhausted)");
         }
       } catch (installErr) {
-        console.error("[readConfiguredCommands] installCopilot threw:", installErr.message, installErr.stack);
+        console.error("[cli-install] copilot install threw:", installErr.message);
       }
     }
 
     // Resolve Claude CLI binary
     let claudePath = await resolveCommandPath("claude");
     const hasClaudeBinary = await fileExists(claudePath);
-    console.log("[readConfiguredCommands] claudePath resolved to:", claudePath, "hasClaudeBinary:", hasClaudeBinary);
 
     // Resolve Codex CLI binary
     let codexPath = await resolveCommandPath("codex");
     const hasCodexBinary = await fileExists(codexPath);
-    console.log("[readConfiguredCommands] codexPath resolved to:", codexPath, "hasCodexBinary:", hasCodexBinary);
 
     const resolved = {
       settings,
@@ -1227,22 +1489,16 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       hasCodexBinary,
     };
 
-    console.log("[readConfiguredCommands] ghPath:", ghPath);
-    console.log("[readConfiguredCommands] copilotPath resolved to:", copilotPath);
-    console.log("[readConfiguredCommands] hasCopilotBinary:", hasCopilotBinary);
-    console.log("[readConfiguredCommands] copilotCli:", resolved.copilotCli);
-    console.log("[readConfiguredCommands] copilotPrefix:", resolved.copilotPrefix);
-    console.log("[readConfiguredCommands] claudeCli:", resolved.claudeCli);
-    console.log("[readConfiguredCommands] codexCli:", resolved.codexCli);
+    console.log(`[cli-paths] copilot=${hasCopilotBinary ? "binary" : "gh-ext"} claude=${hasClaudeBinary ? "ok" : "missing"} codex=${hasCodexBinary ? "ok" : "missing"}`);
 
     return resolved;
   }
 
-  async function createCheckpointSnapshot(repoPath, label) {
+  async function createCheckpointSnapshot(repoPath, label, projectId) {
     const checkpointId = `checkpoint-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const checkpointRoot = path.join(repoPath, ".codebuddy", "checkpoints", checkpointId);
+    const checkpointRoot = path.join(getCheckpointBase(projectId), checkpointId);
     const filesRoot = path.join(checkpointRoot, "files");
-    console.log(`[checkpoint] Collecting files from: ${repoPath}`);
+    console.log(`[checkpoint] Collecting files from: ${repoPath} → ${checkpointRoot}`);
     const files = await collectCheckpointFiles(repoPath);
     console.log(`[checkpoint] Collected ${files.length} files for checkpoint "${label}"`);
 
@@ -1273,10 +1529,16 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     return manifest;
   }
 
-  async function restoreCheckpointSnapshot(project, checkpointId) {
-    const checkpointRoot = path.join(project.repoPath, ".codebuddy", "checkpoints", checkpointId);
-    const manifestPath = path.join(checkpointRoot, "manifest.json");
-    const rawManifest = await fs.readFile(manifestPath, "utf8").catch(() => null);
+  async function restoreCheckpointSnapshot(project, checkpointId, projectId) {
+    // Try new location (userData) first, then fall back to legacy in-repo location
+    let checkpointRoot = path.join(getCheckpointBase(projectId), checkpointId);
+    let rawManifest = await fs.readFile(path.join(checkpointRoot, "manifest.json"), "utf8").catch(() => null);
+
+    if (!rawManifest) {
+      // Fall back to legacy in-repo checkpoint location
+      checkpointRoot = path.join(project.repoPath, ".codebuddy", "checkpoints", checkpointId);
+      rawManifest = await fs.readFile(path.join(checkpointRoot, "manifest.json"), "utf8").catch(() => null);
+    }
 
     if (!rawManifest) {
       throw new Error("Checkpoint not found.");
@@ -1315,7 +1577,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     try {
       if (fs.existsSync(indexLock)) {
         fs.unlinkSync(indexLock);
-        console.log("[git-cleanup] Removed stale .git/index.lock");
       }
     } catch (e) { console.warn("[git-cleanup] Could not remove index.lock:", e.message); }
 
@@ -1331,7 +1592,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         try {
           if (fs.existsSync(rebaseMerge)) fs.rmSync(rebaseMerge, { recursive: true, force: true });
           if (fs.existsSync(rebaseApply)) fs.rmSync(rebaseApply, { recursive: true, force: true });
-          console.log("[git-cleanup] Force-removed rebase directories.");
         } catch (e2) { console.warn("[git-cleanup] Could not remove rebase dirs:", e2.message); }
       }
     }
@@ -1357,7 +1617,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
       const current = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoPath, encoding: "utf8", env: gitEnv }).trim();
       if (current === "codebuddy-build") return;
-      console.log(`[branch-guard] Currently on '${current}', switching to codebuddy-build...`);
       const status = execSync("git status --porcelain", { cwd: repoPath, encoding: "utf8", env: gitEnv }).trim();
       let stashed = false;
       if (status) {
@@ -1366,7 +1625,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
           stashed = true;
         } catch (stashErr) {
           // If stash fails (e.g. "could not write index"), try resetting the index and retrying
-          console.warn(`[branch-guard] git stash failed: ${stashErr.message} — attempting recovery...`);
+          console.warn(`[branch-guard] stash failed, attempting recovery: ${stashErr.message}`);
           cleanupGitState(repoPath);
           try {
             execSync("git reset", { cwd: repoPath, encoding: "utf8", env: gitEnv, timeout: 15000 });
@@ -1374,15 +1633,14 @@ function createProjectService({ app, settingsService, toolingService, p2pService
             stashed = true;
           } catch {
             // Last resort: force checkout (may lose uncommitted changes but keeps us on the right branch)
-            console.warn("[branch-guard] Stash recovery failed — force-checking out codebuddy-build.");
             try {
               execSync("git checkout -f codebuddy-build", { cwd: repoPath, encoding: "utf8", env: gitEnv, timeout: 30000 });
-              console.log("[branch-guard] Force-switched to codebuddy-build.");
+              console.warn("[branch-guard] Force-switched to codebuddy-build (stash recovery failed).");
               return;
             } catch {
               try {
                 execSync("git checkout -B codebuddy-build", { cwd: repoPath, encoding: "utf8", env: gitEnv, timeout: 30000 });
-                console.log("[branch-guard] Force-created and switched to codebuddy-build.");
+                console.warn("[branch-guard] Force-created codebuddy-build (stash recovery failed).");
                 return;
               } catch (e) {
                 console.error("[branch-guard] All recovery attempts failed:", e.message);
@@ -1401,10 +1659,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         try {
           execSync("git stash pop", { cwd: repoPath, encoding: "utf8", env: gitEnv, timeout: 30000 });
         } catch {
-          console.warn("[branch-guard] git stash pop had conflicts — changes saved in stash.");
+          console.warn("[branch-guard] stash pop had conflicts — changes saved in stash.");
         }
       }
-      console.log(`[branch-guard] Switched to codebuddy-build.`);
+      console.log(`[branch-guard] Switched '${current}' → codebuddy-build.`);
     } catch (err) {
       console.error(`[branch-guard] Could not switch to codebuddy-build:`, err.message);
     }
@@ -1413,6 +1671,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   let activeChildProcess = null;
   let activeRequestMeta = null;
   let activeRequestOutput = "";  // Accumulated stdout — persists across renderer navigation
+  let activePendingApproval = null;  // Last approval request — survives renderer navigation
 
   function __setEventSender(sendEvent) {
     eventSender = sendEvent;
@@ -1424,11 +1683,36 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         ...activeRequestMeta,
         message: "Stopped by user.",
       });
+      // Close stdin before killing to prevent broken pipe errors in manual approval mode
+      try { if (activeChildProcess.stdin && !activeChildProcess.stdin.destroyed) activeChildProcess.stdin.end(); } catch {}
       activeChildProcess.kill();
     }
     activeChildProcess = null;
     activeRequestMeta = null;
     activeRequestOutput = "";
+  }
+
+  /**
+   * Write an approval or denial response to the active agent's stdin.
+   * Used in manual approval mode when the user clicks Approve or Deny in the UI.
+   * @param {boolean} approved — true to approve (writes "y\n"), false to deny (writes "n\n")
+   */
+  function sendToolApproval(approved = true) {
+    if (!activeChildProcess || activeChildProcess.killed) {
+      return { success: false, error: "No active agent process" };
+    }
+    if (!activeChildProcess.stdin || activeChildProcess.stdin.destroyed || activeChildProcess.stdin.writableEnded) {
+      return { success: false, error: "Agent stdin is not available (likely in auto-approve mode)" };
+    }
+    try {
+      const response = approved ? "y\n" : "n\n";
+      activeChildProcess.stdin.write(response);
+      activePendingApproval = null;  // Cleared once user responds
+      console.log(`[sendToolApproval] Wrote "${approved ? "y" : "n"}" to agent stdin`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   }
 
   /** Force-reset agent state and clean up git. Used as a recovery mechanism. */
@@ -1465,10 +1749,13 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
   function getActiveRequest() {
     if (activeChildProcess && !activeChildProcess.killed && activeRequestMeta) {
-      console.log(`[getActiveRequest] ACTIVE — scope=${activeRequestMeta.scope} taskId=${activeRequestMeta.taskId || "n/a"} outputLen=${activeRequestOutput.length}`);
+      // Active request exists — caller will poll output; no need to log each poll.
+      // Re-emit any pending approval so the renderer can restore the banner after navigation
+      if (activePendingApproval) {
+        setImmediate(() => emitAgentEvent("project:agentApprovalRequest", activePendingApproval));
+      }
       return { ...activeRequestMeta, active: true, output: activeRequestOutput };
     }
-    console.log(`[getActiveRequest] NONE — process=${!!activeChildProcess} killed=${activeChildProcess?.killed} meta=${!!activeRequestMeta}`);
     return null;
   }
 
@@ -1477,14 +1764,15 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   // run "code", "start", "explorer", etc., they find our harmless wrappers instead.
   let _safeCommandJailDir = null;
   function getSafeCommandJailDir() {
-    if (_safeCommandJailDir && fsSync.existsSync(_safeCommandJailDir)) {
-      return _safeCommandJailDir;
-    }
     const jailDir = path.join(os.tmpdir(), "codebuddy-cmd-jail");
     fsSync.mkdirSync(jailDir, { recursive: true });
 
+    // Always (re)write wrappers so the list stays current across restarts
     if (process.platform === "win32") {
       // Create no-op .cmd wrappers for dangerous commands on Windows
+      // NOTE: powershell/pwsh intentionally NOT blocked — Codex CLI uses
+      // PowerShell for ALL shell execution. Blocking it causes
+      // "batch file arguments are invalid" errors in the Rust binary.
       const dangerousCommands = [
         "code", "code-insiders",       // VS Code
         "explorer",                    // Windows Explorer
@@ -1494,8 +1782,16 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         "open",                        // macOS open (just in case)
         "xdg-open",                    // Linux open
         "taskkill",                    // Process killer
-        "powershell", "pwsh",          // Prevent spawning new shells that could bypass restrictions
       ];
+      // Remove stale jail wrappers for commands no longer on the block list
+      try {
+        for (const f of fsSync.readdirSync(jailDir)) {
+          const stem = f.replace(/\.(cmd|bat)$/i, "");
+          if (!dangerousCommands.includes(stem)) {
+            try { fsSync.unlinkSync(path.join(jailDir, f)); } catch {}
+          }
+        }
+      } catch {}
       for (const cmd of dangerousCommands) {
         const cmdPath = path.join(jailDir, `${cmd}.cmd`);
         // Write a .cmd that does nothing and exits successfully
@@ -1518,12 +1814,146 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     return jailDir;
   }
 
-  async function runProgram(file, args, cwd, requestMeta = null, stdinData = null) {
-    console.log("[runProgram] file:", file);
-    console.log("[runProgram] args:", args);
-    console.log("[runProgram] cwd:", cwd);
-    console.log("[runProgram] file exists:", fsSync.existsSync(file));
-    console.log("[runProgram] stdinData:", stdinData ? `${stdinData.length} chars` : "none");
+  /**
+   * Parse a Claude stream-json line into a human-readable text chunk.
+   * Returns empty string for events that shouldn't be shown as live text.
+   */
+  function parseClaudeStreamJsonLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+    let event;
+    try { event = JSON.parse(trimmed); } catch { return ""; }
+
+    if (event.type === "system" && event.subtype === "init") {
+      return "Preparing context...\nWaiting for model response...\n";
+    }
+
+    if (event.type === "assistant" && event.message?.content) {
+      const parts = [];
+      for (const block of event.message.content) {
+        if (block.type === "thinking" && block.thinking) {
+          parts.push(block.thinking);
+        } else if (block.type === "text" && block.text) {
+          parts.push(block.text);
+        } else if (block.type === "tool_use") {
+          const name = block.name || "tool";
+          const input = block.input || {};
+          // Produce a human-readable action line
+          if (name === "Read" && input.file_path) {
+            parts.push(`Read ${input.file_path}\n`);
+          } else if (name === "Write" && input.file_path) {
+            parts.push(`Write ${input.file_path}\n`);
+          } else if (name === "Edit" && input.file_path) {
+            parts.push(`Edit ${input.file_path}\n`);
+          } else if (name === "Bash" && input.command) {
+            parts.push(`Run ${input.command}\n`);
+          } else if (name === "Glob" && input.pattern) {
+            parts.push(`Search files ${input.pattern}\n`);
+          } else if (name === "Grep" && input.pattern) {
+            parts.push(`Search for "${input.pattern}"\n`);
+          } else {
+            parts.push(`${name}\n`);
+          }
+        }
+      }
+      return parts.join("");
+    }
+
+    if (event.type === "result") {
+      // The result event contains the final text — already emitted incrementally
+      return "";
+    }
+
+    return "";
+  }
+
+  /**
+   * Parse a Codex CLI --json line into a human-readable text chunk.
+   * Returns empty string for events that shouldn't be shown as live text.
+   *
+   * Codex JSONL event types:
+   *   thread.started, turn.started, turn.completed — session lifecycle (skip)
+   *   item.completed  type=agent_message — model text
+   *   item.started    type=command_execution — tool call start
+   *   item.completed  type=command_execution — tool call result
+   *   item.started    type=mcp_tool_call — MCP tool call start
+   */
+  function parseCodexJsonLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+    let event;
+    try { event = JSON.parse(trimmed); } catch { return ""; }
+
+    const item = event.item;
+    if (!item) return "";
+
+    // Completed agent message — emit the text
+    if (event.type === "item.completed" && item.type === "agent_message" && item.text) {
+      return item.text + "\n";
+    }
+
+    // Command execution start — emit a human-readable action line
+    if (event.type === "item.started" && item.type === "command_execution" && item.command) {
+      // Strip the shell prefix (e.g. "C:\...\pwsh.exe" -Command '...')
+      let cmd = item.command;
+      const pwshMatch = cmd.match(/-Command\s+['"]?(.+?)['"]?$/i);
+      if (pwshMatch) cmd = pwshMatch[1];
+      return `\nRun ${cmd}\n`;
+    }
+
+    // MCP tool call start
+    if (event.type === "item.started" && item.type === "mcp_tool_call" && item.tool) {
+      return `\n${item.tool}\n`;
+    }
+
+    return "";
+  }
+
+  /**
+   * Parse a Copilot CLI --output-format json line into a human-readable text chunk.
+   * Returns empty string for events that shouldn't be shown as live text.
+   */
+  function parseCopilotJsonLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+    let event;
+    try { event = JSON.parse(trimmed); } catch { return ""; }
+
+    // Streaming text chunks
+    if (event.type === "assistant.message_delta" && event.data?.deltaContent) {
+      return event.data.deltaContent;
+    }
+
+    // Tool execution start — emit human-readable action line
+    if (event.type === "tool.execution_start" && event.data) {
+      const name = event.data.toolName || "tool";
+      const args = event.data.arguments || {};
+      // Shorten absolute paths to just the filename when inside the working directory
+      const shortPath = (p) => {
+        if (!p) return p;
+        const parts = p.replace(/\\/g, "/").split("/");
+        return parts[parts.length - 1];
+      };
+      if (name === "view" && args.path) return `\nRead ${shortPath(args.path)}\n`;
+      if (name === "edit" && args.path) return `\nEdit ${shortPath(args.path)}\n`;
+      if ((name === "write" || name === "create") && args.path) return `\nWrite ${shortPath(args.path)}\n`;
+      if (name === "shell" && args.command) return `\nRun ${args.command}\n`;
+      if (name === "glob" && args.pattern) return `\nSearch files ${args.pattern}\n`;
+      if (name === "grep" && args.pattern) return `\nSearch for "${args.pattern}"\n`;
+      if (name === "report_intent" && args.intent) return `\n${args.intent}\n`;
+      if (name === "insert" && args.path) return `\nInsert into ${shortPath(args.path)}\n`;
+      return `\n${name}\n`;
+    }
+
+    // Session error — surface rate-limit and other server errors in the live stream
+    if (event.type === "session.error" && event.data?.message) {
+      return `\n⚠ ${event.data.message}\n`;
+    }
+
+    return "";
+  }
+
+  async function runProgram(file, args, cwd, requestMeta = null, stdinData = null, streamJson = false, copilotJson = false, codexJson = false, manualApproval = false) {
     // Prevent copilot CLI from launching external editors/browsers
     // 1. Filter VS Code directories out of PATH
     // 2. Prepend a jail directory with no-op wrappers for dangerous commands
@@ -1546,7 +1976,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       }
     }
     const existingExtraDirs = extraDirs.filter((dir) => { try { return fsSync.statSync(dir).isDirectory(); } catch { return false; } });
-    console.log("[runProgram] extra copilot dirs on PATH:", existingExtraDirs);
 
     const combinedPath = [...existingExtraDirs, ...originalPath.split(pathSep)].join(pathSep);
     const filteredPath = combinedPath
@@ -1570,13 +1999,19 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     const isCmdFile = process.platform === "win32" && /\.cmd$/i.test(file);
     const child = isCmdFile
       ? spawn(file, args, { cwd, windowsHide: true, env: safeEnv, shell: true, stdio: ["pipe", "pipe", "pipe"] })
-      : execFile(file, args, { cwd, windowsHide: true, env: safeEnv }, () => {});
+      : spawn(file, args, { cwd, windowsHide: true, env: safeEnv, stdio: ["pipe", "pipe", "pipe"] });
     // If stdinData is provided (e.g. codex prompt), write it then close stdin.
+    // In manual approval mode without stdinData: keep stdin OPEN so we can write approval
+    // responses (y/n) as the agent pauses before each tool call.
     // Otherwise close stdin immediately so Claude CLI doesn't wait for piped input.
     if (child.stdin) {
       if (stdinData) {
+        // Write prompt to stdin then close immediately so Claude can process and exit.
         try { child.stdin.write(stdinData); child.stdin.end(); } catch {}
-      } else {
+      } else if (!manualApproval) {
+        // Close stdin so the CLI doesn't wait for piped input.
+        // In manual approval mode, keep stdin OPEN so y/n approval responses can be written
+        // as the agent pauses before each tool call.
         try { child.stdin.end(); } catch {}
       }
     }
@@ -1588,9 +2023,15 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       command: [file, ...args].join(" "),
       message: "Starting agent...",
     });
+    // Codex exec: stdout contains ONLY the clean model response.
+    // stderr contains all metadata (header, config, prompt echo, role markers, token count).
+    // We suppress stderr for Codex to avoid dumping the prompt into the activity timeline.
+    const isCodexExec = codexJson || (args.includes("exec") && (/codex/i.test(file) || args.some(a => /codex/i.test(a))));
+
     const result = await new Promise((resolve, reject) => {
       let stdout = "";
       let stderr = "";
+      let jsonLineBuffer = "";  // Buffer for stream-json line assembly
 
       // Keepalive: broadcast an empty token every 15s so the P2P peer stream
       // doesn't time out while the agent is running tools (no stdout during tool calls)
@@ -1599,28 +2040,94 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       }, 15000);
 
       child.on("spawn", () => {
-        emitAgentEvent("project:agentOutput", {
-          ...requestMeta,
-          stream: "system",
-          chunk: "Preparing context...\nWaiting for model response...\n",
-        });
+        if (!streamJson && !copilotJson && !codexJson) {
+          emitAgentEvent("project:agentOutput", {
+            ...requestMeta,
+            stream: "system",
+            chunk: "Preparing context...\nWaiting for model response...\n",
+          });
+        }
       });
       child.stdout?.on("data", (chunk) => {
         const text = chunk.toString();
         stdout += text;
-        activeRequestOutput = (activeRequestOutput + text).slice(-12000);  // Keep last 12KB
-        emitAgentEvent("project:agentOutput", {
-          ...requestMeta,
-          stream: "stdout",
-          chunk: text,
-        });
-        broadcastTokenToP2P(requestMeta, text);
+
+        if (streamJson || copilotJson || codexJson) {
+          // JSONL mode: each line is a JSON event; buffer partial lines
+          const parseJsonLine = codexJson ? parseCodexJsonLine : copilotJson ? parseCopilotJsonLine : parseClaudeStreamJsonLine;
+          jsonLineBuffer += text;
+          const lines = jsonLineBuffer.split("\n");
+          jsonLineBuffer = lines.pop() || "";  // Keep incomplete last line
+          for (const line of lines) {
+            const readable = parseJsonLine(line);
+            if (readable) {
+              activeRequestOutput = (activeRequestOutput + readable).slice(-12000);
+              emitAgentEvent("project:agentOutput", {
+                ...requestMeta,
+                stream: "stdout",
+                chunk: readable,
+              });
+              broadcastTokenToP2P(requestMeta, readable);
+            }
+            // In manual approval mode, detect tool-use events from stdout and cache
+            // them so the stderr handler (which fires when Claude actually blocks on
+            // stdin for permission) can emit the approval request with the right tool info.
+            if (manualApproval && line.trim()) {
+              try {
+                const evt = JSON.parse(line);
+                let approvalEvent = null;
+                if (streamJson && evt.type === "assistant" && Array.isArray(evt.message?.content)) {
+                  // Claude: tool_use block inside the assistant message
+                  for (const block of evt.message.content) {
+                    if (block.type === "tool_use") {
+                      approvalEvent = { toolName: block.name || "tool", toolInput: block.input || {} };
+                      break;
+                    }
+                  }
+                } else if (copilotJson && evt.type === "tool.execution_start" && evt.data) {
+                  // Copilot: tool execution start event — emit immediately (Copilot uses stdout)
+                  approvalEvent = { toolName: evt.data.toolName || "tool", toolInput: evt.data.arguments || {} };
+                } else if (codexJson && evt.type === "item.started" && evt.item?.type === "command_execution") {
+                  // Codex: command execution start event — emit immediately (Codex uses stdout)
+                  approvalEvent = { toolName: "Bash", toolInput: { command: evt.item.command || "" } };
+                }
+                if (approvalEvent) {
+                  activePendingApproval = {
+                    ...requestMeta,
+                    toolName: approvalEvent.toolName,
+                    toolInput: approvalEvent.toolInput,
+                  };
+                  // For Copilot/Codex: emit approval request immediately (stdout-driven approval).
+                  // For Claude stream-json: no approval request needed — Claude always runs
+                  // with --dangerously-skip-permissions since piped stdin approval doesn't work.
+                  if (!streamJson) {
+                    emitAgentEvent("project:agentApprovalRequest", activePendingApproval);
+                  }
+                }
+              } catch { /* not JSON, skip */ }
+            }
+          }
+        } else {
+          activeRequestOutput = (activeRequestOutput + text).slice(-12000);  // Keep last 12KB
+          emitAgentEvent("project:agentOutput", {
+            ...requestMeta,
+            stream: "stdout",
+            chunk: text,
+          });
+          broadcastTokenToP2P(requestMeta, text);
+        }
       });
       child.stderr?.on("data", (chunk) => {
         const text = chunk.toString();
         stderr += text;
+        // Codex: stderr contains ALL metadata (header, config, prompt echo, role markers,
+        // token count). Suppress it entirely — stdout already has the clean response.
+        if (isCodexExec) return;
+
         // Filter out Claude CLI noise that would confuse users
-        const filtered = text.replace(/Warning: no stdin data received.*\n?/gi, "").replace(/If piping from a slow command.*\n?/gi, "");
+        const filtered = text
+          .replace(/Warning: no stdin data received.*\n?/gi, "")
+          .replace(/If piping from a slow command.*\n?/gi, "");
         if (filtered.trim()) {
           emitAgentEvent("project:agentOutput", {
             ...requestMeta,
@@ -1632,21 +2139,85 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       child.on("close", (code) => {
         clearInterval(keepaliveInterval);
         activeChildProcess = null;
+
+        // Flush remaining jsonLineBuffer
+        if ((streamJson || copilotJson || codexJson) && jsonLineBuffer.trim()) {
+          const parseJsonLine = codexJson ? parseCodexJsonLine : copilotJson ? parseCopilotJsonLine : parseClaudeStreamJsonLine;
+          const readable = parseJsonLine(jsonLineBuffer);
+          if (readable) {
+            activeRequestOutput = (activeRequestOutput + readable).slice(-12000);
+            emitAgentEvent("project:agentOutput", { ...requestMeta, stream: "stdout", chunk: readable });
+          }
+        }
+
+        // For JSONL modes, extract the plain text result from the JSON events
+        let plainStdout = stdout;
+        if (streamJson) {
+          const textParts = [];
+          for (const line of stdout.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const evt = JSON.parse(line);
+              if (evt.type === "result" && evt.result) {
+                textParts.push(evt.result);
+              } else if (evt.type === "assistant" && evt.message?.content) {
+                for (const block of evt.message.content) {
+                  if (block.type === "text" && block.text) textParts.push(block.text);
+                }
+              }
+            } catch { /* skip non-JSON lines */ }
+          }
+          plainStdout = textParts.join("\n");
+        } else if (copilotJson) {
+          // Copilot JSONL: extract text from assistant.message events
+          const textParts = [];
+          const errorParts = [];
+          for (const line of stdout.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const evt = JSON.parse(line);
+              if (evt.type === "assistant.message" && evt.data?.content) {
+                // Only include final answer text, not commentary before tool calls
+                if (!evt.data.toolRequests?.length) {
+                  textParts.push(evt.data.content);
+                }
+              } else if (evt.type === "session.error" && evt.data?.message) {
+                errorParts.push(evt.data.message);
+              }
+            } catch { /* skip non-JSON lines */ }
+          }
+          plainStdout = textParts.join("\n") || errorParts.join("\n");
+        } else if (codexJson) {
+          // Codex JSONL: extract text from item.completed agent_message events
+          const textParts = [];
+          for (const line of stdout.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const evt = JSON.parse(line);
+              if (evt.type === "item.completed" && evt.item?.type === "agent_message" && evt.item.text) {
+                textParts.push(evt.item.text);
+              }
+            } catch { /* skip non-JSON lines */ }
+          }
+          plainStdout = textParts.join("\n");
+        }
+
         activeRequestOutput = "";
+        activePendingApproval = null;
         emitAgentEvent("project:agentCompleted", {
           ...requestMeta,
           exitCode: code,
-          stdout,
+          stdout: plainStdout,
           stderr,
           message: code === 0 || code === null ? "Agent finished." : `Agent exited with code ${code}.`,
         });
         activeRequestMeta = null;
         if (code === 0 || code === null) {
-          resolve({ stdout, stderr });
+          resolve({ stdout: plainStdout, stderr });
         } else {
-          const detail = stderr.trim() || stdout.trim();
+          const detail = stderr.trim() || plainStdout.trim();
           const err = new Error(detail || `Process exited with code ${code}`);
-          err.stdout = stdout;
+          err.stdout = plainStdout;
           err.stderr = stderr;
           err.exitCode = code;
           reject(err);
@@ -1655,6 +2226,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       child.on("error", (err) => {
         clearInterval(keepaliveInterval);
         activeChildProcess = null;
+        activePendingApproval = null;
         emitAgentEvent("project:agentError", {
           ...requestMeta,
           message: err.message,
@@ -1858,14 +2430,69 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   }
 
   async function saveProject(nextProject) {
+    console.log(`[saveProject] Saving project ${nextProject.id}, conversation: ${nextProject.dashboard?.conversation?.length ?? 'N/A'} messages`);
     await settingsService.atomicUpdate((settings) => {
-      const nextProjects = [nextProject, ...(settings.projects ?? []).filter((project) => project.id !== nextProject.id)];
+      const existing = (settings.projects ?? []).find(p => p.id === nextProject.id);
+      if (existing) {
+        console.log(`[saveProject] Existing project conversation in settings: ${existing.dashboard?.conversation?.length ?? 'N/A'} messages`);
+      }
+
+      // Protective merge: if the fresh disk version has a LONGER conversation,
+      // taskThreads with more messages, or more soloSessions, keep the longer version.
+      // This prevents stale-snapshot races from ever losing chat history.
+      let mergedProject = nextProject;
+      if (existing?.dashboard && nextProject.dashboard) {
+        const freshConv = existing.dashboard.conversation ?? [];
+        const incomingConv = nextProject.dashboard.conversation ?? [];
+        const freshSessions = existing.dashboard.soloSessions ?? [];
+        const incomingSessions = nextProject.dashboard.soloSessions ?? [];
+        const freshThreads = existing.dashboard.taskThreads ?? [];
+        const incomingThreads = nextProject.dashboard.taskThreads ?? [];
+
+        // Per-thread merge: keep whichever version of each thread has more messages
+        let mergedThreads = incomingThreads;
+        if (freshThreads.length > 0 && incomingThreads.length > 0) {
+          const freshThreadMap = new Map(freshThreads.map(t => [t.id, t]));
+          mergedThreads = incomingThreads.map(inThread => {
+            const freshThread = freshThreadMap.get(inThread.id);
+            if (freshThread && (freshThread.messages?.length || 0) > (inThread.messages?.length || 0)) {
+              return { ...inThread, messages: freshThread.messages };
+            }
+            return inThread;
+          });
+          // Add any fresh-only threads not in incoming
+          for (const ft of freshThreads) {
+            if (!incomingThreads.some(t => t.id === ft.id)) {
+              mergedThreads.push(ft);
+            }
+          }
+        }
+
+        const needsMerge = freshConv.length > incomingConv.length
+          || freshSessions.length > incomingSessions.length
+          || mergedThreads !== incomingThreads;
+
+        if (needsMerge) {
+          console.log(`[saveProject] PROTECTIVE MERGE — fresh conversation: ${freshConv.length}, incoming: ${incomingConv.length}; fresh sessions: ${freshSessions.length}, incoming: ${incomingSessions.length}`);
+          mergedProject = {
+            ...nextProject,
+            dashboard: {
+              ...nextProject.dashboard,
+              conversation: freshConv.length > incomingConv.length ? freshConv : incomingConv,
+              soloSessions: freshSessions.length > incomingSessions.length ? freshSessions : incomingSessions,
+              taskThreads: mergedThreads,
+            },
+          };
+        }
+      }
+
+      const nextProjects = [mergedProject, ...(settings.projects ?? []).filter((project) => project.id !== mergedProject.id)];
       return {
         ...settings,
         projects: nextProjects,
-        activeProjectId: nextProject.id,
-        recentRepositories: Array.from(new Set([nextProject.repoPath, ...(settings.recentRepositories ?? [])])).slice(0, 8),
-        workspaceRoots: Array.from(new Set([nextProject.repoPath, ...(settings.workspaceRoots ?? [])])).slice(0, 8),
+        activeProjectId: mergedProject.id,
+        recentRepositories: Array.from(new Set([mergedProject.repoPath, ...(settings.recentRepositories ?? [])])).slice(0, 8),
+        workspaceRoots: Array.from(new Set([mergedProject.repoPath, ...(settings.workspaceRoots ?? [])])).slice(0, 8),
       };
     });
 
@@ -2375,6 +3002,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         scope: "project-manager",
         phase: "plan",
         model: selectedModel || "auto",
+        promptText: prompt.trim(),
       });
     } catch (cliErr) {
       const cliInfo = buildCliInvocation(commands, provider, fullPrompt, selectedModel, { agentMode: false });
@@ -2496,6 +3124,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   }
 
   async function sendPMMessage({ projectId, prompt, model, attachedFiles = [], replaceFromMessageId }) {
+    console.log(`[pm-chat] START project=${projectId.slice(0,8)} model=${model || "auto"} len=${prompt?.length}`);
     if (typeof prompt !== "string" || !prompt.trim()) {
       throw new Error("A message is required.");
     }
@@ -2517,11 +3146,32 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     if (replaceFromMessageId && replaceIndex === -1) {
       throw new Error("The message you are trying to edit could not be found.");
     }
-    const baseConversation = replaceIndex >= 0 ? existingConversation.slice(0, replaceIndex) : existingConversation;
+    const baseConversationRaw = replaceIndex >= 0 ? existingConversation.slice(0, replaceIndex) : existingConversation;
     const nextAttachedFiles = Array.isArray(attachedFiles)
       ? attachedFiles.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
       : [];
-    const checkpoint = await createCheckpointSnapshot(project.repoPath, `Before PM prompt: ${prompt.trim().slice(0, 80)}`);
+    const checkpoint = await createCheckpointSnapshot(project.repoPath, `Before PM prompt: ${prompt.trim().slice(0, 80)}`, projectId);
+
+    // Build CLI invocation based on active provider
+    const selectedModel = typeof model === "string" && model.trim()
+      ? model.trim()
+      : settings.projectDefaults?.copilotModel?.trim?.() || "";
+
+    const provider = resolveProvider(settings, selectedModel);
+
+    // Compact if conversation history exceeds threshold
+    const baseConversation = await compactMessagesIfNeeded(
+      baseConversationRaw, commands, provider, selectedModel, project.repoPath,
+      async (compacted) => {
+        await settingsService.atomicUpdate((fresh) => {
+          const idx = (fresh.projects ?? []).findIndex((p) => p.id === projectId);
+          if (idx >= 0 && fresh.projects[idx].dashboard) {
+            fresh.projects[idx].dashboard.conversation = compacted;
+          }
+          return { ...fresh };
+        });
+      }
+    );
 
     const fullPrompt = [
       systemPromptMarkdown,
@@ -2540,19 +3190,14 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       "This section MUST ALWAYS be the very last thing in your response, with no other content after it.",
       "If no user input is required, do not include this section at all.",
       "",
+      RESPONSE_SUMMARY_INSTRUCTIONS,
+      "",
       `Project name: ${project.name}`,
       `Project description: ${project.description}`,
       baseConversation.length > 0 ? `Recent conversation:\n${buildRecentConversationTranscript(baseConversation)}` : null,
       nextAttachedFiles.length > 0 ? `Attached files from the user:\n${nextAttachedFiles.map((filePath) => `- ${filePath}`).join("\n")}` : null,
       `Latest user message:\n${prompt.trim()}`,
     ].filter(Boolean).join("\n\n");
-
-    // Build CLI invocation based on active provider
-    const selectedModel = typeof model === "string" && model.trim()
-      ? model.trim()
-      : settings.projectDefaults?.copilotModel?.trim?.() || "";
-
-    const provider = resolveProvider(settings, selectedModel);
 
     const rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: false }, project.repoPath, {
       projectId,
@@ -2570,7 +3215,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: project.creatorName || "Cameron",
       initials: "CM",
       text: prompt.trim(),
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isMine: true,
       attachments: nextAttachedFiles,
       modelId: selectedModel || "auto",
@@ -2582,8 +3227,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: "Project Manager",
       initials: "✦",
       text: responseText,
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isAI: true,
+      modelId: selectedModel || "auto",
+      provider,
     };
 
     const nextProject = {
@@ -2602,7 +3249,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     broadcastMessageToP2P(projectId, pmConversationId, aiMessage, "project-manager");
 
     // Broadcast full conversation update so peer agents share context
-    console.log(`[conv-broadcast] PM: ${pmConversationId} — ${[userMessage, aiMessage].length} messages to peers`);
     broadcastStateToP2P(projectId, "conversation", pmConversationId, {
       type: "project-manager",
       projectId,
@@ -2621,6 +3267,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   }
 
   async function sendSoloMessage({ projectId, sessionId, prompt, model, attachedFiles = [], replaceFromMessageId }) {
+    console.log(`[solo-chat] START project=${projectId.slice(0,8)} session=${sessionId?.slice(0,8) || "new"} model=${model || "auto"} len=${prompt?.length}`);
     if (typeof prompt !== "string" || !prompt.trim()) {
       throw new Error("A message is required.");
     }
@@ -2655,16 +3302,43 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     if (replaceFromMessageId && replaceIndex === -1) {
       throw new Error("The message you are trying to edit could not be found.");
     }
-    const baseMessages = replaceIndex >= 0 ? existingMessages.slice(0, replaceIndex) : existingMessages;
+    const baseMessagesRaw = replaceIndex >= 0 ? existingMessages.slice(0, replaceIndex) : existingMessages;
 
     const nextAttachedFiles = Array.isArray(attachedFiles)
       ? attachedFiles.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
       : [];
 
-    const checkpoint = await createCheckpointSnapshot(project.repoPath, `Before solo prompt: ${prompt.trim().slice(0, 80)}`);
+    const checkpoint = await createCheckpointSnapshot(project.repoPath, `Before solo prompt: ${prompt.trim().slice(0, 80)}`, projectId);
 
     // Load shared agent context from peer machines (if available)
     const soloPeerContext = await loadPeerAgentContext(project.repoPath, "solo", session.id);
+
+    // Build CLI invocation based on active provider
+    const selectedModel = typeof model === "string" && model.trim()
+      ? model.trim()
+      : settings.projectDefaults?.copilotModel?.trim?.() || "";
+
+    const provider = resolveProvider(settings, selectedModel);
+
+    // Compact if conversation history exceeds threshold
+    const baseMessages = await compactMessagesIfNeeded(
+      baseMessagesRaw, commands, provider, selectedModel, project.repoPath,
+      async (compacted) => {
+        await settingsService.atomicUpdate((fresh) => {
+          const idx = (fresh.projects ?? []).findIndex((p) => p.id === projectId);
+          if (idx < 0) return fresh;
+          const sessions = Array.isArray(fresh.projects[idx].dashboard?.soloSessions)
+            ? [...fresh.projects[idx].dashboard.soloSessions]
+            : [];
+          const sIdx = sessions.findIndex((s) => s.id === session.id);
+          if (sIdx >= 0) {
+            sessions[sIdx] = { ...sessions[sIdx], messages: compacted };
+            fresh.projects[idx].dashboard.soloSessions = sessions;
+          }
+          return { ...fresh };
+        });
+      }
+    );
 
     const fullPrompt = [
       "You are a coding assistant working directly with the user in their project.",
@@ -2687,6 +3361,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       "## Attention User Input Required",
       "Then list each item, explain what it is, and give clear steps to obtain it.",
       "",
+      RESPONSE_SUMMARY_INSTRUCTIONS,
+      "",
       `Project: ${project.name}`,
       `Description: ${project.description}`,
       baseMessages.length > 0 ? `Recent conversation:\n${buildRecentConversationTranscript(baseMessages)}` : null,
@@ -2694,17 +3370,12 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       `User message:\n${prompt.trim()}`,
     ].filter(Boolean).join("\n\n");
 
-    const selectedModel = typeof model === "string" && model.trim()
-      ? model.trim()
-      : settings.projectDefaults?.copilotModel?.trim?.() || "";
-
-    const provider = resolveProvider(settings, selectedModel);
-
     let rawOutput;
     try {
       // Ensure we're on the working branch before the agent modifies files
       ensureOnCodebuddyBuild(project.repoPath);
-      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true }, project.repoPath, {
+      const approvalMode = settings.projectDefaults?.approvalMode || "auto";
+      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true, approvalMode }, project.repoPath, {
         projectId,
         scope: "solo-chat",
         phase: "chat",
@@ -2712,6 +3383,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
         checkpointId: checkpoint.id,
         sessionId: session.id,
         sessionTitle: session.title,
+        promptText: prompt.trim(),
       });
     } catch (programError) {
       rawOutput = programError.stdout?.trim() || "";
@@ -2725,7 +3397,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: project.creatorName || "Cameron",
       initials: "CM",
       text: prompt.trim(),
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isMine: true,
       attachments: nextAttachedFiles,
       modelId: selectedModel || "auto",
@@ -2737,8 +3409,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: "Coding Agent",
       initials: "✦",
       text: responseText,
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isAI: true,
+      modelId: selectedModel || "auto",
+      provider,
     };
 
     const updatedSession = {
@@ -2769,7 +3443,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     broadcastMessageToP2P(projectId, soloConversationId, aiMessage, "solo-chat");
 
     // Broadcast full conversation update so peer agents share context
-    console.log(`[conv-broadcast] Solo: ${soloConversationId} — ${[userMessage, aiMessage].length} messages to peers`);
     broadcastStateToP2P(projectId, "conversation", soloConversationId, {
       type: "solo-chat",
       projectId,
@@ -2803,7 +3476,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     return { project: saved, sessionId: updatedSession.id };
   }
 
-  async function sendTaskMessage({ projectId, taskId, threadId, prompt, model, attachedFiles = [], replaceFromMessageId }) {
+  async function sendTaskMessage({ projectId, taskId, threadId, prompt, model, attachedFiles = [], replaceFromMessageId, approvalMode: payloadApprovalMode }) {
+    console.log(`[task-agent] START project=${projectId.slice(0,8)} task=${taskId} model=${model || "auto"} len=${prompt?.length}`);
     if (typeof prompt !== "string" || !prompt.trim()) {
       throw new Error("A task message is required.");
     }
@@ -2866,15 +3540,43 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     if (replaceFromMessageId && replaceIndex === -1) {
       throw new Error("The message you are trying to edit could not be found.");
     }
-    const baseMessages = replaceIndex >= 0 ? (latestThread.messages ?? []).slice(0, replaceIndex) : (latestThread.messages ?? []);
+    const baseMessagesRaw = replaceIndex >= 0 ? (latestThread.messages ?? []).slice(0, replaceIndex) : (latestThread.messages ?? []);
     const nextAttachedFiles = Array.isArray(attachedFiles)
       ? attachedFiles.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
       : [];
-    const checkpoint = await createCheckpointSnapshot(hydratedProject.repoPath, `Before task prompt: ${prompt.trim().slice(0, 80)}`);
+    const checkpoint = await createCheckpointSnapshot(hydratedProject.repoPath, `Before task prompt: ${prompt.trim().slice(0, 80)}`, projectId);
     const taskSystemPrompt = buildTaskAgentSystemPrompt(taskContext, latestThread);
 
     // Load shared agent context from peer machines (if available)
     const peerContext = await loadPeerAgentContext(hydratedProject.repoPath, "task", taskId);
+
+    // Build CLI invocation based on active provider (agent mode — with tool use)
+    const selectedModel = typeof model === "string" && model.trim()
+      ? model.trim()
+      : settings.projectDefaults?.copilotModel?.trim?.() || "";
+
+    const provider = resolveProvider(settings, selectedModel);
+
+    // Compact message history if conversation chars exceed threshold
+    const baseMessages = await compactMessagesIfNeeded(
+      baseMessagesRaw, commands, provider, selectedModel, hydratedProject.repoPath,
+      async (compacted) => {
+        // Persist compacted messages back into settings so future calls start lean
+        await settingsService.atomicUpdate((fresh) => {
+          const idx = (fresh.projects ?? []).findIndex((p) => p.id === projectId);
+          if (idx < 0) return fresh;
+          const threads = Array.isArray(fresh.projects[idx].dashboard?.taskThreads)
+            ? [...fresh.projects[idx].dashboard.taskThreads]
+            : [];
+          const tIdx = threads.findIndex((t) => t.id === latestThread.id);
+          if (tIdx >= 0) {
+            threads[tIdx] = { ...threads[tIdx], messages: compacted };
+            fresh.projects[idx].dashboard.taskThreads = threads;
+          }
+          return { ...fresh };
+        });
+      }
+    );
 
     const fullPrompt = [
       taskSystemPrompt,
@@ -2924,18 +3626,12 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       `Latest user message:\n${prompt.trim()}`,
     ].filter(Boolean).join("\n\n");
 
-    // Build CLI invocation based on active provider (agent mode — with tool use)
-    const selectedModel = typeof model === "string" && model.trim()
-      ? model.trim()
-      : settings.projectDefaults?.copilotModel?.trim?.() || "";
-
-    const provider = resolveProvider(settings, selectedModel);
-
     let rawOutput;
     try {
       // Ensure we're on the working branch before the agent modifies files
       ensureOnCodebuddyBuild(hydratedProject.repoPath);
-      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true }, hydratedProject.repoPath, {
+      const approvalMode = payloadApprovalMode || settings.projectDefaults?.approvalMode || "auto";
+      rawOutput = await runProviderCli(commands, provider, fullPrompt, selectedModel, { agentMode: true, approvalMode }, hydratedProject.repoPath, {
         projectId,
         taskId,
         threadId: latestThread.id,
@@ -2963,7 +3659,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: "Cameron",
       initials: "CM",
       text: prompt.trim(),
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isMine: true,
       attachments: nextAttachedFiles,
       modelId: selectedModel || "auto",
@@ -2975,8 +3671,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       from: latestThread.agentName || taskContext.subproject.agentName || "Task Agent",
       initials: "✦",
       text: responseText,
-      time: "Now",
+      time: formatTimeShort(timestamp),
       isAI: true,
+      modelId: selectedModel || "auto",
+      provider,
     };
 
     const statusUpdate = updateTaskStatusInPlan(hydratedProject.dashboard.plan, taskId, taskStatus, timestamp);
@@ -3080,7 +3778,6 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     broadcastMessageToP2P(projectId, taskConversationId, agentMessage, "task-agent");
 
     // Broadcast full conversation update so peer agents share context
-    console.log(`[conv-broadcast] Task: ${taskConversationId} — ${[userMessage, agentMessage].length} messages to peers`);
     broadcastStateToP2P(projectId, "conversation", taskConversationId, {
       type: "task-agent",
       projectId,
@@ -3263,6 +3960,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   }
 
   async function restoreCheckpoint(projectId, checkpointId) {
+    console.log(`[checkpoint-restore] START projectId=${projectId} checkpointId=${checkpointId}`);
     if (typeof checkpointId !== "string" || !checkpointId.trim()) {
       throw new Error("A checkpoint id is required.");
     }
@@ -3274,13 +3972,54 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       throw new Error("Project not found.");
     }
 
-    const manifest = await restoreCheckpointSnapshot(project, checkpointId.trim());
+    console.log(`[checkpoint-restore] found project: ${project.name} repoPath=${project.repoPath}`);
+    const manifest = await restoreCheckpointSnapshot(project, checkpointId.trim(), projectId);
+    console.log(`[checkpoint-restore] snapshot restored, manifest=`, JSON.stringify(manifest ?? {}).slice(0, 200));
+
+    // Commit and push the restored state immediately so syncWorkspace on reload
+    // picks up the restored files from git (not the pre-restore state).
+    try {
+      const { execSync, execFileSync } = require("child_process");
+      const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+      const gitOpts = { cwd: project.repoPath, env: gitEnv, stdio: "pipe", timeout: 30000 };
+      execSync("git add -A", gitOpts);
+      try {
+        // Use argv form so `checkpointId` can never be shell-interpreted.
+        const safeId = String(checkpointId).trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40);
+        execFileSync("git", ["commit", "-m", `chore: restore checkpoint ${safeId}`], { ...gitOpts, windowsHide: true });
+        execSync("git push", gitOpts);
+        console.log("[checkpoint] Pushed restored state to git");
+      } catch (commitErr) {
+        // Nothing to commit (files were already at checkpoint state) — that's fine
+        console.log("[checkpoint] Nothing new to commit after restore (files unchanged)");
+      }
+    } catch (gitErr) {
+      console.warn("[checkpoint] Could not commit restored state:", gitErr.message);
+    }
+
+    // Clear in-memory taskThreads so syncWorkspace's "keep more messages" merge
+    // doesn't win over the restored (fewer-message) state from git.
+    try {
+      await settingsService.atomicUpdate((fresh) => {
+        const idx = (fresh.projects ?? []).findIndex((p) => p.id === projectId);
+        if (idx >= 0 && fresh.projects[idx].dashboard) {
+          fresh.projects[idx].dashboard.taskThreads = [];
+        }
+        return { ...fresh };
+      });
+      console.log("[checkpoint] Cleared in-memory taskThreads so restored state wins on reload");
+    } catch (clearErr) {
+      console.warn("[checkpoint] Could not clear taskThreads cache:", clearErr.message);
+    }
+
     const timestamp = Date.now();
     const nextProject = {
       ...project,
       updatedAt: formatProjectTimestamp(timestamp),
       dashboard: {
         ...project.dashboard,
+        taskThreads: [],
+        conversation: project.dashboard?.conversation ?? [],
         activity: [
           {
             id: `activity-checkpoint-${checkpointId}-${timestamp}`,
@@ -3296,13 +4035,104 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       },
     };
 
-    return saveProject(nextProject);
+    console.log(`[checkpoint-restore] saving project state, activityCount=${(project.dashboard?.activity?.length ?? 0) + 1}`);
+    const saved = await saveProject(nextProject);
+    console.log(`[checkpoint-restore] DONE projectId=${projectId} checkpointId=${checkpointId}`);
+    return saved;
   }
 
   /**
-   * Detect the correct install + start command by reading config files locally.
-   * No network call — instant fallback when the agent is unavailable or slow.
+   * Manually compact conversation history for any chat (PM, task thread, or solo session).
+   * Forces compaction regardless of the char threshold.
    */
+  async function compactConversation(projectId, { taskId, threadId, sessionId } = {}) {
+    console.log(`[compact-manual] START projectId=${projectId} taskId=${taskId ?? "n/a"} threadId=${threadId ?? "n/a"} sessionId=${sessionId ?? "n/a"}`);
+    const settings = await settingsService.readSettings();
+    const project = (settings.projects ?? []).find((p) => p.id === projectId);
+    if (!project) throw new Error("Project not found.");
+
+    const commands = await readConfiguredCommands();
+    const selectedModel = "sonnet";
+    const provider = resolveProvider(settings, selectedModel);
+
+    let messages;
+    if (sessionId) {
+      const session = (project.dashboard?.soloSessions ?? []).find((s) => s.id === sessionId);
+      messages = session?.messages ?? [];
+    } else if (taskId && threadId) {
+      const thread = (project.dashboard?.taskThreads ?? []).find((t) => t.id === threadId);
+      messages = thread?.messages ?? [];
+    } else {
+      messages = project.dashboard?.conversation ?? [];
+    }
+
+    if (!messages || messages.length <= 4) {
+      console.log(`[compact-manual] skip: only ${messages?.length ?? 0} messages`);
+      return project;
+    }
+
+    // Force compaction by temporarily setting threshold to 0
+    const toCompact  = messages.slice(0, -3);
+    const toKeep     = messages.slice(-3);
+    const transcript = buildConversationTranscript(toCompact);
+
+    console.log(`[compact-manual] compacting ${toCompact.length} messages (keeping last 3)`);
+
+    const summaryPrompt = [
+      "You are a technical summarizer for an AI coding assistant.",
+      "Summarize the following conversation history concisely.",
+      "Preserve: what was built/changed, decisions made, current state, any errors or blockers, passwords/tokens/env vars mentioned.",
+      "Output plain text only. Maximum 400 words. No headings, no bullet points — just paragraphs.",
+      "",
+      "=== CONVERSATION TO SUMMARIZE ===",
+      transcript,
+      "=== END ===",
+    ].join("\n");
+
+    const summaryRaw = await runProviderCli(
+      commands, provider, summaryPrompt,
+      selectedModel, { agentMode: false },
+      project.repoPath, null
+    );
+    const summaryText = (summaryRaw || "").trim();
+    if (!summaryText) throw new Error("Compaction produced empty summary.");
+
+    const summaryMessage = {
+      id: `compact-${Date.now()}`,
+      from: "System",
+      text: `[${toCompact.length} earlier messages compacted]\n\n${summaryText}`,
+      time: formatTimeShort(Date.now()),
+      isCompacted: true,
+    };
+
+    const compacted = [summaryMessage, ...toKeep];
+    console.log(`[compact-manual] Reduced ${messages.length} → ${compacted.length} messages`);
+
+    // Persist
+    const saved = await settingsService.atomicUpdate((fresh) => {
+      const idx = (fresh.projects ?? []).findIndex((p) => p.id === projectId);
+      if (idx < 0) return fresh;
+      if (sessionId) {
+        const sessions = fresh.projects[idx].dashboard?.soloSessions ?? [];
+        const sIdx = sessions.findIndex((s) => s.id === sessionId);
+        if (sIdx >= 0) sessions[sIdx].messages = compacted;
+      } else if (taskId && threadId) {
+        const threads = fresh.projects[idx].dashboard?.taskThreads ?? [];
+        const tidx = threads.findIndex((t) => t.id === threadId);
+        if (tidx >= 0) threads[tidx].messages = compacted;
+      } else {
+        if (fresh.projects[idx].dashboard) {
+          fresh.projects[idx].dashboard.conversation = compacted;
+        }
+      }
+      return { ...fresh };
+    });
+
+    const updatedProject = (saved.projects ?? []).find((p) => p.id === projectId);
+    console.log(`[compact-manual] DONE`);
+    return updatedProject ?? project;
+  }
+
   function normalizeScriptValue(value) {
     return typeof value === "string" ? value.trim() : "";
   }
@@ -3796,7 +4626,10 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     launchDevServer,
     sendSoloMessage,
     restoreCheckpoint,
+    compactConversation,
     cancelActiveRequest,
+    sendToolApproval,
+    getPendingApproval: () => activePendingApproval,
     forceResetAgent,
     getActiveRequest,
     ensureGithubRepoForProject,

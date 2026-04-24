@@ -10,7 +10,7 @@
     "dev:electron": "concurrently --kill-others \"next dev --turbopack --port 3000\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "next build",
     "build:electron": "next build && electron-builder",
-    "deploy": "next build && electron-builder && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$dest='C:\\Users\\cameron\\Desktop\\CodeBuddy Install'; Remove-Item \\\"$dest\\*\\\" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item 'dist-electron\\win-unpacked\\*' \\\"$dest\\\\\\\" -Recurse -Force; Copy-Item 'FRESH-START.bat' \\\"$dest\\\\\\\" -Force; Copy-Item 'UPDATE.ps1' \\\"$dest\\\\\\\" -Force; Copy-Item 'debug-start.bat' \\\"$dest\\\\DEBUG-START.bat\\\" -Force; Copy-Item 'UNINSTALL-ALL.bat' \\\"$dest\\\\\\\" -Force; Copy-Item 'UNINSTALL-ALL.ps1' \\\"$dest\\\\\\\" -Force; Write-Output 'Deploy complete ␦ CodeBuddy Install folder updated'\"",
+    "deploy": "next build && electron-builder && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-install.ps1",
     "build:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1",
     "postinstall": "electron-builder install-app-deps",
     "start": "next start",

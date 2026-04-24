@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
 type ActivityEvent = {
@@ -97,12 +97,32 @@ function EventRow({ event }: { event: ActivityEvent }) {
 
 type ViewMode = "categories" | "all";
 
+type QueueItem = {
+  id: string;
+  title: string;
+  description: string;
+  kind: "approval" | "active";
+  since: number;
+};
+
+function formatAgo(ts: number): string {
+  const diff = Math.max(0, Date.now() - ts);
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ago`;
+}
+
 export default function ActivityPage() {
   const { activeProject } = useActiveDesktopProject();
   const [viewMode, setViewMode] = useState<ViewMode>("categories");
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [personFilter, setPersonFilter] = useState<string | null>(null);
   const [desktopEvents, setDesktopEvents] = useState<ActivityEvent[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [nowTick, setNowTick] = useState(0);
 
   useEffect(() => {
     if (!window.electronAPI?.activity) {
@@ -130,6 +150,48 @@ export default function ActivityPage() {
     };
   }, []);
 
+  // ─── Queue polling (pending approvals + active agent requests) ───
+  useEffect(() => {
+    if (!window.electronAPI?.project) return;
+    let cancelled = false;
+
+    const refresh = async () => {
+      const items: QueueItem[] = [];
+      try {
+        const pending = await window.electronAPI!.project.getPendingApproval?.();
+        if (pending && typeof pending === "object") {
+          const p = pending as { toolName?: string; summary?: string; requestedAt?: number; id?: string };
+          items.push({
+            id: p.id ?? "approval",
+            kind: "approval",
+            title: "Waiting for your approval",
+            description: p.summary ?? p.toolName ?? "An action is queued and needs your OK before it runs.",
+            since: p.requestedAt ?? Date.now(),
+          });
+        }
+      } catch { /* ignore */ }
+      try {
+        const active = await window.electronAPI!.project.getActiveRequest?.();
+        if (active && typeof active === "object") {
+          const a = active as { scope?: string; prompt?: string; startedAt?: number; id?: string };
+          items.push({
+            id: a.id ?? "active",
+            kind: "active",
+            title: a.scope === "pm-chat" ? "Planner is thinking…" : a.scope === "solo-chat" ? "Solo chat running…" : "Agent working…",
+            description: a.prompt ? (a.prompt.length > 80 ? a.prompt.slice(0, 80) + "…" : a.prompt) : "Request in flight.",
+            since: a.startedAt ?? Date.now(),
+          });
+        }
+      } catch { /* ignore */ }
+      if (!cancelled) setQueue(items);
+    };
+
+    void refresh();
+    const interval = setInterval(() => { void refresh(); setNowTick((n) => n + 1); }, 2000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+  void nowTick;
+
   const projectActivity = (activeProject?.dashboard.activity ?? []) as ActivityEvent[];
   const sourceFeed = desktopEvents.length > 0 ? desktopEvents : projectActivity;
 
@@ -156,14 +218,13 @@ export default function ActivityPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
+    <div className="min-h-screen text-text">
 
-      <div className="min-w-0 flex-1 px-5 pb-32 pt-[5.6rem] sm:px-6 xl:px-8">
+      <div className="px-6 py-8 pb-32">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="display-font text-[22px] font-bold tracking-tight theme-fg">Activity</h1>
-          <p className="mt-1 text-[13px] theme-muted">
+          <h1 className="font-display text-display-sm font-bold tracking-tight text-text">Activity</h1>
+          <p className="mt-1 text-body-sm text-text-dim">
             {activeProject
               ? `Everything happening across ${activeProject.name}.`
               : "Open a real project to see its activity feed."}
@@ -224,6 +285,53 @@ export default function ActivityPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Action Queue */}
+        <div className="mb-4 app-surface overflow-hidden rounded-xl">
+          <div className="flex items-center gap-2 border-b border-black/[0.04] px-4 py-2.5 dark:border-white/[0.08]">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-violet-500">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z" clipRule="evenodd" />
+            </svg>
+            <span className="text-[13px] font-semibold theme-fg">Action Queue</span>
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+              {queue.length}
+            </span>
+            <span className="ml-auto text-[11px] theme-muted">
+              {queue.length === 0 ? "Nothing waiting" : queue.length === 1 ? "1 action in progress" : `${queue.length} actions in progress`}
+            </span>
+          </div>
+          {queue.length === 0 ? (
+            <div className="px-4 py-5 text-center text-[12.5px] theme-muted">
+              You&apos;re all caught up — no pushes, approvals, or agent runs queued.
+            </div>
+          ) : (
+            <ol className="divide-y divide-black/[0.04] dark:divide-white/[0.08]">
+              {queue.map((item, idx) => (
+                <li key={item.id} className="flex items-start gap-3 px-4 py-3">
+                  <span className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                    item.kind === "approval"
+                      ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                      : "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+                  }`}>
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold theme-fg">{item.title}</p>
+                    <p className="mt-0.5 truncate text-[12px] theme-soft">{item.description}</p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-1.5 text-[11px] theme-muted">
+                    {item.kind === "active" ? (
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-500" />
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    )}
+                    Queued · {formatAgo(item.since)}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
         {/* Category view */}

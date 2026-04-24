@@ -1,5 +1,23 @@
 ﻿const { dialog, shell, ipcMain } = require("electron");
 
+// Promisified child_process.execFile. Using execFile (not exec) avoids a shell
+// and is safe to call in async handlers — unlike execSync, it does NOT block
+// the Electron main process event loop, so concurrent IPC messages
+// (settings.get, UI input round-trips, etc.) keep flowing while git runs.
+function runGit(args, opts = {}) {
+  const { execFile } = require("child_process");
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
+      if (err) {
+        err.stdout = stdout;
+        err.stderr = stderr;
+        return reject(err);
+      }
+      resolve(stdout);
+    });
+  });
+}
+
 function safeHandle(channel, handler) {
   try {
     ipcMain.removeHandler(channel);
@@ -11,8 +29,15 @@ function safeHandle(channel, handler) {
   }
 }
 
-function registerIpcHandlers({ app, mainWindow, processService, repoService, settingsService, toolingService, activityService, projectService, sharedStateService, p2pService, fileWatcherService }) {
-  const BUILD_TAG = "v37";
+function registerIpcHandlers({ app, mainWindow, processService, repoService, settingsService, toolingService, activityService, projectService, sharedStateService, p2pService, fileWatcherService, gitQueueService }) {
+  // Fallback queue for callers that don't provide one. A queue that just
+  // runs the op lets existing code work without crashing, but loses the
+  // serialization guarantee. The real queue is injected from main.js.
+  const gitQueue = gitQueueService || {
+    enqueue: (_repo, _label, fn) => Promise.resolve().then(fn),
+    getDepth: () => 0,
+  };
+  const BUILD_TAG = "v105-sync-fixes";
   // Guard: prevent savePlan from overwriting plan.json while syncWorkspace is importing
   let syncInProgress = false;
   console.log(`[IPC] Registering all handlers... (build: ${BUILD_TAG})`);
@@ -76,12 +101,10 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             projectIndex = settings.projects?.findIndex(p => p.id === id);
           }
 
-          console.log(`[P2P-apply] category=${category} projectId=${projectId} senderId=${id} matchIndex=${projectIndex} peerName=${peerName}`);
-
           if (projectIndex >= 0 && settings.projects[projectIndex].dashboard) {
             const subCount = data.plan?.subprojects?.length || 0;
             const taskCount = data.plan?.subprojects?.reduce((n, sp) => n + (sp.tasks?.length || 0), 0) || 0;
-            console.log(`[P2P-apply] Applying plan: ${subCount} subprojects, ${taskCount} tasks from ${peerName}`);
+            console.log(`[P2P-apply] plan from ${peerName}: ${subCount} subprojects, ${taskCount} tasks`);
 
             // Forward-only merge: don't let incoming plan revert task statuses that are more advanced locally
             const STATUS_ORDER_P2P = { planned: 0, building: 1, review: 2, done: 3 };
@@ -97,7 +120,6 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
                 for (const t of (sp.tasks || [])) {
                   const localStatus = localStatusMap.get(t.id);
                   if (localStatus && (STATUS_ORDER_P2P[localStatus] || 0) > (STATUS_ORDER_P2P[t.status] || 0)) {
-                    console.log(`[P2P-apply] Preserving local task "${t.title}" status: ${localStatus} vs incoming ${t.status}`);
                     t.status = localStatus;
                   }
                 }
@@ -129,11 +151,10 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
               }
               settings.projects[projectIndex].dashboard.taskThreads = mergedThreads;
             }
-            console.log(`[P2P-apply] SUCCESS — wrote to settings and sent settings:changed`);
             didChange = true;
             return { ...settings };
           } else {
-            console.warn(`[P2P-apply] SKIP — no matching project found (index=${projectIndex})`);
+            console.warn(`[P2P-apply] plan SKIP — no matching project (peer=${peerName})`);
             return undefined; // no-op
           }
         });
@@ -155,14 +176,29 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             for (const sp of subprojects) {
               const task = sp.tasks?.find(t => t.id === data.taskId);
               if (task) {
-                console.log(`[P2P-apply] Task status: "${task.title}" ${task.status} → ${data.status} (from ${peerName})`);
+                console.log(`[P2P-apply] task "${task.title}" ${task.status} → ${data.status} (from ${peerName})`);
                 task.status = data.status;
+                // Cascade subproject status using the same rule as the sender.
+                // Keeps the subproject pill in sync across machines when a task
+                // flip auto-advances/rewinds the parent subproject.
+                const nextTasks = sp.tasks || [];
+                if (nextTasks.length > 0) {
+                  const allDone = nextTasks.every(t => t.status === "done");
+                  const anyBuilding = nextTasks.some(t => t.status === "building");
+                  if (allDone) {
+                    sp.status = "done";
+                  } else if (sp.status === "done") {
+                    // a task was reopened
+                    sp.status = "building";
+                  } else if (anyBuilding && sp.status === "planned") {
+                    sp.status = "building";
+                  }
+                }
                 updated = true;
                 break;
               }
             }
             if (updated) {
-              console.log(`[P2P-apply] Task status sync SUCCESS for ${data.taskId}`);
               didChange = true;
               return { ...settings };
             }
@@ -192,7 +228,11 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             }));
 
             if (msgType === "project-manager") {
-              dashboard.conversation = [...(dashboard.conversation || []), ...taggedMessages];
+              const existing = new Set((dashboard.conversation || []).map(m => m.id));
+              const deduped = taggedMessages.filter(m => !existing.has(m.id));
+              if (deduped.length > 0) {
+                dashboard.conversation = [...(dashboard.conversation || []), ...deduped];
+              }
             } else if (msgType === "task-agent" && data.threadId) {
               let thread = dashboard.taskThreads?.find(t => t.id === data.threadId);
               if (!thread) {
@@ -207,7 +247,11 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
                 if (!dashboard.taskThreads) dashboard.taskThreads = [];
                 dashboard.taskThreads.push(thread);
               }
-              thread.messages = [...(thread.messages || []), ...taggedMessages];
+              const existingThread = new Set((thread.messages || []).map(m => m.id));
+              const dedupedThread = taggedMessages.filter(m => !existingThread.has(m.id));
+              if (dedupedThread.length > 0) {
+                thread.messages = [...(thread.messages || []), ...dedupedThread];
+              }
             } else if (msgType === "solo-chat" && data.sessionId) {
               let session = dashboard.soloSessions?.find(s => s.id === data.sessionId);
               if (!session) {
@@ -218,7 +262,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
               session.messages = [...(session.messages || []), ...taggedMessages];
             }
 
-            console.log(`[P2P-apply] Conversation sync: appended ${taggedMessages.length} messages (${msgType}) from ${peerName}`);
+            console.log(`[P2P-apply] conversation from ${peerName}: +${taggedMessages.length} ${msgType} messages`);
             return { ...settings };
           }
           return undefined; // no-op
@@ -298,7 +342,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             }
 
             if (changed) {
-              console.log(`[P2P-apply] Thread sync from ${peerName}: merged ${data.taskThreads?.length || 0} threads, ${data.conversation?.length || 0} PM messages, ${data.soloSessions?.length || 0} freestyle sessions`);
+              console.log(`[P2P-apply] thread-sync from ${peerName}: ${data.taskThreads?.length || 0} threads, ${data.conversation?.length || 0} PM msgs, ${data.soloSessions?.length || 0} solo sessions`);
               didChange = true;
               return { ...settings };
             }
@@ -315,14 +359,14 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       try {
         const isAgentBusy = fileWatcherService && typeof fileWatcherService.isAgentActive === "function" && fileWatcherService.isAgentActive();
         if (isAgentBusy) {
-          console.log(`[P2P-apply] Received new-commits from ${peerName} but agent is active — deferring pull until agent finishes.`);
+          console.log(`[P2P-apply] new-commits from ${peerName} — deferring (agent busy)`);
         } else {
           const settings = await settingsService.readSettings();
           const project = settings.projects?.find(p => p.id === projectId);
           if (project?.repoPath && fileWatcherService) {
-            console.log(`[P2P-apply] Received new-commits from ${peerName} for project ${projectId.slice(0, 8)} — auto-pulling codebuddy-build...`);
+            console.log(`[P2P-apply] new-commits from ${peerName} — auto-pulling codebuddy-build...`);
             const pullResult = await fileWatcherService.autoPull(project.repoPath);
-            console.log(`[P2P-apply] Auto-pull result: ${JSON.stringify(pullResult)}`);
+            if (!pullResult?.ok) console.warn(`[P2P-apply] auto-pull failed:`, pullResult);
             sendEvent("fileWatcher:peerSync", { peerName, branch: data?.branch, pullResult });
           }
         }
@@ -340,7 +384,6 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
           const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
           try {
             execSync("git fetch origin main:main", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-            console.log(`[P2P-apply] Fetched main branch from ${peerName}'s push.`);
           } catch {
             // fetch origin main:main fails when main is checked out — fetch the remote ref first
             execSync("git fetch origin main", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
@@ -349,9 +392,6 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
               if (currentBranch === "main") {
                 // Main is checked out — fast-forward merge so the working tree updates
                 execSync("git merge --ff-only origin/main", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-                console.log(`[P2P-apply] Fast-forward merged origin/main into checked-out main from ${peerName}'s push.`);
-              } else {
-                console.log(`[P2P-apply] Fetched origin/main ref from ${peerName}'s push (on ${currentBranch}, skipping merge).`);
               }
             } catch (mergeErr) {
               console.warn(`[P2P-apply] Could not ff-merge origin/main: ${mergeErr?.message}`);
@@ -380,14 +420,14 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             `agents/context/${data.snapshotId}.signal.json`,
             JSON.stringify(markerData, null, 2)
           );
-          console.log(`[P2P-apply] Agent context signal received: ${data.snapshotId} from ${peerName} (${data.messageCount || 0} messages)`);
+          console.log(`[P2P-apply] agent-context signal ${data.snapshotId.slice(-8)} from ${peerName} (${data.messageCount || 0} msgs)`);
           sendEvent("agentContext:peerUpdated", { peerName, snapshotId: data.snapshotId, scope: data.scope, taskTitle: data.taskTitle });
         }
       } catch (err) {
         console.warn("[P2P-apply] Agent context signal error:", err?.message);
       }
     } else {
-      console.log(`[P2P-apply] Non-plan state change: category=${category} id=${id} from ${peerName}`);
+      // Unknown category — silently ignore
     }
   });
 
@@ -402,12 +442,195 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     return result.canceled ? null : result.filePaths[0];
   });
 
+  safeHandle("system:openFiles", async () => {
+    const window = mainWindow();
+    const result = await dialog.showOpenDialog(window, {
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  safeHandle("system:readFileAsDataUrl", async (_event, filePath) => {
+    if (typeof filePath !== "string" || !filePath) return null;
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      // Resolve to an absolute path and reject obvious non-files.
+      const resolved = path.resolve(filePath);
+      let stat;
+      try { stat = fs.statSync(resolved); } catch { return null; }
+      if (!stat.isFile()) return null;
+      // Hard cap so a malicious or accidental huge file can't OOM the main process.
+      const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+      if (stat.size > MAX_FILE_BYTES) {
+        console.warn(`[IPC] readFileAsDataUrl refused oversized file (${stat.size} bytes): ${resolved}`);
+        return null;
+      }
+      const ext = path.extname(resolved).toLowerCase().replace(".", "");
+      const mimeMap = {
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+        gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+        bmp: "image/bmp", ico: "image/x-icon",
+        pdf: "application/pdf",
+        xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        xls: "application/vnd.ms-excel",
+        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        doc: "application/msword",
+        pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ppt: "application/vnd.ms-powerpoint",
+        csv: "text/csv",
+        txt: "text/plain", md: "text/markdown", json: "application/json",
+        ts: "text/typescript", tsx: "text/typescript",
+        js: "text/javascript", jsx: "text/javascript",
+        py: "text/x-python", html: "text/html", css: "text/css",
+        sh: "text/x-sh", yaml: "text/yaml", yml: "text/yaml",
+        xml: "text/xml", toml: "text/plain", env: "text/plain",
+      };
+      const mime = mimeMap[ext] || "application/octet-stream";
+      const data = fs.readFileSync(resolved);
+      return `data:${mime};base64,${data.toString("base64")}`;
+    } catch { return null; }
+  });
+
+  safeHandle("system:saveUploadedFile", async (_event, { projectDir, fileName, base64Data }) => {
+    if (!projectDir || !fileName || !base64Data) return null;
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      // Sanitize filename to prevent path traversal
+      const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+      const uploadsDir = path.join(projectDir, ".codebuddy", "uploads");
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      const destPath = path.join(uploadsDir, safeName);
+      const buffer = Buffer.from(base64Data, "base64");
+      fs.writeFileSync(destPath, buffer);
+      return destPath;
+    } catch (err) {
+      console.error("[IPC] saveUploadedFile error:", err?.message ?? err);
+      return null;
+    }
+  });
+
   safeHandle("system:openExternal", async (_event, url) => {
-    if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+    if (typeof url !== "string") {
+      throw new Error("URL must be a string.");
+    }
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error("Invalid URL."); }
+    // Only allow http(s) — never file:, javascript:, data:, vscode:, etc.
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new Error("Only http and https URLs are allowed.");
     }
+    await shell.openExternal(parsed.toString());
+  });
 
-    await shell.openExternal(url);
+  // Launch a real OS terminal window. Supports optional cwd, optional pre-loaded
+  // command (prefill: the command is typed but not executed — user presses Enter),
+  // or run: true (VS Code-style "Run in Terminal" — executes immediately, keeps
+  // the window open so the user can see output).
+  safeHandle("system:openTerminal", async (_event, payload) => {
+    const fs = require("fs");
+    const path = require("path");
+    const { spawn } = require("child_process");
+    const opts = (payload && typeof payload === "object") ? payload : {};
+    let cwd = typeof opts.cwd === "string" && opts.cwd ? opts.cwd : null;
+    const rawCommand = typeof opts.command === "string" ? opts.command : "";
+    const run = opts.run === true;
+    // Strip any embedded newlines; only a single-line command is supported.
+    const command = rawCommand.replace(/[\r\n]+/g, " ").trim();
+    // Validate cwd — must exist and be a directory. Fall back to home if not.
+    if (cwd) {
+      try {
+        const stat = fs.statSync(cwd);
+        if (!stat.isDirectory()) cwd = null;
+      } catch { cwd = null; }
+    }
+    if (!cwd) cwd = require("os").homedir();
+
+    const spawnOpts = { cwd, detached: true, stdio: "ignore", windowsHide: false };
+    try {
+      if (process.platform === "win32") {
+        // Try Windows Terminal first (wt.exe) — better UX. Fall back to cmd.exe.
+        let wtAvailable = false;
+        try {
+          const localApp = process.env.LOCALAPPDATA;
+          if (localApp) {
+            const wtPath = path.join(localApp, "Microsoft", "WindowsApps", "wt.exe");
+            if (fs.existsSync(wtPath)) wtAvailable = true;
+          }
+        } catch { /* ignore */ }
+
+        if (wtAvailable) {
+          // `wt -d <cwd> cmd /K <command>` to run, or just `wt -d <cwd>` for empty.
+          const args = ["-d", cwd];
+          if (command && run) {
+            args.push("cmd", "/K", command);
+          } else if (command) {
+            // Prefill: copy to clipboard and echo hint in the shell.
+            try { require("electron").clipboard.writeText(command); } catch { /* */ }
+            args.push("cmd", "/K", `echo [CodeBuddy] Command copied to clipboard — press Ctrl+V then Enter to run:&& echo   ${command.replace(/[&<>|^]/g, "^$&")}`);
+          }
+          const child = spawn("wt.exe", args, spawnOpts);
+          child.unref();
+          return { ok: true, terminal: "wt" };
+        }
+
+        // Fallback: cmd.exe via `start` so the new console is detached.
+        // `start "" cmd /K <command>` opens a new cmd window.
+        let startCmd;
+        if (command && run) {
+          startCmd = `start "CodeBuddy" cmd /K "${command.replace(/"/g, '\\"')}"`;
+        } else if (command) {
+          try { require("electron").clipboard.writeText(command); } catch { /* */ }
+          const safe = command.replace(/[&<>|^]/g, "^$&").replace(/"/g, '\\"');
+          startCmd = `start "CodeBuddy" cmd /K "echo [CodeBuddy] Command copied to clipboard -- press Ctrl+V then Enter to run:&& echo   ${safe}"`;
+        } else {
+          startCmd = `start "CodeBuddy" cmd /K`;
+        }
+        const child = spawn("cmd.exe", ["/c", startCmd], { ...spawnOpts, shell: false });
+        child.unref();
+        return { ok: true, terminal: "cmd" };
+      }
+
+      if (process.platform === "darwin") {
+        // Use osascript to open Terminal.app in the target cwd.
+        let script;
+        if (command && run) {
+          const esc = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && ${esc}"\ntell application "Terminal" to activate`;
+        } else if (command) {
+          try { require("electron").clipboard.writeText(command); } catch { /* */ }
+          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && echo '[CodeBuddy] Command copied to clipboard — press Cmd+V then Enter to run:' && echo '  ${command.replace(/'/g, "'\\''")}'"\ntell application "Terminal" to activate`;
+        } else {
+          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')}"\ntell application "Terminal" to activate`;
+        }
+        const child = spawn("osascript", ["-e", script], spawnOpts);
+        child.unref();
+        return { ok: true, terminal: "Terminal.app" };
+      }
+
+      // Linux — try a reasonable list of terminals.
+      const candidates = ["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"];
+      const envCmd = command && run ? ["bash", "-c", `${command}; exec bash`]
+        : command ? ["bash", "-c", `echo '[CodeBuddy] Command copied to clipboard — paste then Enter:'; echo '  ${command.replace(/'/g, "'\\''")}'; exec bash`]
+        : null;
+      if (command && !run) { try { require("electron").clipboard.writeText(command); } catch { /* */ } }
+      for (const term of candidates) {
+        try {
+          const args = envCmd ? (term === "gnome-terminal" ? ["--", ...envCmd] : ["-e", envCmd.join(" ")]) : [];
+          const child = spawn(term, args, spawnOpts);
+          child.unref();
+          return { ok: true, terminal: term };
+        } catch { /* try next */ }
+      }
+      throw new Error("No terminal emulator found.");
+    } catch (err) {
+      console.error("[IPC] openTerminal error:", err?.message ?? err);
+      return { ok: false, error: String(err?.message ?? err) };
+    }
   });
 
   safeHandle("system:getCommonPaths", async () => {
@@ -504,7 +727,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("repo:checkoutBranch", async (_event, payload) => {
-    const inspection = await repoService.checkoutBranch(payload.repoPath, payload.branchName, payload.create ?? false);
+    const inspection = await repoService.checkoutBranch(payload.repoPath, payload.branchName, payload.create ?? false, payload.fromBranch ?? null);
     logActivity({
       type: "status",
       title: payload.create ? "Branch created" : "Branch switched",
@@ -673,7 +896,8 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // Sync workspace: pull latest from git, import plan from .codebuddy/plan.json
   safeHandle("project:syncWorkspace", async (_event, projectId) => {
     const log = [];
-    const addLog = (msg) => { console.log("[syncWorkspace]", msg); log.push(msg); };
+    // addLog pushes to returned log array (for UI) without spamming console; console gets a single summary line at end.
+    const addLog = (msg) => { log.push(msg); };
     addLog("Starting workspace sync for project " + projectId);
 
     try {
@@ -689,11 +913,12 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const remoteUrl = await repoService.getRemoteUrl(project.repoPath);
         addLog("  Remote URL: " + (remoteUrl || "NONE"));
         if (remoteUrl) {
-          const { execSync } = require("child_process");
           const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
           try {
-            execSync("git fetch origin codebuddy-build", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, stdio: ["pipe", "pipe", "pipe"], timeout: 30000 });
-            execSync("git reset --hard origin/codebuddy-build", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, stdio: ["pipe", "pipe", "pipe"] });
+            // Async — does NOT block the main process event loop. IPC from the
+            // renderer (UI responsiveness) keeps flowing while git runs.
+            await runGit(["fetch", "origin", "codebuddy-build"], { cwd: project.repoPath, env: gitEnv, timeout: 30000 });
+            await runGit(["reset", "--hard", "origin/codebuddy-build"], { cwd: project.repoPath, env: gitEnv, timeout: 30000 });
             addLog("  Hard pull complete — working tree matches remote");
           } catch (fetchResetErr) {
             addLog("  fetch+reset failed: " + fetchResetErr.message.split("\n")[0]);
@@ -715,13 +940,12 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       addLog("Step 2: Reading .codebuddy/plan.json from git HEAD...");
       const fs = require("fs");
       const path = require("path");
-      const { execSync } = require("child_process");
       const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
 
       syncInProgress = true;
       let planContent = null;
       try {
-        planContent = execSync("git show HEAD:.codebuddy/plan.json", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, stdio: ["pipe", "pipe", "pipe"] });
+        planContent = await runGit(["show", "HEAD:.codebuddy/plan.json"], { cwd: project.repoPath, env: gitEnv, timeout: 15000 });
         addLog("  git show result: contentLength=" + (planContent?.length || 0));
       } catch (gitShowErr) {
         addLog("  git show .codebuddy/plan.json failed: " + gitShowErr.message.split("\n")[0]);
@@ -788,6 +1012,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
         hadExistingPlan = Boolean(freshSettings.projects[projectIndex].dashboard.plan);
         addLog("  Had existing plan: " + hadExistingPlan);
+        addLog("  Conversation count BEFORE sync merge: " + (freshSettings.projects[projectIndex].dashboard.conversation?.length ?? 0));
 
         // Forward-only merge: preserve task statuses that are more advanced in memory
         // (P2P may have updated statuses after the last plan.json export to git)
@@ -839,6 +1064,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         if (planData.projectManagerContextMarkdown) {
           freshSettings.projects[projectIndex].dashboard.projectManagerContextMarkdown = planData.projectManagerContextMarkdown;
         }
+        addLog("  Conversation count AFTER sync merge: " + (freshSettings.projects[projectIndex].dashboard.conversation?.length ?? 0));
         return { ...freshSettings };
       });
 
@@ -852,6 +1078,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       const taskCount = planData.plan.subprojects?.reduce((n, sp) => n + (sp.tasks?.length || 0), 0) || 0;
       addLog("SUCCESS: Imported " + subCount + " subprojects, " + taskCount + " tasks");
       addLog(hadExistingPlan ? "  (replaced existing plan)" : "  (project had no plan before)");
+      console.log(`[syncWorkspace] ${projectId.slice(0, 8)} imported ${subCount} subprojects, ${taskCount} tasks${hadExistingPlan ? " (replaced)" : ""}`);
 
       syncInProgress = false;
       return { success: true, subprojects: subCount, tasks: taskCount, log };
@@ -859,6 +1086,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       syncInProgress = false;
       addLog("UNHANDLED ERROR: " + err.message);
       addLog("  Stack: " + err.stack?.split("\n").slice(0, 3).join(" | "));
+      console.error(`[syncWorkspace] ${projectId?.slice?.(0, 8) || "?"} failed: ${err.message}`);
       return { success: false, log };
     }
   });
@@ -909,22 +1137,41 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         // 3. Commit + push if remote exists
         const remoteUrl = await repoService.getRemoteUrl(project.repoPath);
         if (remoteUrl) {
-          const { execSync } = require("child_process");
-          try {
-            const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
-            execSync("git add .codebuddy/plan.json", { cwd: project.repoPath, encoding: "utf8", env: gitEnv });
-            execSync('git commit -m "sync: update plan" --allow-empty', { cwd: project.repoPath, encoding: "utf8", env: gitEnv });
-            // Pull before push — always sync with remote first
+          // Serialize with the file-watcher auto-sync so both cannot run at once.
+          gitQueue.enqueue(project.repoPath, "savePlan-push", async () => {
             try {
-              execSync("git pull origin codebuddy-build --rebase", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 60000 });
-            } catch {
-              // Rebase conflict — abort and let push attempt (may fail, that's ok)
-              try { execSync("git rebase --abort", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, stdio: "pipe" }); } catch { /* ignore */ }
+              const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+              await runGit(["add", ".codebuddy/plan.json"], { cwd: project.repoPath, env: gitEnv, timeout: 10000 });
+              try {
+                await runGit(["commit", "-m", "sync: update plan", "--allow-empty"], { cwd: project.repoPath, env: gitEnv, timeout: 10000 });
+              } catch { /* nothing to commit is fine */ }
+              // Always pull-rebase before push
+              try {
+                await runGit(["pull", "origin", "codebuddy-build", "--rebase"], { cwd: project.repoPath, env: gitEnv, timeout: 60000 });
+              } catch {
+                try { await runGit(["rebase", "--abort"], { cwd: project.repoPath, env: gitEnv, timeout: 10000 }); } catch { /* ignore */ }
+              }
+              try {
+                await runGit(["push", "origin", "codebuddy-build"], { cwd: project.repoPath, env: gitEnv, timeout: 60000 });
+              } catch (pushErr) {
+                const msg = pushErr?.message || "";
+                if (/non-fast-forward|rejected|behind/i.test(msg)) {
+                  // Remote moved between our pull and push — pull again and retry once.
+                  try { await runGit(["rebase", "--abort"], { cwd: project.repoPath, env: gitEnv, timeout: 10000 }); } catch { /* ignore */ }
+                  try {
+                    await runGit(["pull", "origin", "codebuddy-build", "--rebase"], { cwd: project.repoPath, env: gitEnv, timeout: 60000 });
+                    await runGit(["push", "origin", "codebuddy-build"], { cwd: project.repoPath, env: gitEnv, timeout: 60000 });
+                  } catch (retryErr) {
+                    console.warn("[savePlan] Git push retry failed:", retryErr.message);
+                  }
+                } else {
+                  console.warn("[savePlan] Git push failed:", msg);
+                }
+              }
+            } catch (gitErr) {
+              console.warn("[savePlan] Git operation failed:", gitErr.message);
             }
-            execSync("git push origin codebuddy-build", { cwd: project.repoPath, encoding: "utf8", env: gitEnv, timeout: 60000 });
-          } catch (gitErr) {
-            console.warn("[savePlan] Git push failed:", gitErr.message);
-          }
+          }).catch(() => { /* swallow — already logged */ });
         }
       } catch (exportErr) {
         console.warn("[savePlan] Plan export failed:", exportErr.message);
@@ -1092,12 +1339,21 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     return { cancelled: true };
   });
 
+  safeHandle("project:approveToolCall", async (_event, payload) => {
+    const approved = payload?.approved !== false; // default true
+    return projectService.sendToolApproval(approved);
+  });
+
   safeHandle("project:forceResetAgent", async (_event, payload) => {
     return projectService.forceResetAgent(payload?.repoPath);
   });
 
   safeHandle("project:getActiveRequest", async () => {
     return projectService.getActiveRequest();
+  });
+
+  safeHandle("project:getPendingApproval", async () => {
+    return projectService.getPendingApproval();
   });
 
   safeHandle("project:launchDevServer", async (_event, payload) => {
@@ -1115,6 +1371,12 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
   safeHandle("project:restoreCheckpoint", async (_event, payload) => {
     const project = await projectService.restoreCheckpoint(payload.projectId, payload.checkpointId);
+    sendEvent("settings:changed", await settingsService.readSettings());
+    return project;
+  });
+
+  safeHandle("project:compactConversation", async (_event, payload) => {
+    const project = await projectService.compactConversation(payload.projectId, { taskId: payload.taskId, threadId: payload.threadId, sessionId: payload.sessionId });
     sendEvent("settings:changed", await settingsService.readSettings());
     return project;
   });
@@ -1182,9 +1444,8 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("tools:installCodex", async () => {
-    console.log("[IPC] tools:installCodex called");
     const result = await toolingService.installCodex();
-    console.log(`[IPC] tools:installCodex result: success=${result.success}, detail="${result.detail}", logLines=${result.log?.length || 0}`);
+    console.log(`[tools] installCodex: success=${result.success}${result.detail ? ` (${result.detail})` : ""}`);
     return result;
   });
 
@@ -1193,16 +1454,12 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("tools:codexAuthStatus", async () => {
-    console.log("[IPC] tools:codexAuthStatus called");
-    const result = await toolingService.getCodexAuthStatus();
-    console.log(`[IPC] tools:codexAuthStatus result: authenticated=${result.authenticated}, detail="${result.detail}"`);
-    return result;
+    return toolingService.getCodexAuthStatus();
   });
 
   safeHandle("tools:codexAuthLogin", async () => {
-    console.log("[IPC] tools:codexAuthLogin called");
     const result = await toolingService.startCodexAuth(sendEvent);
-    console.log(`[IPC] tools:codexAuthLogin result: success=${result.success}, timedOut=${result.timedOut || false}`);
+    console.log(`[tools] codexAuth: success=${result.success}${result.timedOut ? " (timed out)" : ""}`);
     if (result.success) {
       logActivity({
         type: "status",
@@ -1326,7 +1583,32 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // ---------- P2P Collaboration ----------
 
   safeHandle("p2p:join", async (_event, payload) => {
-    const result = await p2pService.joinProject(payload.projectId, payload.repoPath, payload.remoteUrl, payload.member);
+    // Look up the per-project secret (authenticated P2P) so anyone who learns
+    // only the public GitHub URL cannot discover this room or forge messages.
+    //
+    // IMPORTANT: Do NOT auto-generate a secret here. If we did, two machines
+    // that joined the same GitHub repo independently (without using the same
+    // invite code) would each generate a different secret, derive different
+    // Hyperswarm topics, and never discover each other (symptom: both show
+    // "Live" but "Waiting for teammates"). A secret is only installed via
+    // an explicit invite generation (owner) or invite acceptance (member).
+    // When no secret is present on either side, both fall back to the legacy
+    // v1 topic (keyed on the remoteUrl only) so peer discovery still works.
+    let secret = null;
+    try {
+      const settings = await settingsService.readSettings();
+      const project = settings.projects?.find(p => p.id === payload.projectId);
+      secret = project?.p2pSecret || null;
+    } catch { /* settings not available; fall back to unauthenticated mode */ }
+    console.log(`[p2p:join] projectId=${payload.projectId?.slice(0,8)} mode=${secret ? "v2-authenticated" : "v1-legacy"}`);
+
+    const result = await p2pService.joinProject(
+      payload.projectId,
+      payload.repoPath,
+      payload.remoteUrl,
+      payload.member,
+      { secret: payload.secret || secret }
+    );
     logActivity({
       type: "join",
       title: "Joined P2P workspace",
@@ -1380,14 +1662,60 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("p2p:generateInvite", async (_event, payload) => {
-    const code = p2pService.generateInviteCode(payload.remoteUrl, payload.projectName);
+    // Ensure the project has a persistent P2P secret so invitees share an
+    // authenticated channel with us. Without this, anyone who learns the
+    // (possibly public) GitHub URL could join the P2P room.
+    let secret = null;
+    try {
+      await settingsService.atomicUpdate((s) => {
+        const idx = s.projects?.findIndex(p =>
+          p.id === payload.projectId || p.remoteUrl === payload.remoteUrl || p.id === s.activeProjectId
+        );
+        if (idx >= 0) {
+          if (!s.projects[idx].p2pSecret && typeof p2pService.generateProjectSecret === "function") {
+            s.projects[idx].p2pSecret = p2pService.generateProjectSecret();
+          }
+          secret = s.projects[idx].p2pSecret || null;
+        }
+        return s;
+      });
+    } catch (err) {
+      console.warn("[generateInvite] Could not persist project secret:", err?.message);
+    }
+
+    const code = p2pService.generateInviteCode(payload.remoteUrl, payload.projectName, secret);
+
+    // If the host is currently connected over the legacy v1 topic (no secret
+    // at the time of join), reconnect now using the freshly-generated secret
+    // so the invitee's v2 topic actually matches. Without this, host stays
+    // stuck in v1-legacy mode and the guest never discovers them.
+    try {
+      if (secret && typeof p2pService.isProjectJoined === "function" && typeof p2pService.getProjectSession === "function") {
+        const joined = p2pService.isProjectJoined(payload.projectId);
+        const session = p2pService.getProjectSession?.(payload.projectId);
+        const needsUpgrade = joined && session && !session.secret;
+        if (needsUpgrade) {
+          console.log(`[generateInvite] Upgrading P2P session ${payload.projectId} to v2 (secret-authenticated)`);
+          const settings = await settingsService.readSettings();
+          const proj = settings.projects?.find(p => p.id === payload.projectId);
+          const memberProfile = {
+            id: settings.userId || settings.deviceId || "host",
+            name: settings.displayName || "Host",
+            role: "owner",
+          };
+          await p2pService.leaveProject(payload.projectId);
+          await p2pService.joinProject(payload.projectId, proj?.repoPath, payload.remoteUrl, memberProfile, { secret });
+        }
+      }
+    } catch (upgradeErr) {
+      console.warn("[generateInvite] v1→v2 upgrade warning:", upgradeErr?.message);
+    }
 
     // Export the project plan to .codebuddy/plan.json so the joining machine gets it
     try {
       const settings = await settingsService.readSettings();
       const activeProject = settings.projects?.find(p => p.id === settings.activeProjectId);
       if (activeProject?.dashboard?.plan && activeProject.repoPath) {
-        console.log("[generateInvite] Exporting plan to .codebuddy/plan.json...");
         const planExport = {
           plan: activeProject.dashboard.plan,
           taskThreads: activeProject.dashboard.taskThreads || [],
@@ -1396,7 +1724,6 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
           exportedBy: activeProject.creatorName || "Unknown",
         };
         await sharedStateService.writeSharedFile(activeProject.repoPath, "plan.json", JSON.stringify(planExport, null, 2));
-        console.log("[generateInvite] Plan exported. Committing and pushing...");
 
         // Commit and push the plan so the cloning machine gets it
         // Push to both current branch AND main (clone defaults to main)
@@ -1416,14 +1743,11 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
             execSync("git merge codebuddy-build --no-edit", { cwd: activeProject.repoPath, encoding: "utf8", env: gitEnv });
             execSync("git push origin main", { cwd: activeProject.repoPath, encoding: "utf8", env: gitEnv, timeout: 60000 });
             execSync("git checkout codebuddy-build", { cwd: activeProject.repoPath, encoding: "utf8", env: gitEnv });
-            console.log("[generateInvite] Also merged and pushed to main for clone.");
           }
         } catch (mainErr) {
           console.warn("[generateInvite] Main merge warning:", mainErr?.message);
         }
-        console.log("[generateInvite] Plan pushed to GitHub.");
-      } else {
-        console.log("[generateInvite] No plan to export or no repoPath.");
+        console.log(`[generateInvite] plan exported & pushed (${activeProject.dashboard.plan.subprojects?.length || 0} subprojects)`);
       }
     } catch (err) {
       // Don't fail the invite if plan export fails — just log
@@ -1438,12 +1762,10 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("p2p:acceptInvite", async (_event, payload) => {
-    console.log("[acceptInvite] Starting invite acceptance...");
-    console.log("[acceptInvite] Payload:", JSON.stringify({ code: payload.code?.slice(0, 20) + "...", memberName: payload.memberName, targetDirectory: payload.targetDirectory }));
+    console.log(`[acceptInvite] START member=${payload.memberName || "(anonymous)"}`);
 
     // Decode invite → clone repo → create project → join P2P
-    const { remoteUrl, projectName } = p2pService.decodeInviteCode(payload.code);
-    console.log("[acceptInvite] Decoded invite — remoteUrl:", remoteUrl, "projectName:", projectName);
+    const { remoteUrl, projectName, secret: inviteSecret } = p2pService.decodeInviteCode(payload.code);
 
     // Determine target directory for the clone
     const settings = await settingsService.readSettings();
@@ -1452,34 +1774,31 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     const targetPath = payload.targetDirectory
       ? require("path").resolve(payload.targetDirectory)
       : require("path").join(rootDir, safeName);
-    console.log("[acceptInvite] Target path:", targetPath);
 
     const fs = require("fs");
 
     // Check if target already has a valid git clone; if the folder exists but has no .git, remove it and re-clone
     const targetGitDir = require("path").join(targetPath, ".git");
     if (fs.existsSync(targetPath) && !fs.existsSync(targetGitDir)) {
-      console.log("[acceptInvite] Target path exists but has no .git — removing stale folder and re-cloning.");
       fs.rmSync(targetPath, { recursive: true, force: true });
     }
 
     if (!fs.existsSync(targetPath)) {
-      console.log("[acceptInvite] Cloning repo...");
-      // Clone the remote repo
-      const result = await processService.run(
-        `git clone "${remoteUrl}" "${targetPath}"`, rootDir, { timeoutMs: 120000 }
-      );
-      console.log("[acceptInvite] Clone result — exitCode:", result.exitCode, "stderr:", result.stderr?.slice(0, 500));
+      console.log(`[acceptInvite] cloning "${projectName}" → ${targetPath}`);
+      // Clone the remote repo — use runProgram to avoid shell interpretation of
+      // the remote URL (which originates from an untrusted invite code).
+      const result = await (processService.runProgram
+        ? processService.runProgram("git", ["clone", remoteUrl, targetPath], rootDir, { timeoutMs: 120000 })
+        : processService.run(`git clone "${remoteUrl}" "${targetPath}"`, rootDir, { timeoutMs: 120000 }));
       if (result.exitCode !== 0) {
+        console.error(`[acceptInvite] clone failed (exit=${result.exitCode}):`, result.stderr?.slice(0, 300));
         throw new Error(`Clone failed: ${result.stderr || "Unknown error"}`);
       }
-      console.log("[acceptInvite] Clone succeeded.");
 
       // Configure credential helper so git push/pull can authenticate
       try {
         const { execSync } = require("child_process");
         execSync('git config credential.helper "!gh auth git-credential"', { cwd: targetPath, encoding: "utf8", stdio: "pipe" });
-        console.log("[acceptInvite] Credential helper configured.");
       } catch { /* gh may not be available */ }
 
       // Switch to codebuddy-build branch (created by the project owner)
@@ -1487,37 +1806,30 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const { execSync } = require("child_process");
         const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
         execSync("git switch codebuddy-build", { cwd: targetPath, encoding: "utf8", env: gitEnv });
-        console.log("[acceptInvite] Switched to codebuddy-build branch.");
       } catch {
         // Branch might not exist yet — create it
         try {
           const { execSync } = require("child_process");
           const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
           execSync("git switch -c codebuddy-build", { cwd: targetPath, encoding: "utf8", env: gitEnv });
-          console.log("[acceptInvite] Created codebuddy-build branch.");
         } catch (branchErr) {
           console.warn("[acceptInvite] codebuddy-build branch warning:", branchErr?.message);
         }
       }
-    } else {
-      console.log("[acceptInvite] Target path already exists, skipping clone.");
     }
 
     // Create a CodeBuddy project pointing at the cloned repo
-    console.log("[acceptInvite] Creating project entry...");
     const project = await projectService.createProject({
       name: projectName,
       description: `Joined via invite from ${remoteUrl}`,
       importExistingPath: targetPath,
       createGithubRepo: false,
     });
-    console.log("[acceptInvite] Project created:", project?.id || "no id");
 
     // Load plan from .codebuddy/plan.json if it exists (synced from the project owner)
     try {
       const planFile = await sharedStateService.readSharedFile(targetPath, "plan.json");
       if (planFile?.exists && planFile.content) {
-        console.log("[acceptInvite] Found .codebuddy/plan.json — importing plan...");
         const planData = JSON.parse(planFile.content);
         if (planData.plan) {
           // Merge the synced plan into the new project's dashboard
@@ -1532,22 +1844,18 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
               currentSettings.projects[projectIndex].dashboard.projectManagerContextMarkdown = planData.projectManagerContextMarkdown;
             }
             await settingsService.writeSettings(currentSettings);
-            console.log("[acceptInvite] Plan imported successfully —", planData.plan.subprojects?.length || 0, "subprojects,", planData.plan.subprojects?.reduce((n, sp) => n + (sp.tasks?.length || 0), 0) || 0, "tasks");
-          } else {
-            console.log("[acceptInvite] Could not find project in settings to merge plan into.");
+            const subCount = planData.plan.subprojects?.length || 0;
+            const taskCount = planData.plan.subprojects?.reduce((n, sp) => n + (sp.tasks?.length || 0), 0) || 0;
+            console.log(`[acceptInvite] plan imported: ${subCount} subprojects, ${taskCount} tasks`);
           }
         }
-      } else {
-        console.log("[acceptInvite] No plan.json found — project starts with empty plan.");
       }
     } catch (err) {
       console.warn("[acceptInvite] Plan import warning:", err.message);
     }
 
     // Initialize shared state directory (.codebuddy/)
-    console.log("[acceptInvite] Initializing shared state...");
     await sharedStateService.ensureSharedDir(targetPath);
-    console.log("[acceptInvite] Shared state initialized.");
 
     // Immediately commit any scaffolding changes so the Files tab doesn't show them as "Changed"
     try {
@@ -1560,16 +1868,18 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       try { hasName = !!execSync("git config user.name", opts).trim(); } catch { /* not set */ }
       try { hasEmail = !!execSync("git config user.email", opts).trim(); } catch { /* not set */ }
       if (!hasName || !hasEmail) {
-        console.log("[acceptInvite] Git identity not configured — setting up...");
         let name = "CodeBuddy";
         let email = "codebuddy@local.invalid";
         try {
           const login = execSync("gh api user --jq .login", opts).trim();
           if (login) { name = login; email = `${login}@users.noreply.github.com`; }
         } catch { /* gh not available */ }
-        if (!hasName) try { execSync(`git config user.name "${name}"`, opts); } catch { /* ignore */ }
-        if (!hasEmail) try { execSync(`git config user.email "${email}"`, opts); } catch { /* ignore */ }
-        console.log(`[acceptInvite] Git identity set: ${name} <${email}>`);
+        // Use execFileSync with argv array — prevents shell injection if the
+        // name/email derived from `gh api user` ever contains shell metacharacters.
+        const { execFileSync } = require("child_process");
+        const fileOpts = { cwd: targetPath, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 10000, windowsHide: true };
+        if (!hasName) try { execFileSync("git", ["config", "user.name", name], fileOpts); } catch { /* ignore */ }
+        if (!hasEmail) try { execFileSync("git", ["config", "user.email", email], fileOpts); } catch { /* ignore */ }
       }
 
       const status = execSync("git status --porcelain", { cwd: targetPath, encoding: "utf8", env: gitEnv }).trim();
@@ -1577,9 +1887,6 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         execSync("git add -A", { cwd: targetPath, encoding: "utf8", env: gitEnv });
         execSync('git commit -m "auto: initialize shared workspace" --no-verify', { cwd: targetPath, encoding: "utf8", env: gitEnv });
         execSync("git push origin codebuddy-build", { cwd: targetPath, encoding: "utf8", env: gitEnv, timeout: 60000 });
-        console.log("[acceptInvite] Committed and pushed scaffolding changes.");
-      } else {
-        console.log("[acceptInvite] No scaffolding changes to commit.");
       }
     } catch (commitErr) {
       console.warn("[acceptInvite] Scaffolding commit warning:", commitErr?.message);
@@ -1591,9 +1898,21 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       initials: (payload.memberName || "FR").slice(0, 2).toUpperCase(),
       role: "Member",
     };
-    console.log("[acceptInvite] Joining P2P room as:", member.name);
-    const p2pResult = await p2pService.joinProject(project.id, targetPath, remoteUrl, member);
-    console.log("[acceptInvite] P2P join result:", JSON.stringify(p2pResult));
+    // Persist the invite's shared secret on the new project so every subsequent
+    // session (and every regenerated invite) stays authenticated.
+    if (inviteSecret) {
+      try {
+        await settingsService.atomicUpdate((s) => {
+          const idx = s.projects?.findIndex(p => p.id === project.id);
+          if (idx >= 0) s.projects[idx].p2pSecret = inviteSecret;
+          return s;
+        });
+      } catch (err) {
+        console.warn("[acceptInvite] Could not persist invite secret:", err?.message);
+      }
+    }
+
+    const p2pResult = await p2pService.joinProject(project.id, targetPath, remoteUrl, member, { secret: inviteSecret });
 
     sendEvent("settings:changed", await settingsService.readSettings());
     logActivity({
@@ -1604,7 +1923,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       actorInitials: member.initials,
     });
 
-    console.log("[acceptInvite] Done! Returning project + p2p result.");
+    console.log(`[acceptInvite] DONE project=${project.id?.slice(0,8)} p2p=${p2pResult?.joined ? "joined" : "failed"}`);
     return { project, p2p: p2pResult };
   });
 

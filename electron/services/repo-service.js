@@ -300,7 +300,7 @@ async function createRepoService({ settingsService } = {}) {
     return inspectRepository(resolvedRepoPath);
   }
 
-  async function checkoutBranch(repoPath, branchName, create = false) {
+  async function checkoutBranch(repoPath, branchName, create = false, fromBranch = null) {
     const resolvedRepoPath = await ensureRepository(repoPath);
     const gitCommand = await getGitCommand();
 
@@ -316,6 +316,20 @@ async function createRepoService({ settingsService } = {}) {
       try {
         await runGit(gitCommand, ["fetch", "origin", branchName.trim()], resolvedRepoPath);
       } catch { /* remote branch may not exist or no network — continue anyway */ }
+    }
+
+    // When creating a new branch from a specific source, make sure we're on that source first
+    if (create && fromBranch && typeof fromBranch === "string" && fromBranch.trim()) {
+      try {
+        // Fetch the source branch so we branch from latest remote state
+        try { await runGit(gitCommand, ["fetch", "origin", fromBranch.trim()], resolvedRepoPath); } catch { /* */ }
+        // Stash current work temporarily
+        try { await runGit(gitCommand, ["add", "-A"], resolvedRepoPath); } catch { /* */ }
+        try { await runGit(gitCommand, ["stash"], resolvedRepoPath); } catch { /* */ }
+        await runGit(gitCommand, ["switch", fromBranch.trim()], resolvedRepoPath);
+        try { await runGit(gitCommand, ["merge", "--ff-only", `origin/${fromBranch.trim()}`], resolvedRepoPath); } catch { /* no remote tracking */ }
+        try { await runGit(gitCommand, ["stash", "pop"], resolvedRepoPath); } catch { /* nothing to pop */ }
+      } catch { /* best effort — fall through to create */ }
     }
 
     // Stage and stash any uncommitted / untracked changes before switching
@@ -361,6 +375,16 @@ async function createRepoService({ settingsService } = {}) {
       try {
         await runGit(gitCommand, ["merge", "--ff-only", `origin/${branchName.trim()}`], resolvedRepoPath);
       } catch { /* may not have remote tracking or already up-to-date — that's fine */ }
+    }
+
+    // When creating a new branch, publish it to origin so teammates (and GitHub UI) can see it
+    if (create) {
+      try {
+        await runGit(gitCommand, ["push", "-u", "origin", branchName.trim()], resolvedRepoPath);
+      } catch (pushErr) {
+        // Remote may not be configured or credentials unavailable — surface a warning but don't fail
+        console.warn("[repo] Failed to push new branch to origin:", pushErr?.message || pushErr);
+      }
     }
 
     return inspectRepository(resolvedRepoPath);

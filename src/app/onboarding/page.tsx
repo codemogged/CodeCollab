@@ -437,17 +437,15 @@ export default function OnboardingPage() {
      Light mode · typing animation · step dots · back/forward nav
      ═══════════════════════════════════════════════════════════════════ */
   return (
-    <div className="flex min-h-screen flex-col bg-[#fafafa]">
+    <div className="flex min-h-screen flex-col bg-void text-text">
 
       {/* ── Top bar: logo + step counter ── */}
       <header className="flex items-center justify-between px-8 pt-6">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 text-[10px] font-bold text-white">
-            CB
-          </div>
-          <span className="text-sm font-semibold text-gray-800">CodeBuddy</span>
+          <div className="pulse-orb" />
+          <span className="font-display text-sm font-semibold text-text">CodeBuddy</span>
         </div>
-        <p className="text-xs font-medium text-gray-400">
+        <p className="text-label text-text-dim">
           {stepIndex + 1} of {STEPS.length}
         </p>
       </header>
@@ -460,10 +458,10 @@ export default function OnboardingPage() {
             onClick={() => { if (i <= stepIndex) setStep(STEPS[i]); }}
             className={`h-1.5 rounded-full transition-all duration-400 ${
               i === stepIndex
-                ? "w-8 bg-indigo-500"
+                ? "w-8 bg-sun"
                 : i < stepIndex
-                  ? "w-1.5 cursor-pointer bg-indigo-300 hover:bg-indigo-400"
-                  : "w-1.5 bg-gray-200"
+                  ? "w-1.5 cursor-pointer bg-sun/40 hover:bg-sun/60"
+                  : "w-1.5 bg-stage-up2"
             }`}
             aria-label={STEP_LABELS[s]}
           />
@@ -472,7 +470,7 @@ export default function OnboardingPage() {
 
       {/* ── Centered content area ── */}
       <main className="flex flex-1 flex-col items-center justify-center px-8 pb-24">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-2xl">
 
           {/* ═══ WELCOME ═══ */}
           {step === "welcome" && <WelcomeStep onContinue={() => goNext()} />}
@@ -481,7 +479,7 @@ export default function OnboardingPage() {
           {step === "tools" && (
             <FadeIn key="tools">
               <StepHeading text="Checking your tools" />
-              <p className="mt-2 text-center text-sm text-gray-400">
+              <p className="mt-2 text-center text-sm text-text-dim">
                 CodeBuddy needs a few things installed on your machine.
               </p>
 
@@ -502,11 +500,11 @@ export default function OnboardingPage() {
                   return (
                     <div className="mt-6 flex flex-col items-center gap-3">
                       <div className="relative flex h-12 w-12 items-center justify-center">
-                        <div className="absolute inset-0 rounded-full border-2 border-indigo-100" />
-                        <div className="absolute inset-0 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-indigo-500"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
+                        <div className="absolute inset-0 rounded-full border-2 border-violet/20" />
+                        <div className="absolute inset-0 rounded-full border-2 border-violet border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-violet"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
                       </div>
-                      <p className="text-sm font-medium text-gray-500">Installing… {readyCount}/4</p>
+                      <p className="text-sm font-medium text-text-mid">Installing… {readyCount}/4</p>
                     </div>
                   );
                 }
@@ -516,13 +514,13 @@ export default function OnboardingPage() {
                       <button
                         onClick={installAllMissing}
                         disabled={installingAll}
-                        className="inline-flex items-center gap-2 rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded-full bg-violet px-5 py-2 text-sm font-semibold text-void shadow-sm transition hover:bg-violet/90 active:scale-[0.97] disabled:opacity-50"
                       >
                         Install all ({missing.length})
                       </button>
                       <button
                         onClick={checkAllTools}
-                        className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600"
+                        className="btn-ghost rounded-full px-4 py-2 text-sm"
                       >
                         Re-check
                       </button>
@@ -540,15 +538,15 @@ export default function OnboardingPage() {
           {step === "github" && (
             <FadeIn key="github">
               <StepHeading text="Connect GitHub" />
-              <p className="mt-2 text-center text-sm text-gray-400">
+              <p className="mt-2 text-center text-sm text-text-dim">
                 This is how we store projects and collaborate with friends.
               </p>
 
               <div className="mt-8 space-y-4">
                 {ghAuthStatus === "checking" && (
                   <div className="flex items-center justify-center gap-3 py-4">
-                    <Spinner className="text-indigo-400" />
-                    <span className="text-sm text-gray-400">Checking GitHub…</span>
+                    <Spinner className="text-violet" />
+                    <span className="text-sm text-text-dim">Checking GitHub…</span>
                   </div>
                 )}
 
@@ -565,16 +563,16 @@ export default function OnboardingPage() {
                 {(ghAuthStatus === "not-authenticated" || ghAuthStatus === "error" || ghAuthStatus === "unknown") && (
                   <>
                     {gh.status !== "ready" ? (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center">
-                        <p className="text-sm font-medium text-amber-700">GitHub CLI is required.</p>
-                        <p className="mt-1 text-xs text-amber-600/70">Go back and install it first.</p>
-                        <button onClick={goBack} className="mt-3 text-xs font-semibold text-amber-600 hover:text-amber-800">← Back to tools</button>
+                      <div className="rounded-2xl border border-sun/30 bg-sun/10 px-5 py-4 text-center">
+                        <p className="text-sm font-medium text-sun">GitHub CLI is required.</p>
+                        <p className="mt-1 text-xs text-sun/70">Go back and install it first.</p>
+                        <button onClick={goBack} className="mt-3 text-xs font-semibold text-sun hover:text-sun/80">← Back to tools</button>
                       </div>
                     ) : (
                       <div className="flex justify-center gap-3">
                         <button
                           onClick={startGithubAuth}
-                          className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800 active:scale-[0.97]"
+                          className="inline-flex items-center gap-2 rounded-full bg-text px-6 py-2.5 text-sm font-semibold text-void shadow-sm transition hover:bg-text/90 active:scale-[0.97]"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
                             <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
@@ -587,35 +585,35 @@ export default function OnboardingPage() {
                 )}
 
                 {ghAuthStatus === "authenticating" && (
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 px-6 py-6">
+                  <div className="rounded-2xl border border-violet/20 bg-violet/8 px-6 py-6">
                     {ghAuthDeviceCode ? (
                       <div className="space-y-4 text-center">
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-indigo-400">Copy this code</p>
-                          <p className="mt-2 select-all font-mono text-2xl font-bold tracking-[0.15em] text-indigo-600">{ghAuthDeviceCode}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-violet">Copy this code</p>
+                          <p className="mt-2 select-all font-mono text-2xl font-bold tracking-[0.15em] text-violet">{ghAuthDeviceCode}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-indigo-400">Then open</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-violet">Then open</p>
                           <button
                             onClick={() => { if (ghAuthUrl) window.electronAPI?.system?.openExternal(ghAuthUrl); }}
-                            className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-4 py-2 text-sm font-semibold text-indigo-600 transition hover:bg-indigo-200"
+                            className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-violet/20 px-4 py-2 text-sm font-semibold text-violet transition hover:bg-violet/30"
                           >
                             github.com/login/device ↗
                           </button>
                         </div>
-                        <p className="text-[11px] text-gray-400">Authorize the app, then come back.</p>
+                        <p className="text-[11px] text-text-dim">Authorize the app, then come back.</p>
                       </div>
                     ) : (
                       <div className="flex items-center justify-center gap-3 py-2">
-                        <Spinner className="text-indigo-400" />
-                        <span className="text-sm text-gray-400">Starting authentication…</span>
+                        <Spinner className="text-violet" />
+                        <span className="text-sm text-text-dim">Starting authentication…</span>
                       </div>
                     )}
                   </div>
                 )}
 
                 {ghAuthError && (
-                  <p className="rounded-xl bg-red-50 px-4 py-2 text-center text-sm text-red-500">{ghAuthError}</p>
+                  <p className="rounded-xl bg-coral/10 px-4 py-2 text-center text-sm text-coral">{ghAuthError}</p>
                 )}
               </div>
 
@@ -632,7 +630,7 @@ export default function OnboardingPage() {
           {step === "provider" && (
             <FadeIn key="provider">
               <StepHeading text="Choose your AI assistant" />
-              <p className="mt-2 text-center text-sm text-gray-400">
+              <p className="mt-2 text-center text-sm text-text-dim">
                 Pick one or more. We&apos;ll install and connect them.
               </p>
 
@@ -655,18 +653,18 @@ export default function OnboardingPage() {
                       }}
                       className={`flex w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
                         checked
-                          ? "border-indigo-200 bg-indigo-50"
-                          : "border-gray-100 bg-white hover:border-gray-200"
+                          ? "border-violet/30 bg-violet/10"
+                          : "border-edge bg-stage hover:border-text-ghost"
                       }`}
                     >
                       <ProviderIcon provider={key} />
                       <div className="flex-1">
-                        <span className="text-sm font-semibold text-gray-800">{label}</span>
-                        <span className="ml-2 text-xs text-gray-400">{desc}</span>
+                        <span className="text-sm font-semibold text-text">{label}</span>
+                        <span className="ml-2 text-xs text-text-dim">{desc}</span>
                       </div>
-                      <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${checked ? "border-indigo-500 bg-indigo-500" : "border-gray-300"}`}>
+                      <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${checked ? "border-violet bg-violet" : "border-text-ghost"}`}>
                         {checked && (
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3 text-white">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3 text-void">
                             <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
                           </svg>
                         )}
@@ -678,7 +676,7 @@ export default function OnboardingPage() {
 
               {/* Provider install/auth status */}
               {selectedProviders.size > 0 && (
-                <div className="mt-5 rounded-2xl border border-gray-100 bg-white overflow-hidden divide-y divide-gray-50">
+                <div className="mt-5 rounded-2xl border border-edge bg-stage overflow-hidden divide-y divide-edge">
                   {selectedProviders.has("copilot") && (
                     <ProviderStatusRow
                       provider="copilot"
@@ -715,8 +713,8 @@ export default function OnboardingPage() {
               )}
 
               {installLog && (
-                <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                  <pre className="whitespace-pre-wrap break-words text-xs text-gray-500">{installLog}</pre>
+                <div className="mt-3 rounded-xl border border-edge bg-stage-up px-4 py-3">
+                  <pre className="whitespace-pre-wrap break-words text-xs text-text-mid">{installLog}</pre>
                 </div>
               )}
 
@@ -728,13 +726,13 @@ export default function OnboardingPage() {
           {step === "profile" && (
             <FadeIn key="profile">
               <StepHeading text="What should we call you?" />
-              <p className="mt-2 text-center text-sm text-gray-400">
+              <p className="mt-2 text-center text-sm text-text-dim">
                 This is how you&apos;ll appear to friends.
               </p>
 
               <div className="mt-8 flex flex-col items-center gap-5">
                 {displayName.trim() && (
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-indigo-500 text-lg font-bold text-white">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-violet text-lg font-bold text-void">
                     {displayName.trim().slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -743,7 +741,7 @@ export default function OnboardingPage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Your name"
-                  className="w-full rounded-2xl border border-gray-200 bg-white px-5 py-3.5 text-center text-sm text-gray-800 placeholder-gray-300 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="app-input w-full rounded-2xl px-5 py-3.5 text-center text-sm"
                   autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter" && displayName.trim()) goNext(); }}
                 />
@@ -757,19 +755,19 @@ export default function OnboardingPage() {
           {step === "done" && (
             <FadeIn key="done">
               <div className="flex flex-col items-center text-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-indigo-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-9 w-9 text-white"><path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" /></svg>
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-violet">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-9 w-9 text-void"><path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" /></svg>
                 </div>
-                <h1 className="mt-6 text-2xl font-bold text-gray-800">
+                <h1 className="mt-6 text-2xl font-bold text-text">
                   You&apos;re all set, {displayName || "friend"}!
                 </h1>
-                <p className="mt-2 text-sm text-gray-400">
+                <p className="mt-2 text-sm text-text-dim">
                   Start a project, invite friends, and build something amazing.
                 </p>
                 <button
                   onClick={handleFinish}
                   disabled={finishing}
-                  className="mt-8 rounded-full bg-indigo-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-50"
+                  className="mt-8 rounded-full bg-violet px-8 py-3 text-sm font-semibold text-void transition hover:bg-violet/90 active:scale-[0.97] disabled:opacity-50"
                 >
                   {finishing ? "Setting up…" : "Open CodeBuddy"}
                 </button>
@@ -781,7 +779,7 @@ export default function OnboardingPage() {
       </main>
 
       {/* ── Footer ── */}
-      <footer className="pb-6 text-center text-[11px] text-gray-300">
+      <footer className="pb-6 text-center text-[11px] text-text-ghost">
         free forever
       </footer>
     </div>
@@ -796,8 +794,8 @@ export default function OnboardingPage() {
 function ProviderIcon({ provider }: { provider: ProviderKey }) {
   const base = "flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden";
   if (provider === "copilot") return (
-    <div className={`${base} bg-gray-900`}>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 text-white">
+    <div className={`${base} bg-text`}>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 text-void">
         <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
       </svg>
     </div>
@@ -822,19 +820,19 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
   return (
     <FadeIn>
       <div className="flex flex-col items-center text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500 text-xl font-bold text-white">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet text-xl font-bold text-void">
           CB
         </div>
-        <h1 className="mt-8 text-2xl font-bold text-gray-800">
+        <h1 className="mt-8 text-2xl font-bold text-text">
           {displayed}
-          {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-indigo-500 align-text-bottom animate-pulse" />}
+          {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-violet align-text-bottom animate-pulse" />}
         </h1>
-        <p className={`mt-3 text-sm text-gray-400 transition-opacity duration-700 ${done ? "opacity-100" : "opacity-0"}`}>
+        <p className={`mt-3 text-sm text-text-dim transition-opacity duration-700 ${done ? "opacity-100" : "opacity-0"}`}>
           This takes about 2 minutes. We&apos;ll check a few tools and connect your GitHub.
         </p>
         <button
           onClick={onContinue}
-          className={`mt-8 rounded-full bg-indigo-500 px-8 py-3 text-sm font-semibold text-white transition-all duration-500 hover:bg-indigo-600 active:scale-[0.97] ${done ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}
+          className={`mt-8 rounded-full bg-violet px-8 py-3 text-sm font-semibold text-void transition-all duration-500 hover:bg-violet/90 active:scale-[0.97] ${done ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}
         >
           Let&apos;s go
         </button>
@@ -847,9 +845,9 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
 function StepHeading({ text }: { text: string }) {
   const { displayed, done } = useTypewriter(text, 30);
   return (
-    <h1 className="text-center text-2xl font-bold text-gray-800">
+    <h1 className="text-center text-2xl font-bold text-text">
       {displayed}
-      {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-indigo-500 align-text-bottom animate-pulse" />}
+      {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-violet align-text-bottom animate-pulse" />}
     </h1>
   );
 }
@@ -884,19 +882,19 @@ function NavButtons({
   return (
     <div className="mt-10 flex items-center justify-center gap-3">
       {onBack && (
-        <button onClick={onBack} className="rounded-full border border-gray-200 px-5 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600">
+        <button onClick={onBack} className="btn-ghost rounded-full px-5 py-2 text-sm">
           {backLabel}
         </button>
       )}
       {showRecheck && recheckFn && (
-        <button onClick={recheckFn} className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-400 transition hover:border-gray-300 hover:text-gray-600">
+        <button onClick={recheckFn} className="btn-ghost rounded-full px-4 py-2 text-sm">
           Re-check
         </button>
       )}
       <button
         onClick={onNext}
         disabled={nextDisabled}
-        className="rounded-full bg-indigo-500 px-7 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-600 active:scale-[0.97] disabled:opacity-30"
+        className="btn-primary rounded-full px-7 py-2.5 text-sm font-semibold transition active:scale-[0.97] disabled:opacity-30"
       >
         {nextLabel}
       </button>
@@ -918,27 +916,27 @@ function ToolRow({
 }) {
   if (state.installing && phaseText) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+      <div className="flex items-center gap-3 rounded-xl border border-violet/20 bg-violet/8 px-4 py-3">
         <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
-          <div className="absolute inset-0 rounded-full border-2 border-indigo-200" />
-          <div className="absolute inset-0 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-indigo-500"><path fillRule="evenodd" d="M14.5 10a4.5 4.5 0 004.284-5.882c-.105-.324-.51-.391-.752-.15L15.34 6.66a.454.454 0 01-.493.101 3.046 3.046 0 01-1.608-1.607.454.454 0 01.1-.493l2.693-2.692c.24-.241.174-.647-.15-.752a4.5 4.5 0 00-5.873 4.575c.055.873-.128 1.808-.8 2.368l-7.23 6.024a2.724 2.724 0 103.837 3.837l6.024-7.23c.56-.672 1.495-.855 2.368-.8.096.007.193.01.291.01zM5 16a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" /></svg>
+          <div className="absolute inset-0 rounded-full border-2 border-violet/30" />
+          <div className="absolute inset-0 rounded-full border-2 border-violet border-t-transparent animate-spin" style={{ animationDuration: "1.2s" }} />
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-violet"><path fillRule="evenodd" d="M14.5 10a4.5 4.5 0 004.284-5.882c-.105-.324-.51-.391-.752-.15L15.34 6.66a.454.454 0 01-.493.101 3.046 3.046 0 01-1.608-1.607.454.454 0 01.1-.493l2.693-2.692c.24-.241.174-.647-.15-.752a4.5 4.5 0 00-5.873 4.575c.055.873-.128 1.808-.8 2.368l-7.23 6.024a2.724 2.724 0 103.837 3.837l6.024-7.23c.56-.672 1.495-.855 2.368-.8.096.007.193.01.291.01zM5 16a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" /></svg>
         </div>
-        <p className="text-sm font-medium text-indigo-600">{phaseText}</p>
+        <p className="text-sm font-medium text-violet">{phaseText}</p>
       </div>
     );
   }
 
   const icon = state.checking ? (
-    <Spinner className="text-gray-300" size={16} />
+    <Spinner className="text-text-ghost" size={16} />
   ) : state.status === "ready" ? (
     <GreenCheck small />
   ) : state.status === "missing" ? (
-    <div className="h-4 w-4 rounded-full border-2 border-amber-400" />
+    <div className="h-4 w-4 rounded-full border-2 border-sun" />
   ) : state.status === "error" ? (
-    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-red-100 text-[9px] font-bold text-red-500">!</div>
+    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-coral/15 text-[9px] font-bold text-coral">!</div>
   ) : (
-    <div className="h-4 w-4 rounded-full border-2 border-gray-200" />
+    <div className="h-4 w-4 rounded-full border-2 border-edge" />
   );
 
   const statusText = state.checking ? "Checking…"
@@ -950,15 +948,15 @@ function ToolRow({
   return (
     <div className="flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm">
       {icon}
-      <span className="font-medium text-gray-700">{label}</span>
+      <span className="font-medium text-text">{label}</span>
       <span className={`ml-auto text-xs ${
-        state.status === "ready" ? "text-gray-400" : state.status === "missing" ? "text-amber-500" : state.status === "error" ? "text-red-500" : "text-gray-300"
+        state.status === "ready" ? "text-text-dim" : state.status === "missing" ? "text-sun" : state.status === "error" ? "text-coral" : "text-text-ghost"
       }`}>{statusText}</span>
       {state.status !== "ready" && !state.checking && onInstall && (
         <button
           onClick={onInstall}
           disabled={state.installing}
-          className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100 disabled:opacity-50"
+          className="rounded-full bg-violet/10 px-3 py-1 text-xs font-semibold text-violet transition hover:bg-violet/20 disabled:opacity-50"
         >
           Install
         </button>
@@ -996,10 +994,10 @@ function ProviderStatusRow({
       <div className="flex items-center gap-3 px-5 py-4">
         <ProviderIcon provider={provider} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800">{label}</p>
-          <p className="text-xs text-indigo-500 mt-0.5">{phaseText}</p>
+          <p className="text-sm font-medium text-text">{label}</p>
+          <p className="text-xs text-violet mt-0.5">{phaseText}</p>
         </div>
-        <Spinner className="text-indigo-400" size={16} />
+        <Spinner className="text-violet" size={16} />
       </div>
     );
   }
@@ -1010,10 +1008,10 @@ function ProviderStatusRow({
       <div className="flex items-center gap-3 px-5 py-4">
         <ProviderIcon provider={provider} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800">{label}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Checking…</p>
+          <p className="text-sm font-medium text-text">{label}</p>
+          <p className="text-xs text-text-dim mt-0.5">Checking…</p>
         </div>
-        <Spinner className="text-gray-300" size={16} />
+        <Spinner className="text-text-ghost" size={16} />
       </div>
     );
   }
@@ -1024,11 +1022,11 @@ function ProviderStatusRow({
       <div className="flex items-center gap-3 px-5 py-4">
         <ProviderIcon provider={provider} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800">{label}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Not installed</p>
+          <p className="text-sm font-medium text-text">{label}</p>
+          <p className="text-xs text-text-dim mt-0.5">Not installed</p>
         </div>
         {onInstall && (
-          <button onClick={onInstall} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">
+          <button onClick={onInstall} className="rounded-full bg-violet/10 px-4 py-1.5 text-xs font-semibold text-violet transition hover:bg-violet/20">
             Install
           </button>
         )}
@@ -1045,27 +1043,27 @@ function ProviderStatusRow({
     <div className="flex items-center gap-3 px-5 py-4">
       <ProviderIcon provider={provider} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800">{label}</p>
+        <p className="text-sm font-medium text-text">{label}</p>
         {isAuthed ? (
           <p className="text-xs text-emerald-600 mt-0.5 flex items-center gap-1">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path fillRule="evenodd" d="M8 15A7 7 0 108 1a7 7 0 000 14zm3.844-8.791a.75.75 0 00-1.188-.918l-3.7 4.79-1.649-1.833a.75.75 0 10-1.114 1.004l2.25 2.5a.75.75 0 001.15-.043l4.25-5.5z" clipRule="evenodd" /></svg>
             Ready{authLabel ? ` · ${authLabel}` : ""}
           </p>
         ) : isAuthing ? (
-          <p className="text-xs text-indigo-500 mt-0.5">Signing in… complete in browser</p>
+          <p className="text-xs text-violet mt-0.5">Signing in… complete in browser</p>
         ) : isChecking ? (
-          <p className="text-xs text-gray-400 mt-0.5">Checking auth…</p>
+          <p className="text-xs text-text-dim mt-0.5">Checking auth…</p>
         ) : (
-          <p className="text-xs text-gray-400 mt-0.5">Installed · sign in needed</p>
+          <p className="text-xs text-text-dim mt-0.5">Installed · sign in needed</p>
         )}
-        {authError && <p className="text-xs text-red-500 mt-0.5">{authError}</p>}
+        {authError && <p className="text-xs text-coral mt-0.5">{authError}</p>}
       </div>
       {isAuthed ? (
         <GreenCheck small />
       ) : isAuthing || isChecking ? (
-        <Spinner className="text-indigo-400" size={16} />
+        <Spinner className="text-violet" size={16} />
       ) : onSignIn ? (
-        <button onClick={onSignIn} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">
+        <button onClick={onSignIn} className="rounded-full bg-violet/10 px-4 py-1.5 text-xs font-semibold text-violet transition hover:bg-violet/20">
           Sign in
         </button>
       ) : (
@@ -1077,13 +1075,13 @@ function ProviderStatusRow({
 
 /** Auth row */
 function AuthRowLight({ label, status, error, onSignIn }: { label: string; status: string; error: string | null; onSignIn: () => void }) {
-  if (status === "checking") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-gray-300" size={14} /><span className="text-gray-400">Checking {label}…</span></div>;
+  if (status === "checking") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-text-ghost" size={14} /><span className="text-text-dim">Checking {label}…</span></div>;
   if (status === "authenticated") return <div className="flex items-center gap-2 px-4 py-2 text-sm text-emerald-600"><GreenCheck small /><span className="font-medium">Signed in to {label}</span></div>;
-  if (status === "authenticating") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-indigo-400" size={14} /><span className="text-indigo-600">Signing in…</span><span className="text-xs text-gray-400">Complete in browser</span></div>;
+  if (status === "authenticating") return <div className="flex items-center gap-2 px-4 py-2 text-sm"><Spinner className="text-violet" size={14} /><span className="text-violet">Signing in…</span><span className="text-xs text-text-dim">Complete in browser</span></div>;
   return (
     <div className="px-4 py-1.5 space-y-1">
-      <button onClick={onSignIn} className="rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100">Sign in to {label}</button>
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      <button onClick={onSignIn} className="rounded-full bg-violet/10 px-4 py-1.5 text-xs font-semibold text-violet transition hover:bg-violet/20">Sign in to {label}</button>
+      {error && <p className="text-xs text-coral">{error}</p>}
     </div>
   );
 }

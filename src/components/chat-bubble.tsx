@@ -24,11 +24,12 @@ export default function ChatBubble({
     return (
       <div className="flex justify-end">
         <div className={userBubbleWidth}>
-          <div className="mb-1.5 flex justify-end">
-            <p className="text-[11px] font-medium theme-muted">{msg.from}</p>
+          <div className="mb-1.5 flex items-center justify-end gap-2">
+            <p className="text-[11px] font-medium tracking-[0.01em] theme-muted">{msg.from}</p>
+            {msg.time && <span className="text-[9px] font-medium theme-muted opacity-40">{msg.time}</span>}
           </div>
           <div className="rounded-[1.65rem] rounded-br-md border border-black/[0.08] bg-[#2d2b29] px-5 py-3 text-white shadow-[0_12px_28px_rgba(32,24,18,0.16)] dark:border-white/[0.08] dark:bg-[#25272b] dark:shadow-[0_16px_36px_rgba(0,0,0,0.28)]">
-            <p className="text-[14px] leading-[1.55] text-white/96">{msg.text}</p>
+            <p className="text-[14px] leading-[1.6] tracking-[-0.006em] text-white/96">{msg.text}</p>
           </div>
         </div>
       </div>
@@ -43,11 +44,12 @@ export default function ChatBubble({
         </div>
         <div className={assistantBubbleWidth}>
           <div className="mb-1.5 flex items-center gap-2">
-            <p className="text-[11px] font-medium theme-fg">Project Manager</p>
-            <span className="text-[11px] theme-muted">building live</span>
+            <p className="text-[11px] font-medium tracking-[0.01em] theme-fg">Project Manager</p>
+            {msg.time && <span className="text-[9px] font-medium theme-muted opacity-40">{msg.time}</span>}
+            {!msg.time && <span className="text-[11px] font-normal theme-muted">building live</span>}
           </div>
           <div className="rounded-[1.15rem] px-0 py-0 theme-fg">
-            <p className="text-[15px] leading-[1.72] theme-fg">{msg.text}</p>
+            <p className="text-[15px] leading-[1.72] tracking-[-0.008em] theme-fg">{msg.text}</p>
 
             {artifact && onOpenBuild && (
               <div
@@ -59,17 +61,17 @@ export default function ChatBubble({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-medium theme-muted">New build</p>
-                    <p className="mt-1 text-[15px] font-semibold theme-fg">{artifact.title}</p>
+                    <p className="text-[11px] font-medium tracking-[0.01em] theme-muted">New build</p>
+                    <p className="mt-1 font-display text-[15px] font-semibold tracking-[-0.01em] theme-fg">{artifact.title}</p>
                   </div>
                   <span className="text-[12px] font-medium theme-soft">Ready</span>
                 </div>
 
-                <p className="mt-2 text-[13px] leading-[1.6] theme-soft">
+                <p className="mt-2 text-[13px] leading-[1.65] tracking-[-0.003em] theme-soft">
                   {artifact.description}
                 </p>
 
-                <p className="mt-3 text-[12px] leading-relaxed theme-muted">{artifact.changes.join(" • ")}</p>
+                <p className="mt-3 text-[12px] leading-relaxed tracking-[-0.003em] theme-muted">{artifact.changes.join(" • ")}</p>
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
@@ -101,9 +103,12 @@ export default function ChatBubble({
         {msg.initials}
       </div>
       <div className={assistantBubbleWidth}>
-        <p className="mb-1.5 text-[10px] font-semibold theme-muted">{msg.from}</p>
+        <div className="mb-1.5 flex items-center gap-2">
+          <p className="text-[10px] font-semibold tracking-[0.01em] theme-muted">{msg.from}</p>
+          {msg.time && <span className="text-[9px] font-medium theme-muted opacity-40">{msg.time}</span>}
+        </div>
         <div className="app-surface rounded-[1.3rem] rounded-tl-md px-5 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.05)] dark:shadow-[0_14px_28px_rgba(0,0,0,0.20)]">
-          <p className="text-[14px] leading-[1.58] theme-fg">{msg.text}</p>
+          <p className="text-[14px] leading-[1.6] tracking-[-0.006em] theme-fg">{msg.text}</p>
         </div>
       </div>
     </div>

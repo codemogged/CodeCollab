@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
 /* ------------------------------------------------------------------ */
@@ -357,20 +357,18 @@ export default function PreviewPage() {
   const showTerminalPreview = previewMode === "terminal" && previewReady;
 
   return (
-    <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
+    <div className="flex h-screen text-text">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* --- Header bar --- */}
-        <div className="app-surface flex flex-shrink-0 items-center justify-between border-x-0 border-t-0 px-5 py-3 sm:px-6">
+        <div className="surface flex flex-shrink-0 items-center justify-between border-b border-edge px-5 py-3 sm:px-6">
           <div className="flex items-center gap-4">
-            <h1 className="display-font text-[16px] font-semibold tracking-tight theme-fg">{activeProject?.name ?? "Preview"}</h1>
+            <h1 className="font-display text-body-lg font-semibold tracking-tight text-text">{activeProject?.name ?? "Preview"}</h1>
             {showWebview ? (
-              <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Live</span>
+              <span className="rounded-full bg-mint/12 px-2.5 py-1 text-label font-semibold text-mint">Live</span>
             ) : showTerminalPreview ? (
-              <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{previewProcessId ? "Running" : "Done"}</span>
+              <span className="rounded-full bg-mint/12 px-2.5 py-1 text-label font-semibold text-mint">{previewProcessId ? "Running" : "Done"}</span>
             ) : isRunning ? (
-              <span className="animate-pulse rounded-full bg-amber-500/12 px-2.5 py-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">Starting</span>
+              <span className="animate-pulse rounded-full bg-sun/12 px-2.5 py-1 text-label font-semibold text-sun">Starting</span>
             ) : null}
           </div>
 

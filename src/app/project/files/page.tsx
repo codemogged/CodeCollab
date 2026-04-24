@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
 type Tab = "code" | "updates" | "ide";
@@ -117,7 +117,20 @@ export default function FilesPage() {
   const { activeProject, canUseDesktopProject } = useActiveDesktopProject();
   const lastAutoConnectedRepoPath = useRef<string | null>(null);
 
-  const [tab, setTab] = useState<Tab>("code");
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "code";
+    const param = new URLSearchParams(window.location.search).get("tab");
+    return param === "updates" ? "updates" : "code";
+  });
+
+  // Redirect ?tab=ide to the dedicated IDE page
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const param = new URLSearchParams(window.location.search).get("tab");
+    if (param === "ide") {
+      window.location.href = "/project/ide";
+    }
+  }, []);
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
   const [connectedRepo, setConnectedRepo] = useState<{
     repoPath: string;
@@ -140,6 +153,7 @@ export default function FilesPage() {
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [isMutatingRepo, setIsMutatingRepo] = useState(false);
   const [branchDraft, setBranchDraft] = useState("");
+  const [branchSource, setBranchSource] = useState<string>("");
   const [commitMessage, setCommitMessage] = useState("");
   const [selectedCommitDetails, setSelectedCommitDetails] = useState<LiveCommitDetails | null>(null);
   const [isLoadingCommitDetails, setIsLoadingCommitDetails] = useState(false);
@@ -555,7 +569,7 @@ export default function FilesPage() {
     }
   };
 
-  const handleCheckoutBranch = async (branchName: string, create: boolean) => {
+  const handleCheckoutBranch = async (branchName: string, create: boolean, fromBranch?: string | null) => {
     if (!window.electronAPI?.repo || !connectedRepo || !branchName.trim()) {
       return;
     }
@@ -567,6 +581,7 @@ export default function FilesPage() {
         repoPath: connectedRepo.repoPath,
         branchName,
         create,
+        fromBranch: fromBranch ?? null,
       });
       setConnectedRepo(inspection);
       setBranchDraft(inspection.branch);
@@ -649,17 +664,15 @@ export default function FilesPage() {
   }, [handleSaveLiveFile, selectedCommitDetails, selectedDiffPath, selectedLiveFilePath]);
 
   return (
-    <div className="flex min-h-full bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
-      <div className="min-w-0 flex-1 px-5 pb-32 pt-[5.6rem] sm:px-6 xl:px-8">
-        <section className="relative mb-4 overflow-hidden rounded-[28px] border border-black/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(244,199,142,0.26),transparent_30%),radial-gradient(circle_at_85%_15%,rgba(116,173,255,0.22),transparent_26%),linear-gradient(135deg,rgba(255,250,241,0.96),rgba(247,242,233,0.94))] p-5 shadow-[0_30px_80px_-48px_rgba(28,32,38,0.58)] dark:border-white/[0.08] dark:bg-[radial-gradient(circle_at_top_left,rgba(244,199,142,0.14),transparent_30%),radial-gradient(circle_at_85%_15%,rgba(116,173,255,0.12),transparent_26%),linear-gradient(135deg,rgba(24,25,29,0.98),rgba(17,18,21,0.98))] sm:p-6">
+    <div className="min-h-full text-text">
+      <div className="px-6 py-8 pb-32">
+        <section className="relative mb-4 overflow-hidden rounded-[28px] border border-edge surface p-5 shadow-panel sm:p-6">
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-3xl">
-              <h1 className="display-font text-[28px] font-bold tracking-[-0.03em] theme-fg sm:text-[32px]">
+              <h1 className="font-display text-display-sm font-bold tracking-[-0.03em] text-text sm:text-display-md">
                 {connectedRepoName ?? "Project files"}
               </h1>
-              <p className="mt-2 text-[13px] leading-6 theme-muted">
+              <p className="mt-2 text-body-sm leading-6 text-text-dim">
                 {connectedRepo
                   ? connectedRepo.repoPath
                   : canUseDesktopRepo
@@ -667,8 +680,8 @@ export default function FilesPage() {
                     : "Live file access requires the desktop app."}
               </p>
               {connectedRepo ? (
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] theme-muted">
-                  <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${connectedRepo.branch === "codebuddy-build" ? "border-blue-500/30 bg-blue-500/15 text-blue-500 dark:text-blue-400" : connectedRepo.branch === "main" ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-500 dark:text-emerald-400" : "border-black/[0.08] bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.06]"}`}>{connectedRepo.branch}</span>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-label text-text-dim">
+                  <span className={`rounded-full border px-2.5 py-0.5 text-label font-semibold ${connectedRepo.branch === "codebuddy-build" ? "border-sky/30 bg-sky/15 text-sky" : connectedRepo.branch === "main" ? "border-mint/30 bg-mint/15 text-mint" : "border-edge bg-stage-up"}`}>{connectedRepo.branch}</span>
                   <span>{connectedRepo.recentCommits.length} commits</span>
                 </div>
               ) : null}
@@ -691,7 +704,7 @@ export default function FilesPage() {
                 type="button"
                 onClick={handleConnectRepo}
                 disabled={isConnectingRepo}
-                className="rounded-2xl border border-black/[0.08] bg-[#111318] px-4 py-2.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-black disabled:cursor-wait disabled:opacity-70 dark:border-white/[0.08]"
+                className="rounded-2xl border border-edge bg-text px-4 py-2.5 text-[12px] font-semibold text-stage shadow-sm transition hover:bg-text/90 disabled:cursor-wait disabled:opacity-70"
               >
                 {isConnectingRepo ? "Connecting..." : connectedRepo ? "Switch folder" : "Open folder"}
               </button>
@@ -706,94 +719,158 @@ export default function FilesPage() {
         </section>
 
         {connectedRepo ? (
-          <div className="mb-4 app-surface rounded-2xl p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex flex-wrap gap-1.5">
-                  {/* Primary branch toggle: codebuddy-build and main */}
-                  {["codebuddy-build", "main"].filter(b => connectedRepo.branches.includes(b)).map((branch) => (
-                    <button
-                      key={branch}
-                      type="button"
-                      onClick={() => {
-                        setBranchDraft(branch);
-                        void handleCheckoutBranch(branch, false);
-                      }}
-                      disabled={isMutatingRepo || branch === connectedRepo.branch}
-                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
-                        branch === connectedRepo.branch
-                          ? branch === "codebuddy-build"
-                            ? "bg-blue-500 text-white ring-1 ring-blue-500/30"
-                            : "bg-emerald-500 text-white ring-1 ring-emerald-500/30"
-                          : branch === "codebuddy-build"
-                            ? "bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20 hover:bg-blue-500/20 dark:text-blue-400"
-                            : "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20 dark:text-emerald-400"
-                      } disabled:opacity-70`}
-                    >
-                      {branch === "codebuddy-build" ? "⚡ Working" : "🏠 Main"}
-                    </button>
-                  ))}
-                  {/* Other branches */}
-                  {connectedRepo.branches.filter(b => b !== "codebuddy-build" && b !== "main").map((branch) => (
-                    <button
-                      key={branch}
-                      type="button"
-                      onClick={() => {
-                        setBranchDraft(branch);
-                        void handleCheckoutBranch(branch, false);
-                      }}
-                      disabled={isMutatingRepo || branch === connectedRepo.branch}
-                      className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition ${branch === connectedRepo.branch ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]" : "bg-black/[0.04] theme-muted hover:text-[var(--fg)] disabled:opacity-50 dark:bg-white/[0.06]"}`}
-                    >
-                      {branch}
-                    </button>
-                  ))}
+          <div className="mb-4 space-y-3">
+            {/* ─── Row 1: Branch switcher ─── */}
+            <div className="app-surface rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-2.5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-text-dim">
+                  <path fillRule="evenodd" d="M4.5 2A2.5 2.5 0 002 4.5v11A2.5 2.5 0 004.5 18h11a2.5 2.5 0 002.5-2.5v-11A2.5 2.5 0 0015.5 2h-11zM5 4.5a.5.5 0 01.5-.5h9a.5.5 0 01.5.5V6H5V4.5zM5 7.5h10V9H5V7.5zm0 3h10V12H5v-1.5zm0 3h10V15a.5.5 0 01-.5.5h-9a.5.5 0 01-.5-.5v-1.5z" clipRule="evenodd" />
+                </svg>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-dim">Branches</span>
+                <span className="ml-auto text-[11px] text-text-dim">
+                  On <span className="font-semibold text-text">{connectedRepo.branch}</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {/* Primary branches */}
+                {["codebuddy-build", "main"].filter(b => connectedRepo.branches.includes(b)).map((branch) => (
+                  <button
+                    key={branch}
+                    type="button"
+                    onClick={() => {
+                      setBranchDraft(branch);
+                      void handleCheckoutBranch(branch, false);
+                    }}
+                    disabled={isMutatingRepo || branch === connectedRepo.branch}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                      branch === connectedRepo.branch
+                        ? branch === "codebuddy-build"
+                          ? "text-white ring-1 ring-black/10 shadow-sm"
+                          : "text-white ring-1 ring-black/10 shadow-sm"
+                        : branch === "codebuddy-build"
+                          ? "bg-blue-500/10 text-blue-700 ring-1 ring-blue-500/30 hover:bg-blue-500/20 dark:text-blue-300"
+                          : "bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/30 hover:bg-emerald-500/20 dark:text-emerald-300"
+                    } disabled:opacity-100`}
+                    style={branch === connectedRepo.branch ? { backgroundColor: branch === "codebuddy-build" ? "#1d4ed8" : "#047857", color: "#ffffff" } : undefined}
+                  >
+                    {branch === "codebuddy-build" ? "⚡ Working" : "🏠 Main"}
+                  </button>
+                ))}
+                {/* Other branches */}
+                {connectedRepo.branches.filter(b => b !== "codebuddy-build" && b !== "main").map((branch) => (
+                  <button
+                    key={branch}
+                    type="button"
+                    onClick={() => {
+                      setBranchDraft(branch);
+                      void handleCheckoutBranch(branch, false);
+                    }}
+                    disabled={isMutatingRepo || branch === connectedRepo.branch}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition disabled:opacity-100 ${
+                      branch === connectedRepo.branch
+                        ? "text-white ring-1 ring-black/10 shadow-sm"
+                        : "bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/30 hover:bg-violet-500/20 dark:text-violet-300"
+                    }`}
+                    style={branch === connectedRepo.branch ? { backgroundColor: "#6d28d9", color: "#ffffff" } : undefined}
+                  >
+                    {branch}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ─── Row 2: Create branch + Save to GitHub ─── */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Create branch */}
+              <div className="app-surface rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-text-dim">
+                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                  </svg>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-dim">Create branch</span>
+                  <span className="relative group ml-auto">
+                    <span className="flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-text-ghost/10 text-[10px] font-semibold text-text-dim transition hover:bg-text-ghost/20 hover:text-text-soft">?</span>
+                    <span className="pointer-events-none absolute bottom-full right-0 z-50 mb-1.5 w-56 rounded-lg bg-stage-up2 px-3 py-2 text-[11px] leading-4 text-text-soft opacity-0 shadow-lg ring-1 ring-edge transition group-hover:opacity-100">A branch is a separate copy of your project. Pick which branch to copy from, then give it a name. It will be pushed to GitHub automatically.</span>
+                  </span>
                 </div>
-                <div className="flex gap-1.5">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim w-14 shrink-0">From</label>
+                    <select
+                      value={branchSource || connectedRepo.branch}
+                      onChange={(event) => setBranchSource(event.target.value)}
+                      className="app-input flex-1 rounded-lg px-3 py-2 text-[12px] font-medium outline-none cursor-pointer"
+                    >
+                      {connectedRepo.branches.map((branch) => (
+                        <option key={branch} value={branch}>{branch}{branch === connectedRepo.branch ? "  (current)" : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim w-14 shrink-0">Name</label>
+                    <input
+                      type="text"
+                      value={branchDraft}
+                      onChange={(event) => setBranchDraft(event.target.value)}
+                      placeholder="e.g. feature/new-ui"
+                      className="app-input flex-1 rounded-lg px-3 py-2 text-[12px] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const source = branchSource || connectedRepo.branch;
+                        void handleCheckoutBranch(branchDraft, true, source);
+                      }}
+                      disabled={isMutatingRepo || !branchDraft.trim()}
+                      className="rounded-lg px-3.5 py-2 text-[12px] font-semibold shadow-sm ring-1 ring-black/10 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{ backgroundColor: "#6d28d9", color: "#ffffff" }}
+                    >
+                      {isMutatingRepo ? "..." : "+ Create"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Save / commit */}
+              <div className="app-surface rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-text-dim">
+                    <path fillRule="evenodd" d="M10 2a.75.75 0 01.75.75v9.69l3.22-3.22a.75.75 0 011.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V2.75A.75.75 0 0110 2zM3.5 16.5a.75.75 0 01.75-.75h11.5a.75.75 0 010 1.5H4.25a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-dim">Save to GitHub</span>
+                  {stagedFileCount > 0 ? (
+                    <span className="ml-auto rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      {stagedFileCount} {stagedFileCount === 1 ? "change" : "changes"} ready
+                    </span>
+                  ) : (
+                    <span className="ml-auto text-[10px] text-text-dim">No changes yet</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
                   <input
                     type="text"
-                    value={branchDraft}
-                    onChange={(event) => setBranchDraft(event.target.value)}
-                    placeholder="New branch name"
-                    className="app-input w-40 rounded-lg px-2.5 py-1.5 text-[11px] outline-none"
+                    value={commitMessage}
+                    onChange={(event) => setCommitMessage(event.target.value)}
+                    placeholder="Describe what changed"
+                    className="app-input flex-1 rounded-lg px-3 py-2 text-[12px] outline-none"
                   />
                   <button
                     type="button"
-                    onClick={() => void handleCheckoutBranch(branchDraft, true)}
-                    disabled={isMutatingRepo || !branchDraft.trim()}
-                    className="rounded-lg bg-ink px-3 py-1.5 text-[11px] font-semibold text-cream transition hover:bg-ink/90 disabled:opacity-50 dark:bg-white dark:text-[#17181b]"
+                    onClick={() => void handleCommit()}
+                    disabled={isMutatingRepo || !commitMessage.trim() || stagedFileCount === 0}
+                    className="rounded-lg px-3.5 py-2 text-[12px] font-semibold shadow-sm ring-1 ring-black/10 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ backgroundColor: "#047857", color: "#ffffff" }}
                   >
-                    Create branch
+                    Save
                   </button>
-                  <span className="relative group">
-                    <span className="flex h-5 w-5 cursor-help items-center justify-center rounded-full text-[11px] text-black/30 transition hover:bg-black/[0.06] hover:text-black/60 dark:text-white/30 dark:hover:bg-white/[0.08] dark:hover:text-white/60">?</span>
-                    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-48 -translate-x-1/2 rounded-lg bg-[#1e1f25] px-3 py-2 text-[11px] leading-4 text-white/80 opacity-0 shadow-lg transition group-hover:opacity-100">A branch is a separate copy of your project so you can try changes without affecting the main version.</span>
-                  </span>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={commitMessage}
-                  onChange={(event) => setCommitMessage(event.target.value)}
-                  placeholder="Describe what changed"
-                  className="app-input w-48 rounded-lg px-2.5 py-1.5 text-[11px] outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleCommit()}
-                  disabled={isMutatingRepo || !commitMessage.trim() || stagedFileCount === 0}
-                  className="rounded-lg bg-ink px-3 py-1.5 text-[11px] font-semibold text-cream transition hover:bg-ink/90 disabled:opacity-50 dark:bg-white dark:text-[#17181b]"
-                >
-                  Save to GitHub
-                </button>
               </div>
             </div>
           </div>
         ) : null}
 
         <div className="app-control-rail mb-4 flex items-center gap-1 rounded-xl p-1">
-          {(["code", "updates", "ide"] as const).map((nextTab) => (
+          {(["code", "updates"] as const).map((nextTab) => (
             <button
               key={nextTab}
               type="button"
@@ -916,15 +993,15 @@ export default function FilesPage() {
           ) : null}
 
           {tab === "ide" ? (
-            <div className="flex h-[calc(100vh-16rem)]">
-              <div className="w-[220px] shrink-0 overflow-y-auto border-r border-black/[0.06] bg-[#1e1f26] p-2 dark:border-white/[0.08]">
+            <div className="flex flex-1 min-h-0">
+              <div className="w-[220px] shrink-0 overflow-y-auto border-r border-edge bg-stage-up p-2">
                 {connectedRepo ? (
                   <div className="space-y-0.5">
                     {currentDirectoryPath && currentDirectoryPath !== connectedRepo.repoPath ? (
                       <button
                         type="button"
                         onClick={() => void handleOpenParentDirectory()}
-                        className="mb-1 w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-white/40 hover:bg-white/[0.06]"
+                        className="mb-1 w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-text-dim hover:bg-stage-up2"
                       >
                         ← Back
                       </button>
@@ -934,7 +1011,7 @@ export default function FilesPage() {
                         key={entry.path}
                         type="button"
                         onClick={() => entry.type === "directory" ? void handleOpenDirectory(entry.path) : void handleOpenLiveFile(entry.path)}
-                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] transition hover:bg-white/[0.06] ${selectedLiveFilePath === entry.path ? "bg-white/[0.1] text-white" : "text-white/65"}`}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] transition hover:bg-stage-up2 ${selectedLiveFilePath === entry.path ? "bg-stage-up2 text-text" : "text-text-mid"}`}
                       >
                         <FileIcon type={entry.type === "directory" ? "folder" : "file"} />
                         <span className="truncate">{entry.name}</span>
@@ -942,19 +1019,19 @@ export default function FilesPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="px-2 py-4 text-[11px] text-white/40">No folder open.</p>
+                  <p className="px-2 py-4 text-[11px] text-text-dim">No folder open.</p>
                 )}
               </div>
 
-              <div className="flex min-w-0 flex-1 flex-col bg-[#1e1f26]">
+              <div className="flex min-w-0 flex-1 flex-col bg-stage-up">
                 {openEditorTabs.length > 0 && (
-                  <div className="flex items-center gap-0 overflow-x-auto border-b border-white/[0.08] bg-[#1a1b24] custom-scroll">
+                  <div className="flex items-center gap-0 overflow-x-auto border-b border-edge bg-stage custom-scroll">
                     {openEditorTabs.map((t) => (
                       <button
                         key={t.path}
                         type="button"
                         onClick={() => { if (selectedLiveFilePath !== t.path) void handleOpenLiveFile(t.path); }}
-                        className={`group flex shrink-0 items-center gap-1.5 border-r border-white/[0.06] px-3 py-1.5 text-[11px] transition ${selectedLiveFilePath === t.path ? "bg-[#1e1f26] text-white/90" : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"}`}
+                        className={`group flex shrink-0 items-center gap-1.5 border-r border-edge px-3 py-1.5 text-[11px] transition ${selectedLiveFilePath === t.path ? "bg-stage-up text-text" : "text-text-mid hover:bg-stage-up2 hover:text-text-soft"}`}
                       >
                         <span className="truncate max-w-[120px]">{t.label}</span>
                         <span
@@ -970,10 +1047,10 @@ export default function FilesPage() {
                     ))}
                   </div>
                 )}
-                <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] bg-[#252630] px-4 py-2">
+                <div className="flex items-center justify-between gap-3 border-b border-edge bg-stage-up2 px-4 py-2">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-[12px] font-medium text-white/90">{currentEditorLabel}</span>
-                    {selectedFileDisplayPath ? <span className="text-[11px] text-white/40">{selectedFileDisplayPath}</span> : null}
+                    <span className="truncate text-[12px] font-medium text-text">{currentEditorLabel}</span>
+                    {selectedFileDisplayPath ? <span className="text-[11px] text-text-dim">{selectedFileDisplayPath}</span> : null}
                   </div>
                   <div className="flex items-center gap-2">
                     {saveStateMessage ? <span className="text-[11px] text-emerald-400">{saveStateMessage}</span> : null}
@@ -982,7 +1059,7 @@ export default function FilesPage() {
                         type="button"
                         onClick={() => void handleSaveLiveFile()}
                         disabled={isSavingLiveFile || !hasUnsavedFileChanges}
-                        className="rounded-md bg-white/[0.1] px-3 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/[0.15] disabled:opacity-40"
+                        className="rounded-md bg-stage-up2 px-3 py-1 text-[11px] font-medium text-text-soft transition hover:bg-stage-up3 disabled:opacity-40"
                       >
                         {isSavingLiveFile ? "Saving..." : hasUnsavedFileChanges ? "Save" : "Saved"}
                       </button>
@@ -996,26 +1073,26 @@ export default function FilesPage() {
                       <div className="space-y-4 p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <p className="text-[12px] uppercase tracking-[0.12em] text-white/45">Commit</p>
-                            <h2 className="mt-1 text-[18px] font-semibold text-white/90">{selectedCommitDetails.subject}</h2>
-                            <p className="mt-1 text-[12px] text-white/55">{selectedCommitDetails.author} · {selectedCommitDetails.date} · {selectedCommitDetails.hash}</p>
+                            <p className="text-[12px] uppercase tracking-[0.12em] text-text-dim">Commit</p>
+                            <h2 className="mt-1 text-[18px] font-semibold text-text">{selectedCommitDetails.subject}</h2>
+                            <p className="mt-1 text-[12px] text-text-mid">{selectedCommitDetails.author} · {selectedCommitDetails.date} · {selectedCommitDetails.hash}</p>
                           </div>
                           <button
                             type="button"
                             onClick={() => setSelectedCommitDetails(null)}
-                            className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.06]"
+                            className="rounded-full border border-edge px-3 py-1.5 text-[11px] font-semibold text-text-soft transition hover:bg-stage-up2"
                           >
                             Close review
                           </button>
                         </div>
                         {selectedCommitDetails.body ? (
-                          <p className="whitespace-pre-wrap text-[13px] leading-6 text-white/72">{selectedCommitDetails.body}</p>
+                          <p className="whitespace-pre-wrap text-[13px] leading-6 text-text-soft">{selectedCommitDetails.body}</p>
                         ) : null}
                         <div>
-                          <p className="text-[12px] uppercase tracking-[0.12em] text-white/45">Files</p>
+                          <p className="text-[12px] uppercase tracking-[0.12em] text-text-dim">Files</p>
                           <div className="mt-2 space-y-2">
                             {selectedCommitDetails.files.map((file) => (
-                              <div key={`${file.status}:${file.path}`} className="flex items-center gap-3 rounded-lg bg-white/[0.04] px-3 py-2 text-[12px] text-white/75">
+                              <div key={`${file.status}:${file.path}`} className="flex items-center gap-3 rounded-lg bg-stage-up2 px-3 py-2 text-[12px] text-text-soft">
                                 <span className="rounded-full bg-white/[0.08] px-2 py-0.5 font-mono text-[11px]">{file.status}</span>
                                 <span className="break-all">{file.path}</span>
                               </div>
@@ -1023,19 +1100,19 @@ export default function FilesPage() {
                           </div>
                         </div>
                         <div>
-                          <p className="mb-2 text-[12px] uppercase tracking-[0.12em] text-white/45">Patch</p>
-                          <pre className="overflow-x-auto text-[13px] leading-[1.7] font-mono text-[#d4d4d4]">
+                          <p className="mb-2 text-[12px] uppercase tracking-[0.12em] text-text-dim">Patch</p>
+                          <pre className="overflow-x-auto text-[13px] leading-[1.7] font-mono text-text-soft">
                             <code>{isLoadingCommitDetails ? "Loading commit..." : selectedCommitDetails.diff || "No patch output for this commit."}</code>
                           </pre>
                         </div>
                       </div>
                     ) : selectedDiffPath ? (
                       <div className="space-y-3 p-4">
-                        <div className="flex items-center justify-between gap-3 text-[12px] text-white/58">
+                        <div className="flex items-center justify-between gap-3 text-[12px] text-text-mid">
                           <span>{selectedDiffStaged ? "Staged diff" : "Working tree diff"}</span>
                           <span className="truncate font-mono">{selectedDiffPath}</span>
                         </div>
-                        <pre className="overflow-x-auto text-[13px] leading-[1.7] font-mono text-[#d4d4d4]">
+                        <pre className="overflow-x-auto text-[13px] leading-[1.7] font-mono text-text-soft">
                           <code>{isLoadingDiff ? "Loading diff..." : selectedDiffText || "No diff output for this file."}</code>
                         </pre>
                       </div>
@@ -1046,21 +1123,21 @@ export default function FilesPage() {
                           onChange={(event) => setLiveFileDraft(event.target.value)}
                           spellCheck={false}
                           disabled={isLoadingLiveFile || isSavingLiveFile}
-                          className="min-h-0 flex-1 resize-none bg-transparent px-5 py-4 font-mono text-[13px] leading-[1.7] text-[#e0e0e0] outline-none disabled:opacity-70"
+                          className="min-h-0 flex-1 resize-none bg-transparent px-5 py-4 font-mono text-[13px] leading-[1.7] text-text outline-none disabled:opacity-70"
                         />
                       </div>
                     ) : (
                       <div className="flex h-full items-center justify-center px-6 py-12 text-center">
                         <div>
-                          <p className="text-[16px] font-medium text-white/80">Select a file to edit</p>
+                          <p className="text-[16px] font-medium text-text-soft">Select a file to edit</p>
                         </div>
                       </div>
                     )
                   ) : (
                     <div className="flex h-full items-center justify-center px-6 text-center">
                       <div>
-                        <p className="text-[16px] font-semibold text-white/90">No repository connected</p>
-                        <p className="mt-2 text-[13px] leading-6 text-white/55">
+                        <p className="text-[16px] font-semibold text-text">No repository connected</p>
+                        <p className="mt-2 text-[13px] leading-6 text-text-mid">
                           {activeProject?.repoPath
                             ? `CodeBuddy is waiting to load ${activeProject.name}'s repository into the IDE.`
                             : "Open a project or connect a local repository to use the IDE view."}
@@ -1070,11 +1147,11 @@ export default function FilesPage() {
                   )}
                 </div>
 
-                <div className="flex items-center justify-between border-t border-white/[0.08] bg-[#007acc] px-3 py-1">
-                  <div className="flex items-center gap-3 text-[11px] text-white/80">
+                <div className="flex items-center justify-between border-t border-sky/20 bg-sky px-3 py-1">
+                  <div className="flex items-center gap-3 text-[11px] text-stage">
                     <span>{connectedRepo?.branch ?? "idle"}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-white/80">
+                  <div className="flex items-center gap-3 text-[11px] text-stage">
                     <span>{selectedLiveFilePath ? editorLanguage : "Idle"}</span>
                     <span>UTF-8</span>
                   </div>

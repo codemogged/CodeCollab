@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
 export default function SettingsPage() {
@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const [repoVisibility, setRepoVisibility] = useState<"private" | "public">("private");
   const [visibilityLoading, setVisibilityLoading] = useState(false);
   const [systemPromptMarkdown, setSystemPromptMarkdown] = useState("");
+  const [approvalMode, setApprovalMode] = useState<"auto" | "manual">("auto");
   const [setupToast, setSetupToast] = useState<string | null>(null);
 
   /* Collaborators state (fetched from GitHub API) */
@@ -104,6 +105,16 @@ export default function SettingsPage() {
     }
   };
 
+  const saveApprovalMode = async (mode: "auto" | "manual") => {
+    setApprovalMode(mode);
+    try {
+      await window.electronAPI?.settings?.update({ projectDefaults: { approvalMode: mode } });
+      showSetupToast(mode === "manual" ? "Manual approval enabled" : "Auto-approve enabled");
+    } catch {
+      showSetupToast("Failed to save approval mode");
+    }
+  };
+
   useEffect(() => {
     if (!activeProject) return;
     setProjectName(activeProject.name);
@@ -131,6 +142,9 @@ export default function SettingsPage() {
         if (settings?.projectDefaults?.systemPromptMarkdown) {
           setSystemPromptMarkdown(settings.projectDefaults.systemPromptMarkdown);
         }
+        if (settings?.projectDefaults?.approvalMode) {
+          setApprovalMode(settings.projectDefaults.approvalMode as "auto" | "manual");
+        }
       } catch { /* */ }
     })();
   }, []);
@@ -140,23 +154,21 @@ export default function SettingsPage() {
     : true; // default to true if we can't determine
 
   return (
-    <div className="flex min-h-full bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
-      <div className="min-w-0 flex-1 px-5 pb-32 pt-[5.6rem] sm:px-6 xl:px-8">
+    <div className="min-h-full text-text">
+      <div className="px-6 py-8 pb-32">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="display-font text-[22px] font-bold tracking-tight theme-fg">Settings</h1>
-          <p className="mt-1 text-[13px] theme-muted">Manage your project details, team, and preferences.</p>
+          <h1 className="font-display text-display-sm font-bold tracking-tight text-text">Settings</h1>
+          <p className="mt-1 text-body-sm text-text-dim">Manage your project details, team, and preferences.</p>
         </div>
 
         <div className="max-w-2xl space-y-8">
           {/* General */}
           <section>
-            <h2 className="mb-4 text-[15px] font-semibold theme-fg">General</h2>
-            <div className="app-surface space-y-4 rounded-2xl p-5">
+            <h2 className="mb-4 text-body-lg font-semibold text-text">General</h2>
+            <div className="surface space-y-4 rounded-2xl p-5">
               <div>
-                <label className="mb-1.5 block text-[12px] font-medium theme-muted">Project name</label>
+                <label className="mb-1.5 block text-label font-medium text-text-dim">Project name</label>
                 <input
                   type="text"
                   value={projectName}
@@ -264,6 +276,37 @@ export default function SettingsPage() {
               >
                 Save prompt
               </button>
+            </div>
+          </section>
+
+          {/* Agent Approval Mode */}
+          <section>
+            <h2 className="mb-4 text-[15px] font-semibold theme-fg">Agent Approval Mode</h2>
+            <div className="app-surface space-y-3 rounded-2xl p-5">
+              <p className="text-[12px] theme-muted">
+                Control whether the agent executes tools automatically or waits for your approval before each action.
+              </p>
+              <div className="flex gap-2">
+                {(["auto", "manual"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => void saveApprovalMode(mode)}
+                    className={`rounded-lg px-4 py-2 text-[13px] font-medium capitalize transition ${
+                      approvalMode === mode
+                        ? "bg-ink text-cream dark:bg-white dark:text-[#17181b]"
+                        : "app-surface-strong theme-muted hover:text-[var(--fg)]"
+                    }`}
+                  >
+                    {mode === "auto" ? "Auto Approve" : "Manual Approve"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] theme-muted">
+                {approvalMode === "manual"
+                  ? "The agent will pause before each tool call. An Allow / Deny button will appear in the chat stream."
+                  : "The agent runs without interruption, executing all tools automatically."}
+              </p>
             </div>
           </section>
 

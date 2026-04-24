@@ -23,14 +23,68 @@ const logFile = path.join(app.getPath("userData"), "codebuddy-debug.log");
 const originalConsoleLog = console.log;
 const originalConsoleWarn = console.warn;
 const originalConsoleError = console.error;
+
+// Redact obvious secrets before anything hits the on-disk log. This is a
+// defence-in-depth measure — the authoritative guarantee is to not log
+// secrets in the first place, but CLI tools we spawn (gh, git, npm) can
+// print tokens or Authorization headers in their stderr.
+const REDACTION_PATTERNS = [
+  [/gh[pousr]_[A-Za-z0-9]{20,}/g, "ghX_[REDACTED]"],       // GitHub tokens
+  [/github_pat_[A-Za-z0-9_]{20,}/g, "github_pat_[REDACTED]"],
+  [/\bsk-[A-Za-z0-9\-_]{16,}\b/g, "sk-[REDACTED]"],        // OpenAI-style
+  [/AKIA[0-9A-Z]{16}/g, "AKIA[REDACTED]"],                  // AWS access key
+  [/\b[Bb]earer\s+[A-Za-z0-9._\-]+/g, "Bearer [REDACTED]"],
+  [/eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}/g, "[REDACTED_JWT]"],
+  [/x-oauth-basic[^\s]{0,200}/g, "[REDACTED_OAUTH]"],
+];
+function redactSecrets(str) {
+  let out = str;
+  for (const [pattern, replacement] of REDACTION_PATTERNS) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 function writeLog(level, args) {
   const ts = new Date().toISOString();
-  const line = `[${ts}] [${level}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a, null, 0)).join(" ")}\n`;
-  try { fs.appendFileSync(logFile, line); } catch {}
+  const raw = `[${ts}] [${level}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a, null, 0)).join(" ")}\n`;
+  try { fs.appendFileSync(logFile, redactSecrets(raw)); } catch {}
 }
-console.log = (...args) => { originalConsoleLog(...args); writeLog("LOG", args); };
-console.warn = (...args) => { originalConsoleWarn(...args); writeLog("WARN", args); };
-console.error = (...args) => { originalConsoleError(...args); writeLog("ERR", args); };
+// Log filtering: keep the on-disk log comprehensive, but control what prints
+// to the interactive debug console. Use `CODEBUDDY_LOG_ALLOW` (comma list)
+// to whitelist tags (e.g. "startup,file-watcher,p2p"). Untagged messages
+// are only shown when `CODEBUDDY_LOG_LEVEL=debug`.
+const LOG_ALLOWLIST = (process.env.CODEBUDDY_LOG_ALLOW || "startup,sync,p2p,file-watcher,shared-context,deploy,launcher,shutdown,repo")
+  .split(",")
+  .map(s => s.trim().toLowerCase())
+  .filter(Boolean);
+function extractTag(args) {
+  const first = args[0];
+  if (typeof first === "string") {
+    const m = first.match(/^\[([^\]]+)\]/);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+function shouldShowOnConsole(level, args) {
+  if (level === "ERR" || level === "WARN") return true;
+  const tag = extractTag(args);
+  if (tag) {
+    // Exact match OR prefix match (so "p2p" allows "p2p:abcd1234", "p2p-sync", "p2p-apply";
+    // "pm-chat" stays specific; "checkpoint-restore" stays specific).
+    if (LOG_ALLOWLIST.includes(tag)) return true;
+    for (const allowed of LOG_ALLOWLIST) {
+      if (tag === allowed) return true;
+      if (tag.startsWith(allowed + ":") || tag.startsWith(allowed + "-")) return true;
+    }
+    return false;
+  }
+  return (process.env.CODEBUDDY_LOG_LEVEL || "").toLowerCase() === "debug";
+}
+
+console.log = (...args) => { writeLog("LOG", args); if (shouldShowOnConsole("LOG", args)) originalConsoleLog(...args); };
+console.warn = (...args) => { writeLog("WARN", args); originalConsoleWarn(...args); };
+console.error = (...args) => { writeLog("ERR", args); originalConsoleError(...args); };
 console.log(`[startup] Log file: ${logFile}`);
 console.log(`[startup] App version: ${app.getVersion()}, platform: ${process.platform}, arch: ${process.arch}`);
 console.log(`[startup] Time: ${new Date().toISOString()}`);
@@ -45,6 +99,7 @@ const { createProjectService } = require("./services/project-service");
 const { createSharedStateService } = require("./services/shared-state-service");
 const { createP2PService } = require("./services/p2p-service");
 const { createFileWatcherService } = require("./services/file-watcher-service");
+const { createGitQueueService } = require("./services/git-queue-service");
 
 // Keep a global reference so the window isn't garbage-collected
 let mainWindow = null;
@@ -63,7 +118,8 @@ const toolingService = createToolingService({ processService, settingsService })
 const activityService = createActivityService();
 const sharedStateService = createSharedStateService();
 const p2pService = createP2PService({ sharedStateService, sendEvent: () => undefined });
-const fileWatcherService = createFileWatcherService({ repoService: null, processService, p2pService, sendEvent: () => undefined });
+const gitQueueService = createGitQueueService();
+const fileWatcherService = createFileWatcherService({ repoService: null, processService, p2pService, gitQueueService, sendEvent: () => undefined });
 const projectService = createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService });
 let repoService = null;
 
@@ -155,13 +211,52 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "CodeBuddy [build copilot-fix-v3]",
+    title: "CodeBuddy [v104]",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
       nodeIntegration: false,   // security: no require() in renderer
+      sandbox: false,           // preload needs Node to bridge IPC
       webviewTag: true,         // allow <webview> tags for preview iframe
     },
+  });
+
+  // --- Navigation & new-window hardening ---
+  // Block the top-level window from ever navigating to a remote origin.
+  // The only legitimate origins are the Next dev server and our localhost
+  // packaged static server.
+  const isAllowedAppOrigin = (urlStr) => {
+    try {
+      const u = new URL(urlStr);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+      return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    } catch { return false; }
+  };
+  mainWindow.webContents.on("will-navigate", (event, urlStr) => {
+    if (!isAllowedAppOrigin(urlStr)) {
+      event.preventDefault();
+      try { require("electron").shell.openExternal(urlStr); } catch { /* ignore */ }
+    }
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Never open additional BrowserWindows. External links go to the OS browser.
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        require("electron").shell.openExternal(url);
+      }
+    } catch { /* ignore */ }
+    return { action: "deny" };
+  });
+
+  // Block any renderer attempt to request dangerous permissions.
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, permission, cb) => {
+    const allowed = new Set(["clipboard-read", "clipboard-sanitized-write"]);
+    cb(allowed.has(permission));
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
+    const allowed = new Set(["clipboard-read", "clipboard-sanitized-write"]);
+    return allowed.has(permission);
   });
 
   // Keep preview guests sandboxed and block any attempt to open external windows.
@@ -241,6 +336,7 @@ async function bootstrapDesktopServices() {
       sharedStateService,
       p2pService,
       fileWatcherService,
+      gitQueueService,
     });
   } catch (handlerError) {
     console.error("[Main] Critical: registerIpcHandlers threw:", handlerError);

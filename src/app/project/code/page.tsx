@@ -1,9 +1,16 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
+import ActivityStream from "@/components/activity-stream-v2";
+import RunSummaryCard from "@/components/run-summary-card";
+import PromptCard from "@/components/prompt-card";
+import { nowTimestamp } from "@/lib/format-time";
+import { useStreamEvents } from "@/hooks/use-stream-events";
+import { RunInTerminalButton } from "@/components/run-in-terminal-button";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -112,7 +119,10 @@ function renderMessageText(text: string) {
           {lang ? (
             <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#161b22] px-4 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">{lang}</span>
-              <button type="button" onClick={() => { try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[10px] font-medium text-white/30 transition hover:text-white/60">Copy</button>
+              <div className="flex items-center gap-2">
+                <RunInTerminalButton code={code} lang={lang} variant="muted" />
+                <button type="button" onClick={() => { try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[10px] font-medium text-white/30 transition hover:text-white/60">Copy</button>
+              </div>
             </div>
           ) : null}
           <pre className="overflow-x-auto px-4 py-3 font-mono text-[12px] leading-[1.7] text-green-300/90 selection:bg-green-600/30"><code>{code}</code></pre>
@@ -181,15 +191,23 @@ function formatSessionTime(iso: string): string {
 /* ------------------------------------------------------------------ */
 export default function SoloChatPage() {
   const { activeProject } = useActiveDesktopProject();
+  const router = useRouter();
 
   /* --- state --- */
   const [sessions, setSessions] = useState<SoloSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
-  const [composerText, setComposerText] = useState("");
+  const [composerText, setComposerTextRaw] = useState(() => {
+    try { return sessionStorage.getItem("codebuddy:freestyle:draft") ?? ""; } catch { return ""; }
+  });
+  const setComposerText = useCallback((v: string) => {
+    setComposerTextRaw(v);
+    try { sessionStorage.setItem("codebuddy:freestyle:draft", v); } catch { /* quota */ }
+  }, []);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
   const [otherAgentActive, setOtherAgentActive] = useState<{ scope?: string; taskName?: string } | null>(null);
-  const [streamingOutput, setStreamingOutput] = useState("");
+  const { events: liveEvents, processChunk: liveProcessChunk, startStreaming: liveStartStreaming, finalize: liveFinalize, reset: liveResetEvents, getRawText: liveGetRawText, setScrollCallback: liveSetScrollCallback } = useStreamEvents();
   const [selectedModel, setSelectedModel] = useState("auto");
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showSessionManager, setShowSessionManager] = useState(false);
@@ -215,6 +233,13 @@ export default function SoloChatPage() {
 
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const freestyleFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // File attachments for freestyle
+  type FreestyleAttachment = { id: string; label: string; path?: string; dataUrl?: string };
+  const [codeAttachedFiles, setCodeAttachedFiles] = useState<FreestyleAttachment[]>([]);
+  const [codeDragging, setCodeDragging] = useState(false);
+  const [codeLightboxSrc, setCodeLightboxSrc] = useState<string | null>(null);
 
   const [modelSearch, setModelSearch] = useState("");
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +255,9 @@ export default function SoloChatPage() {
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
+
+  // Dark-mode detection for inline styles (Tailwind dark: variants fail on complex arbitrary values)
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   // Chat mode
@@ -309,6 +337,10 @@ export default function SoloChatPage() {
   /* --- sync sessions from project state --- */
   useEffect(() => {
     if (!activeProject) return;
+    // Skip session sync while generating to avoid duplicate messages:
+    // The streaming indicator renders live output, and the backend save would
+    // also add the response to the session, causing double-render.
+    if (isGenerating) return;
     const dash = activeProject.dashboard as Record<string, unknown>;
     const stored = Array.isArray(dash?.soloSessions) ? (dash.soloSessions as SoloSession[]) : [];
     setSessions(stored);
@@ -318,7 +350,8 @@ export default function SoloChatPage() {
       setOpenTabIds([latestId]);
       setActiveSessionId(latestId);
     }
-  }, [activeProject?.dashboard]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.dashboard, isGenerating]);
 
   /* --- load featureFlags & model catalogs: settings.get() first (instant), then listStatus in background --- */
   useEffect(() => {
@@ -382,7 +415,7 @@ export default function SoloChatPage() {
     if (conversationRef.current) {
       conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
     }
-  }, [activeSession?.messages, streamingOutput]);
+  }, [activeSession?.messages, liveEvents]);
 
   /* --- auto-scroll terminal --- */
   useEffect(() => {
@@ -391,16 +424,16 @@ export default function SoloChatPage() {
     }
   }, [terminalOutput]);
 
-  /* --- streaming listener --- */
+  /* --- streaming listener via useStreamEvents --- */
   useEffect(() => {
     if (!window.electronAPI?.project) return;
     const stopOutput = window.electronAPI.project.onAgentOutput((event) => {
       if (event.scope !== "solo-chat") return;
       const chunk = event.chunk ?? "";
-      if (chunk) setStreamingOutput((prev) => prev + chunk);
+      if (chunk) liveProcessChunk(chunk);
     });
-    return () => stopOutput();
-  }, []);
+    return () => { stopOutput(); };
+  }, [liveProcessChunk]);
 
   /* --- P2P Peer Activity State --- */
   const [peerStreams, setPeerStreams] = useState<Record<string, { peerName: string; conversationId: string; scope: string; tokens: string; updatedAt: number; taskId?: string | null; taskName?: string | null; sessionId?: string | null; sessionTitle?: string | null }>>({});
@@ -495,7 +528,7 @@ export default function SoloChatPage() {
         if (req.scope === "solo-chat") {
           setIsGenerating(true);
           setOtherAgentActive(null);
-          if (req.output) setStreamingOutput(req.output);
+          if (req.output) { liveStartStreaming(); liveProcessChunk(req.output); }
         } else {
           // Another agent (task or PM) is running — block freestyle input
           setOtherAgentActive({ scope: req.scope, taskName: req.taskName });
@@ -680,7 +713,7 @@ export default function SoloChatPage() {
     setOpenTabIds((prev) => [...prev, id]);
     setActiveSessionId(id);
     setComposerText("");
-    setStreamingOutput("");
+    liveResetEvents();
   };
 
   const handleCloseTab = (sessionId: string) => {
@@ -702,13 +735,102 @@ export default function SoloChatPage() {
     setShowSessionManager(false);
   };
 
+  const handleCodeAttachPaths = useCallback(async (paths: string[]) => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    const newFiles: FreestyleAttachment[] = [];
+    for (const p of paths) {
+      // Only accept absolute paths
+      if (!p || !(p.startsWith("/") || /^[A-Za-z]:/.test(p))) continue;
+      const label = p.split(/[/\\]/).pop() || p;
+      newFiles.push({ id: p, label, path: p });
+    }
+    if (newFiles.length === 0) return;
+    setCodeAttachedFiles((prev) => {
+      const merged = [...prev];
+      for (const f of newFiles) {
+        if (!merged.some((x) => x.id === f.id)) merged.push(f);
+      }
+      return merged;
+    });
+    // Load data URLs for images
+    if (api?.system?.readFileAsDataUrl) {
+      for (const f of newFiles) {
+        if (/\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f.label)) {
+          const dataUrl = await api.system.readFileAsDataUrl(f.path!);
+          if (dataUrl) {
+            setCodeAttachedFiles((prev) => prev.map((x) => x.id === f.id ? { ...x, dataUrl } : x));
+          }
+        }
+      }
+    }
+  }, []);
+
+  /** Handle File objects from drag-drop or <input>. Saves to .codebuddy/uploads/ when .path is missing. */
+  const handleCodeAttachDroppedFiles = useCallback(async (files: File[]) => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    const projectDir = activeProject?.repoPath;
+
+    // Separate files with real paths from those without
+    const withPath: string[] = [];
+    const withoutPath: File[] = [];
+    for (const f of files) {
+      const fp = (f as File & { path?: string }).path;
+      if (fp && (fp.startsWith("/") || /^[A-Za-z]:/.test(fp))) withPath.push(fp);
+      else withoutPath.push(f);
+    }
+    if (withPath.length) void handleCodeAttachPaths(withPath);
+
+    // For files without .path, save to project uploads dir via IPC
+    if (withoutPath.length && projectDir && api?.system?.saveUploadedFile) {
+      for (const file of withoutPath) {
+        const buf = await file.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const savedPath = await api.system.saveUploadedFile({ projectDir, fileName: file.name, base64Data: base64 });
+        if (savedPath) {
+          const label = file.name;
+          const att: FreestyleAttachment = { id: savedPath, label, path: savedPath };
+          setCodeAttachedFiles((prev) => prev.some((x) => x.id === att.id) ? prev : [...prev, att]);
+          // Load data URL for image preview
+          if (/\.(jpg|jpeg|png|gif|webp|svg)$/i.test(label) && api.system.readFileAsDataUrl) {
+            const dataUrl = await api.system.readFileAsDataUrl(savedPath);
+            if (dataUrl) setCodeAttachedFiles((prev) => prev.map((x) => x.id === att.id ? { ...x, dataUrl } : x));
+          }
+        } else {
+          // Fallback: attach by name only
+          const att: FreestyleAttachment = { id: `${file.name}-${file.size}-${file.lastModified}`, label: file.name };
+          setCodeAttachedFiles((prev) => prev.some((x) => x.id === att.id) ? prev : [...prev, att]);
+        }
+      }
+    } else if (withoutPath.length) {
+      // No IPC available — attach by name only
+      const fallback: FreestyleAttachment[] = withoutPath.map((f) => ({ id: `${f.name}-${f.size}-${f.lastModified}`, label: f.name }));
+      setCodeAttachedFiles((prev) => { const merged = [...prev]; for (const a of fallback) { if (!merged.some((x) => x.id === a.id)) merged.push(a); } return merged; });
+    }
+  }, [activeProject?.repoPath, handleCodeAttachPaths]);
+
+  const handleCodeOpenFilePicker = useCallback(async () => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    if (api?.system?.openFiles) {
+      const paths = await api.system.openFiles();
+      if (paths.length > 0) void handleCodeAttachPaths(paths);
+    } else {
+      freestyleFileInputRef.current?.click();
+    }
+  }, [handleCodeAttachPaths]);
+
   const handleSendMessage = async () => {
-    if (!composerText.trim() || inputBlocked || !activeProject) return;
+    if (!composerText.trim() && codeAttachedFiles.length === 0) return;
+    if (inputBlocked || !activeProject) return;
 
     const prompt = composerText.trim();
+    const currentAttachments = [...codeAttachedFiles];
+    const fullPrompt = currentAttachments.length > 0
+      ? [prompt, "Attached files:", ...currentAttachments.map((f) => `- ${f.path || f.label}`)].join("\n")
+      : prompt;
     setComposerText("");
+    setCodeAttachedFiles([]);
     setIsGenerating(true);
-    setStreamingOutput("");
+    liveStartStreaming();
 
     let sid = activeSessionId;
     if (!sid) {
@@ -731,8 +853,9 @@ export default function SoloChatPage() {
       from: "Cameron",
       initials: "CM",
       text: prompt,
-      time: "Now",
+      time: nowTimestamp(),
       isMine: true as const,
+      attachments: currentAttachments.length > 0 ? currentAttachments.map((f) => f.path || f.label) : undefined,
     };
     setSessions((prev) =>
       prev.map((s) => s.id === sid ? { ...s, messages: [...s.messages, userMsg] } : s)
@@ -743,7 +866,7 @@ export default function SoloChatPage() {
         await window.electronAPI.project.sendSoloMessage({
           projectId: activeProject.id,
           sessionId: sid,
-          prompt,
+          prompt: fullPrompt,
           model: selectedModel !== "auto" ? selectedModel : undefined,
         });
       }
@@ -753,15 +876,33 @@ export default function SoloChatPage() {
         from: "System",
         initials: "!",
         text: `Error: ${err instanceof Error ? err.message : "Something went wrong."}`,
-        time: "Now",
+        time: nowTimestamp(),
         isAI: true as const,
       };
       setSessions((prev) =>
         prev.map((s) => s.id === sid ? { ...s, messages: [...s.messages, errorMsg] } : s)
       );
     } finally {
+      await liveFinalize();
       setIsGenerating(false);
-      setStreamingOutput("");
+      liveResetEvents();
+    }
+  };
+
+  const handleCompactConversation = async () => {
+    if (!window.electronAPI?.project?.compactConversation || !activeProject || !activeSessionId) return;
+    if (isCompacting || isGenerating) return;
+    try {
+      setIsCompacting(true);
+      await window.electronAPI.project.compactConversation({
+        projectId: activeProject.id,
+        sessionId: activeSessionId,
+      });
+      showToast("\u2713 Conversation compacted");
+    } catch (err) {
+      showToast("Failed to compact conversation");
+    } finally {
+      setIsCompacting(false);
     }
   };
 
@@ -806,8 +947,7 @@ export default function SoloChatPage() {
   /* ---------------------------------------------------------------- */
   if (!activeProject) {
     return (
-      <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-        <ProjectSidebar />
+      <div className="flex h-full text-text">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <CodeBracketIcon className="mx-auto h-12 w-12 theme-muted opacity-30" />
@@ -823,12 +963,16 @@ export default function SoloChatPage() {
   const openTabs = openTabIds.map((id) => sessions.find((s) => s.id === id)).filter(Boolean) as SoloSession[];
 
   return (
-    <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
+    <div className="flex h-full text-text">
       <div ref={containerRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* ============ TOP BAR ============ */}
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-black/[0.06] bg-white/60 px-3 py-2 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#161616]/80">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-edge bg-stage/60 px-3 py-2 backdrop-blur-xl">
+          {/* Nav tabs: Tasks / PM / Free */}
+          <div className="flex items-center gap-0.5 mr-2 border-r border-edge/40 pr-2">
+            <button type="button" onClick={() => router.push("/project")} className="rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-ghost transition hover:text-text-dim">Tasks</button>
+            <button type="button" onClick={() => router.push("/project/chat")} className="rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-ghost transition hover:text-text-dim">PM</button>
+            <button type="button" className="rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] bg-sun/10 text-sun">Free</button>
+          </div>
           {/* Session tabs with close buttons */}
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
             {openTabs.map((session) => (
@@ -836,8 +980,8 @@ export default function SoloChatPage() {
                 key={session.id}
                 className={`group flex flex-shrink-0 items-center gap-1 rounded-lg pl-3 pr-1 py-1.5 transition ${
                   session.id === activeSessionId
-                    ? "bg-[#111214] text-[#f4efe6] shadow-[0_4px_12px_rgba(17,18,20,0.15)] dark:bg-white/[0.12] dark:text-[var(--fg)]"
-                    : "text-ink-muted/70 hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]"
+                    ? "bg-text text-void shadow-sm"
+                    : "text-text-mid hover:bg-stage-up hover:text-text"
                 }`}
               >
                 <button
@@ -866,10 +1010,11 @@ export default function SoloChatPage() {
             <button
               type="button"
               onClick={handleNewSession}
-              title="New session"
-              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-ink-muted/50 transition hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]"
+              title="Start New Session"
+              className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-ink-muted/50 transition hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]"
             >
-              <PlusIcon className="h-4 w-4" />
+              <PlusIcon className="h-3.5 w-3.5" />
+              <span className="text-[11px] font-medium">New Session</span>
             </button>
           </div>
 
@@ -901,9 +1046,11 @@ export default function SoloChatPage() {
           </button>
           <button
             type="button"
-            onClick={() => setRightPanel(rightPanel === "terminal" ? null : "terminal")}
-            title="Terminal"
-            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${rightPanel === "terminal" ? "bg-black/[0.06] text-ink dark:bg-white/[0.1] dark:text-[var(--fg)]" : "text-ink-muted/60 hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]"}`}
+            onClick={() => {
+              void window.electronAPI?.system?.openTerminal?.({ cwd: activeProject?.repoPath ?? undefined });
+            }}
+            title="Open terminal"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted/60 transition hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]"
           >
             <TerminalIcon className="h-4 w-4" />
           </button>
@@ -1007,49 +1154,117 @@ export default function SoloChatPage() {
               ) : (
                 <div className="mx-auto max-w-3xl space-y-5">
                   {activeSession.messages.map((msg) => (
-                    <div key={msg.id} className="flex gap-3">
-                      <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
-                        msg.isMine
-                          ? "bg-ink text-cream dark:bg-white dark:text-[#141414]"
-                          : "bg-gradient-to-br from-violet-500 to-blue-500 text-white"
-                      }`}>
-                        {msg.initials}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[12px] font-semibold theme-fg">{msg.from}</span>
-                          <span className="text-[10px] theme-muted">{msg.time}</span>
-                          {msg.modelId ? <span className="rounded-full bg-black/[0.04] px-1.5 py-0.5 text-[9px] font-medium theme-muted dark:bg-white/[0.06]">{msg.modelId}</span> : null}
-                        </div>
-                        <div className="mt-1.5 text-[13.5px] leading-[1.7] theme-fg">
-                          {renderMessageText(msg.text)}
-                        </div>
-                        {msg.attachments && msg.attachments.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {msg.attachments.map((file, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-medium theme-muted dark:bg-white/[0.06]">
-                                <PaperClipIcon className="h-3 w-3" />
-                                {file.split(/[/\\]/).pop()}
-                              </span>
-                            ))}
+                    <div key={msg.id}>
+                      {msg.isAI ? (
+                        <div className="flex gap-3">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-[11px] font-bold text-white">
+                            {msg.initials}
                           </div>
-                        ) : null}
-                        {msg.isAI ? (
-                          <div className="mt-2.5 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => showToast("Checkpoint restored — workspace rolled back to this point")}
-                              className="inline-flex items-center gap-1 rounded-lg border border-black/[0.06] bg-black/[0.02] px-2.5 py-1.5 text-[10px] font-semibold theme-muted transition hover:border-violet-500/30 hover:bg-violet-500/5 hover:text-violet-400 dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-violet-500/30"
-                              title="Restore the project state to this checkpoint"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.397a.75.75 0 00-.75.75v3.834a.75.75 0 001.5 0v-2.108l.28.28a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-3.624-8.858a7 7 0 00-11.712 3.138.75.75 0 001.449.39 5.5 5.5 0 019.201-2.466l.312.311H8.505a.75.75 0 000 1.5h3.834a.75.75 0 00.75-.75V.855a.75.75 0 00-1.5 0v2.108l-.28-.28a6.97 6.97 0 00-.621-.517z" clipRule="evenodd" />
-                              </svg>
-                              Restore checkpoint
-                            </button>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-semibold theme-fg">{msg.from}</span>
+                              <span className="text-[10px] theme-muted">{msg.time}</span>
+                              {msg.modelId ? <span className="rounded-full bg-black/[0.04] px-1.5 py-0.5 text-[9px] font-medium theme-muted dark:bg-white/[0.06]">{msg.modelId}</span> : null}
+                            </div>
+                            <div className="mt-1.5">
+                              <RunSummaryCard text={msg.text} />
+                            </div>
+                            {msg.checkpointId ? (
+                            <div className="mt-2.5 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.electronAPI?.project?.restoreCheckpoint || !activeProject) return;
+                                  const confirmed = window.confirm("Restore checkpoint?\n\nThis will roll back all project files to this point. Any changes made after this checkpoint will be overwritten.");
+                                  if (!confirmed) return;
+                                  try {
+                                    await window.electronAPI.project.restoreCheckpoint({ projectId: activeProject.id, checkpointId: msg.checkpointId! });
+                                    console.log("[restore] Checkpoint restore complete, syncing workspace...");
+                                    try {
+                                      await window.electronAPI.project.syncWorkspace(activeProject.id);
+                                      console.log("[restore] syncWorkspace complete — UI should reflect restored state");
+                                    } catch (syncErr) {
+                                      console.warn("[restore] syncWorkspace failed after restore:", syncErr);
+                                    }
+                                    showToast("\u2713 Workspace rolled back");
+                                  } catch (err) {
+                                    showToast(err instanceof Error ? err.message : "Restore failed");
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-black/[0.06] bg-black/[0.02] px-2.5 py-1.5 text-[10px] font-semibold theme-muted transition hover:border-violet-500/30 hover:bg-violet-500/5 hover:text-violet-400 dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-violet-500/30"
+                                title="Restore the project state to this checkpoint"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.397a.75.75 0 00-.75.75v3.834a.75.75 0 001.5 0v-2.108l.28.28a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-3.624-8.858a7 7 0 00-11.712 3.138.75.75 0 001.449.39 5.5 5.5 0 019.201-2.466l.312.311H8.505a.75.75 0 000 1.5h3.834a.75.75 0 00.75-.75V.855a.75.75 0 00-1.5 0v2.108l-.28-.28a6.97 6.97 0 00-.621-.517z" clipRule="evenodd" />
+                                </svg>
+                                Restore checkpoint
+                              </button>
+                            </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : (
+                        <PromptCard
+                          text={msg.text}
+                          sender={msg.from}
+                          initials={msg.initials}
+                          time={msg.time}
+                          badge={msg.modelId}
+                          attachments={msg.attachments}
+                          modelCatalog={catalogSources}
+                          enabledProviders={[
+                            ...(featureFlags?.claudeCode ? ["claude" as const] : []),
+                            ...(featureFlags?.githubCopilotCli ? ["copilot" as const] : []),
+                            ...(featureFlags?.codexCli ? ["codex" as const] : []),
+                          ]}
+                          currentModel={selectedModel}
+                          modes={["agent", "ask", "plan"]}
+                          currentMode={chatMode}
+                          onEdit={async (newText, opts) => {
+                            if (!activeProject || !activeSessionId) return;
+                            const model = opts?.model && opts.model !== "auto" ? opts.model : (selectedModel !== "auto" ? selectedModel : undefined);
+                            if (opts?.mode && opts.mode !== chatMode) setChatMode(opts.mode);
+                            // Truncate everything after this message & update its text
+                            setSessions((prev) =>
+                              prev.map((s) => {
+                                if (s.id !== activeSessionId) return s;
+                                const idx = s.messages.findIndex((m) => m.id === msg.id);
+                                if (idx === -1) return s;
+                                const kept = s.messages.slice(0, idx);
+                                kept.push({ ...s.messages[idx], text: newText });
+                                return { ...s, messages: kept };
+                              })
+                            );
+                            // Resend with new text
+                            setIsGenerating(true);
+                            liveStartStreaming();
+                            try {
+                              await window.electronAPI?.project?.sendSoloMessage?.({
+                                projectId: activeProject.id,
+                                sessionId: activeSessionId,
+                                prompt: newText,
+                                model,
+                              });
+                            } catch (err) {
+                              const errorMsg = {
+                                id: `solo-err-${Date.now()}`,
+                                from: "System",
+                                initials: "!",
+                                text: `Error: ${err instanceof Error ? err.message : "Something went wrong."}`,
+                                time: nowTimestamp(),
+                                isAI: true as const,
+                              };
+                              setSessions((prev) =>
+                                prev.map((s) => s.id === activeSessionId ? { ...s, messages: [...s.messages, errorMsg] } : s)
+                              );
+                            } finally {
+                              await liveFinalize();
+                              setIsGenerating(false);
+                              liveResetEvents();
+                            }
+                          }}
+                        />
+                      )}
                     </div>
                   ))}
 
@@ -1141,8 +1356,8 @@ export default function SoloChatPage() {
                           <span className="text-[12px] font-semibold theme-fg">Coding Agent</span>
                           <span className="animate-pulse text-[10px] text-violet-500">Thinking...</span>
                         </div>
-                        {streamingOutput ? (
-                          <div className="mt-1.5 text-[13.5px] leading-[1.7] theme-fg">{renderMessageText(streamingOutput)}</div>
+                        {liveEvents.length > 0 ? (
+                          <ActivityStream events={liveEvents} rawText={liveGetRawText()} isStreaming={isGenerating} className="max-h-[400px]" showRawOutput />
                         ) : (
                           <div className="mt-2 flex items-center gap-1.5">
                             <span className="h-2 w-2 animate-bounce rounded-full bg-violet-400/60 [animation-delay:0ms]" />
@@ -1158,7 +1373,7 @@ export default function SoloChatPage() {
             </div>
 
             {/* Composer — model selector is inside here now */}
-            <div className="flex-shrink-0 border-t border-black/[0.06] bg-white/40 px-5 py-4 backdrop-blur-sm dark:border-white/[0.08] dark:bg-[#161616]/60">
+            <div className="flex-shrink-0 border-t border-black/[0.04] px-5 py-3 dark:border-white/[0.06]">
               <div className="mx-auto max-w-3xl">
                 {/* Context panel — above composer like PM Chat */}
                 {showContextPanel ? (
@@ -1222,11 +1437,65 @@ export default function SoloChatPage() {
                           <pre className="custom-scroll max-h-[140px] overflow-y-auto whitespace-pre-wrap text-[10.5px] leading-6 theme-soft">{systemPrompt}</pre>
                         )}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleCompactConversation()}
+                        disabled={isCompacting || isGenerating}
+                        className="w-full rounded-[1rem] bg-black/[0.03] px-3 py-2.5 text-[11px] font-medium theme-muted transition hover:bg-black/[0.06] hover:theme-fg disabled:opacity-40 dark:bg-white/[0.04] dark:hover:bg-white/[0.07]"
+                      >
+                        {isCompacting ? "Compacting\u2026" : "Compact conversation"}
+                      </button>
                     </div>
                   </div>
                 ) : null}
 
-                <div className="app-surface flex flex-col rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.06] dark:ring-white/[0.08] dark:shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
+                <div
+                  className={`flex flex-col rounded-xl border bg-white/60 dark:bg-white/[0.03] transition-all ${codeDragging ? "border-sky-400/60 ring-1 ring-sky-400/40" : "border-black/[0.06] dark:border-white/[0.07]"}`}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.types.includes("Files")) setCodeDragging(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setCodeDragging(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault(); e.stopPropagation(); setCodeDragging(false);
+                    const droppedFiles = Array.from(e.dataTransfer.files);
+                    if (droppedFiles.length) void handleCodeAttachDroppedFiles(droppedFiles);
+                  }}
+                >
+                  <input
+                    ref={freestyleFileInputRef}
+                    type="file"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length) void handleCodeAttachDroppedFiles(files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  {codeAttachedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                      {codeAttachedFiles.map((f) => {
+                        const isImg = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(f.label);
+                        return (
+                          <span
+                            key={f.id}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.05] px-2 py-1 text-[10.5px] font-medium theme-fg dark:bg-white/[0.07] cursor-pointer hover:bg-black/[0.08] dark:hover:bg-white/[0.1]"
+                            onClick={() => { if (isImg && f.dataUrl) setCodeLightboxSrc(f.dataUrl); }}
+                          >
+                            {isImg && f.dataUrl ? (
+                              <img src={f.dataUrl} alt="" className="h-4 w-4 rounded object-cover" />
+                            ) : null}
+                            <span>{f.label}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setCodeAttachedFiles((p) => p.filter((x) => x.id !== f.id)); }}
+                              className="rounded-full opacity-40 transition hover:opacity-80"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" /></svg>
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <textarea
                     ref={composerRef}
                     value={composerText}
@@ -1238,14 +1507,19 @@ export default function SoloChatPage() {
                       }
                     }}
                     placeholder={otherAgentActive ? `Agent running in ${otherAgentActive.taskName || otherAgentActive.scope || "another chat"}...` : peerIsActive ? "Waiting for peer's agent to finish..." : "Ask the coding agent anything..."}
-                    rows={3}
+                    rows={2}
                     disabled={inputBlocked}
-                    className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] leading-relaxed theme-fg outline-none placeholder:text-ink-muted/40 disabled:opacity-50 dark:placeholder:text-[var(--muted)]"
+                    className="w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[13.5px] leading-relaxed theme-fg outline-none placeholder:theme-muted/40 disabled:opacity-50"
                   />
-                  <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-                    <div className="flex items-center gap-1.5">
-                      <button type="button" title="Attach file" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-muted/50 transition hover:bg-black/[0.04] hover:text-ink dark:text-[var(--muted)] dark:hover:bg-white/[0.06]">
-                        <PaperClipIcon className="h-4 w-4" />
+                  <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        title="Attach file"
+                        onClick={() => void handleCodeOpenFilePicker()}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg theme-muted/50 transition hover:bg-black/[0.04] hover:theme-fg dark:hover:bg-white/[0.06]"
+                      >
+                        <PlusIcon className="h-3.5 w-3.5" />
                       </button>
 
                       {/* Context button */}
@@ -1301,7 +1575,7 @@ export default function SoloChatPage() {
                       type="button"
                       onClick={() => void handleSendMessage()}
                       disabled={!composerText.trim() || inputBlocked}
-                      className="flex h-8 items-center gap-1.5 rounded-full bg-[#111214] px-4 text-[11px] font-semibold text-[#f4efe6] shadow-[0_6px_16px_rgba(17,18,20,0.14)] transition hover:-translate-y-[0.5px] hover:bg-[#0b1220] hover:shadow-[0_8px_20px_rgba(17,18,20,0.2)] disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none dark:bg-white dark:text-[#111214] dark:shadow-none dark:hover:bg-white/90"
+                      className="flex h-7 items-center gap-1.5 rounded-full bg-[#111214] px-3.5 text-[10.5px] font-semibold text-[#f4efe6] transition hover:bg-[#0b1220] disabled:opacity-30 disabled:hover:bg-[#111214] dark:bg-white/90 dark:text-[#111214] dark:hover:bg-white"
                     >
                       <SendIcon className="h-3.5 w-3.5" />
                       Send
@@ -1529,23 +1803,24 @@ export default function SoloChatPage() {
       {showModelMenu && modelMenuPos ? (
         <div
           ref={modelMenuRef}
-          className="fixed z-[9999] max-h-[420px] w-[300px] overflow-hidden rounded-[1.2rem] border border-black/[0.08] bg-[rgba(255,255,255,0.98)] shadow-[0_20px_44px_rgba(0,0,0,0.14)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[#1e1f25]/98 dark:shadow-[0_20px_44px_rgba(0,0,0,0.4)]"
-          style={{ left: modelMenuPos.left, bottom: modelMenuPos.bottom }}
+          className="fixed z-[9999] max-h-[420px] w-[300px] overflow-hidden rounded-[1.2rem] backdrop-blur-xl"
+          style={{ left: modelMenuPos.left, bottom: modelMenuPos.bottom, background: isDark ? '#1e1f25' : 'rgba(255,255,255,0.98)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, boxShadow: isDark ? '0 20px 44px rgba(0,0,0,0.4)' : '0 20px 44px rgba(0,0,0,0.14)', color: isDark ? '#f0ece4' : '#020202' }}
         >
-          <div className="flex items-center gap-2 border-b border-black/[0.06] px-2.5 py-2 dark:border-white/[0.08]">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 theme-muted">
+          <div className="flex items-center gap-2 px-2.5 py-2" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}` }}>
+            <span style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
               <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-            </svg>
+            </svg></span>
             <input
               value={modelSearch}
               onChange={(e) => setModelSearch(e.target.value)}
               placeholder="Search models"
               autoFocus
-              className="w-full bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted"
+              className="w-full bg-transparent text-[12px] outline-none"
+              style={{ color: isDark ? '#f0ece4' : '#020202' }}
             />
           </div>
           {hasMultipleProviders ? (
-            <div className="flex gap-1 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
+            <div className="flex gap-1 px-2.5 py-1.5" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}` }}>
               {(["claude", "copilot", "codex"] as const)
                 .filter((tab) => {
                   if (tab === "claude") return !!featureFlags?.claudeCode;
@@ -1557,7 +1832,8 @@ export default function SoloChatPage() {
                   key={tab}
                   type="button"
                   onClick={() => setProviderTab(tab)}
-                  className={`rounded-full px-3 py-1 text-[10px] font-semibold transition ${providerTab === tab ? "bg-[#0078d4] text-white" : "theme-muted hover:theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                  className={`rounded-full px-3 py-1 text-[10px] font-semibold transition`}
+                  style={providerTab === tab ? { background: '#0078d4', color: 'white' } : { color: isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}
                 >
                   {tab === "claude" ? "Claude Code" : tab === "codex" ? "Codex CLI" : "GitHub Copilot"}
                 </button>
@@ -1570,7 +1846,7 @@ export default function SoloChatPage() {
               if (groupModels.length === 0) return null;
               return (
                 <div key={group} className="mb-0.5 last:mb-0">
-                  <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted">
+                  <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>
                     {group === "featured" ? "Recommended" : "Other models"}
                   </p>
                   {groupModels.map((entry) => {
@@ -1580,20 +1856,23 @@ export default function SoloChatPage() {
                         key={entry.id}
                         type="button"
                         onClick={() => { setSelectedModel(entry.id); setShowModelMenu(false); setModelSearch(""); }}
-                        className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition ${isSelected ? "bg-[#0078d4] text-white" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                        className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition`}
+                        style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = ''; }}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-[11.5px] font-medium">{entry.label}</span>
-                            {entry.warning ? <span className={`text-[10px] ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.warning}</span> : null}
+                            {entry.warning ? <span className="text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.warning}</span> : null}
                           </div>
-                          <div className={`mt-0.5 flex items-center gap-2 text-[10px] ${isSelected ? "text-white/72" : "theme-muted"}`}>
+                          <div className="mt-0.5 flex items-center gap-2 text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.72)' : isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}>
                             <span>{entry.provider}</span>
                             <span>{entry.contextWindow}</span>
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <span className={`text-[10px] font-medium ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.usage}</span>
+                          <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.usage}</span>
                         </div>
                       </button>
                     );
@@ -1611,6 +1890,30 @@ export default function SoloChatPage() {
           <div className="pointer-events-auto animate-in slide-in-from-bottom-4 rounded-2xl bg-[#111214] px-5 py-3 text-[13px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.25)] ring-1 ring-white/[0.08]">
             {toast}
           </div>
+        </div>
+      ) : null}
+
+      {/* Image lightbox */}
+      {codeLightboxSrc ? (
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setCodeLightboxSrc(null)}
+        >
+          <img
+            src={codeLightboxSrc}
+            alt="Preview"
+            className="max-h-[85vh] max-w-[85vw] rounded-xl object-contain shadow-2xl ring-1 ring-white/10"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setCodeLightboxSrc(null)}
+            className="absolute right-6 top-6 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
         </div>
       ) : null}
     </div>

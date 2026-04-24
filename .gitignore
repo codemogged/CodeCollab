@@ -32,3 +32,28 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# secrets / local config — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# runtime logs
+*.log
+codebuddy-debug.log
+
+# per-user project dumps written by CodeBuddy itself
+/.codebuddy/agents/
+/.codebuddy/conversations/
+/.codebuddy/tasks/
+/.codebuddy/members/
+/.codebuddy/versions/
+/.codebuddy/uploads/
+
+# legacy per-agent worktrees
+/.claude

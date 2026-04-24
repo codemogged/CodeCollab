@@ -10,13 +10,19 @@
 const fs = require("fs");
 const path = require("path");
 
-function createFileWatcherService({ repoService, processService, p2pService, sendEvent }) {
+function createFileWatcherService({ repoService, processService, p2pService, gitQueueService, sendEvent }) {
   let watcher = null;
   let watchedRepoPath = null;
   let debounceTimer = null;
   let paused = false;
   let syncing = false;
   let agentActive = false;  // True while a task/PM/solo agent process is running
+
+  // Fallback no-op queue if one wasn't passed in (keeps service usable in tests)
+  const queue = gitQueueService || {
+    enqueue: (_repo, _label, fn) => Promise.resolve().then(fn),
+    getDepth: () => 0,
+  };
 
   const DEBOUNCE_MS = 10_000; // 10 seconds after last change
 
@@ -92,7 +98,6 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
         const relative = filename.replace(/\//g, path.sep);
         if (shouldIgnore(relative)) return;
 
-        log(`Change detected: ${eventType} ${relative}`);
         sendEvent("fileWatcher:changed", { eventType, filePath: relative });
 
         // Reset debounce timer
@@ -216,9 +221,10 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
    * Tries: local repo config → global config → `gh api user` → fallback "CodeBuddy".
    */
   function ensureGitIdentitySync(cwd) {
-    const { execSync: exec } = require("child_process");
+    const { execSync: exec, execFileSync: execFile } = require("child_process");
     const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
     const opts = { cwd, encoding: "utf8", env: gitEnv, stdio: "pipe", timeout: 10000 };
+    const fileOpts = { ...opts, windowsHide: true };
 
     // Check if identity is already configured (local or global)
     let hasName = false, hasEmail = false;
@@ -240,12 +246,13 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
       }
     } catch { /* gh not available or not authed */ }
 
-    // Set identity at the local repo level (not global — respects other repos)
+    // Set identity at the local repo level using argv form so neither name nor
+    // email is ever interpreted by a shell.
     if (!hasName) {
-      try { exec(`git config user.name "${name}"`, opts); } catch { /* ignore */ }
+      try { execFile("git", ["config", "user.name", name], fileOpts); } catch { /* ignore */ }
     }
     if (!hasEmail) {
-      try { exec(`git config user.email "${email}"`, opts); } catch { /* ignore */ }
+      try { execFile("git", ["config", "user.email", email], fileOpts); } catch { /* ignore */ }
     }
     log(`Git identity set: ${name} <${email}>`);
   }
@@ -261,8 +268,15 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
 
     syncing = true;
     sendEvent("fileWatcher:syncStart", { repoPath: watchedRepoPath });
-    log("Auto-sync starting...");
 
+    try {
+      await queue.enqueue(watchedRepoPath, "auto-sync", () => doAutoSyncInner());
+    } finally {
+      syncing = false;
+    }
+  }
+
+  async function doAutoSyncInner() {
     try {
       const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
       const { execSync } = require("child_process");
@@ -285,7 +299,6 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
 
       if (currentBranch !== "codebuddy-build") {
         // Force switch to codebuddy-build — agent work should always land on the working branch.
-        log(`Not on codebuddy-build (on ${currentBranch}) — switching to codebuddy-build for auto-sync...`);
         try {
           const status = execSync("git status --porcelain", { cwd, encoding: "utf8", env: gitEnv }).trim();
           let stashed = false;
@@ -294,14 +307,12 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
               execSync("git stash --include-untracked", { cwd, encoding: "utf8", env: gitEnv, timeout: 30000 });
               stashed = true;
             } catch (stashErr) {
-              log(`git stash failed: ${stashErr.message} — attempting force-checkout...`);
+              log(`stash failed, force-switching: ${stashErr.message}`);
               cleanupGitState(cwd);
               try {
                 execSync("git checkout -f codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 30000 });
-                log("Force-switched to codebuddy-build for auto-sync.");
               } catch {
                 execSync("git checkout -B codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 30000 });
-                log("Force-created codebuddy-build for auto-sync.");
               }
               // Skip rest of stash flow — we're on the right branch now
               stashed = false;
@@ -324,10 +335,10 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
             try {
               execSync("git stash pop", { cwd, encoding: "utf8", env: gitEnv, timeout: 30000 });
             } catch {
-              log("git stash pop had conflicts after branch switch — changes saved in stash.");
+              log("stash pop had conflicts — changes saved in stash.");
             }
           }
-          log("Switched to codebuddy-build for auto-sync.");
+          log(`Switched ${currentBranch} → codebuddy-build for auto-sync.`);
         } catch (switchErr) {
           log(`Could not switch to codebuddy-build: ${switchErr.message} — skipping auto-sync.`);
           return;
@@ -337,22 +348,21 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
       // Check if there are actually any changes to commit
       const status = execSync("git status --porcelain", { cwd, encoding: "utf8", env: gitEnv }).trim();
       if (!status) {
-        log("No changes to commit.");
         return;
       }
 
       // Stage all changes
       execSync("git add -A", { cwd, encoding: "utf8", env: gitEnv });
 
-      // Commit
+      // Commit — use execFileSync so commit message content can never be shell-interpreted.
+      const { execFileSync } = require("child_process");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const commitMsg = `auto: sync changes ${timestamp}`;
       try {
-        execSync(`git commit -m "${commitMsg}" --no-verify`, { cwd, encoding: "utf8", env: gitEnv });
+        execFileSync("git", ["commit", "-m", commitMsg, "--no-verify"], { cwd, encoding: "utf8", env: gitEnv, windowsHide: true });
       } catch (commitErr) {
         // "nothing to commit" is fine
         if (commitErr.message?.includes("nothing to commit")) {
-          log("Nothing to commit after staging.");
           return;
         }
         throw commitErr;
@@ -370,23 +380,23 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
       // Push to codebuddy-build
       try {
         execSync("git push origin codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-        log("Auto-sync pushed to codebuddy-build.");
+        log("auto-sync pushed.");
       } catch (pushErr) {
         const errMsg = pushErr?.message || "";
         if (errMsg.includes("has no upstream") || errMsg.includes("does not match any")) {
           // Remote branch doesn't exist yet — create it
           execSync("git push -u origin codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-          log("Auto-sync created and pushed codebuddy-build remote branch.");
+          log("auto-sync created & pushed codebuddy-build remote.");
         } else if (errMsg.includes("non-fast-forward") || errMsg.includes("rejected") || errMsg.includes("tip of your current branch is behind")) {
           // Local is behind remote — pull rebase first, then retry push
-          log("Auto-sync push rejected (non-fast-forward) — pulling and retrying...");
+          log("auto-sync push rejected — retrying with pull+rebase...");
           try {
             cleanupGitState(cwd);
             execSync("git pull origin codebuddy-build --rebase", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
             execSync("git push origin codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-            log("Auto-sync pulled + pushed to codebuddy-build (retry succeeded).");
+            log("auto-sync retry succeeded.");
           } catch (retryErr) {
-            log("Auto-sync pull+push retry failed:", retryErr?.message);
+            log("auto-sync retry failed, attempting soft-reset strategy:", retryErr?.message);
             // Rebase likely conflicted — abort it and use soft-reset strategy instead
             try {
               cleanupGitState(cwd);
@@ -397,18 +407,18 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
               // Re-commit our changes on top of the remote
               const timestamp2 = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
               execSync(`git add -A`, { cwd, encoding: "utf8", env: gitEnv });
-              execSync(`git commit -m "auto: sync changes ${timestamp2}" --no-verify --allow-empty`, { cwd, encoding: "utf8", env: gitEnv });
+              execFileSync("git", ["commit", "-m", `auto: sync changes ${timestamp2}`, "--no-verify", "--allow-empty"], { cwd, encoding: "utf8", env: gitEnv, windowsHide: true });
               execSync("git push origin codebuddy-build", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-              log("Auto-sync soft-reset + re-commit + push succeeded.");
+              log("auto-sync soft-reset succeeded.");
             } catch (softResetErr) {
-              log("Auto-sync soft-reset strategy failed:", softResetErr?.message);
+              log("auto-sync soft-reset failed, force-pushing:", softResetErr?.message);
               // Last resort: force-push with lease
               try {
                 cleanupGitState(cwd);
                 execSync("git push origin codebuddy-build --force-with-lease", { cwd, encoding: "utf8", env: gitEnv, timeout: 60000 });
-                log("Auto-sync force-push-with-lease succeeded.");
+                log("auto-sync force-push succeeded.");
               } catch (forcePushErr) {
-                log("Auto-sync force-push also failed:", forcePushErr?.message);
+                log("auto-sync force-push FAILED:", forcePushErr?.message);
                 throw retryErr;
               }
             }
@@ -432,8 +442,6 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
     } catch (err) {
       log("Auto-sync error:", err?.message);
       sendEvent("fileWatcher:syncComplete", { repoPath: watchedRepoPath, success: false, error: err?.message });
-    } finally {
-      syncing = false;
     }
   }
 
@@ -445,7 +453,10 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
 
     log("Push to main starting...");
 
-    // First, do an auto-sync of any pending changes
+    // First, do an auto-sync of any pending changes. doAutoSync goes
+    // through the git queue internally, so this waits for any in-flight
+    // auto-sync to finish and then runs its own. We do this BEFORE taking
+    // our own queue slot to avoid a self-deadlock (the queue is per-repo).
     if (watchedRepoPath === cwd && !syncing) {
       if (debounceTimer) {
         clearTimeout(debounceTimer);
@@ -453,6 +464,10 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
       }
       await doAutoSync();
     }
+
+    // Now serialize the merge+push under the same per-repo queue so a
+    // savePlan push can't wedge us with a non-fast-forward mid-merge.
+    return queue.enqueue(cwd, "push-to-main", async () => {
 
     // Now merge codebuddy-build → main
     try {
@@ -496,6 +511,7 @@ function createFileWatcherService({ repoService, processService, p2pService, sen
       log("Push to main error:", err?.message);
       return { success: false, message: err?.message || "Push to main failed." };
     }
+    });
   }
 
   /** Auto-pull from codebuddy-build (triggered by P2P new-commits signal) */

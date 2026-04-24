@@ -215,9 +215,7 @@ function createToolingService({ processService, settingsService }) {
 
   async function getToolStatus() {
     // Re-read PATH from registry so newly-installed tools are found
-    console.log("[getToolStatus] Refreshing PATH from registry...");
     await refreshSystemPath();
-    console.log("[getToolStatus] extraPaths:", [...extraPaths]);
 
     const configuredCommands = await getConfiguredCommands();
 
@@ -297,7 +295,6 @@ function createToolingService({ processService, settingsService }) {
             if (fs.existsSync(fullPath)) {
               const probeResult = await tryExec(fullPath, definition.args, process.cwd());
               if (probeResult.ok) {
-                console.log(`[getToolStatus] ${definition.id}: found at known path ${fullPath}`);
                 result = probeResult;
                 extraPaths.add(dir);
                 if (!process.env.PATH.includes(dir)) {
@@ -316,10 +313,8 @@ function createToolingService({ processService, settingsService }) {
         const npmBin = process.env.APPDATA ? path.join(process.env.APPDATA, "npm") : "";
         if (npmBin) {
           const directPath = path.join(npmBin, "codex.cmd");
-          console.log(`[getToolStatus] codexCli fallback: checking ${directPath} exists=${fs.existsSync(directPath)}`);
           if (fs.existsSync(directPath)) {
             const directResult = await tryExec(directPath, definition.args, process.cwd());
-            console.log(`[getToolStatus] codexCli direct exec: ok=${directResult.ok}, stdout="${directResult.stdout}"`);
             if (directResult.ok) {
               result = directResult;
               // Make sure this dir stays in PATH
@@ -331,7 +326,9 @@ function createToolingService({ processService, settingsService }) {
           }
         }
       }
-      console.log(`[getToolStatus] ${definition.id}: available=${result.ok}, command="${definition.command}", detail="${result.ok ? (result.stdout || result.stderr || "Ready").substring(0, 100) : (result.stderr || result.message || "Not available").substring(0, 100)}"`);
+      if (!result.ok) {
+        console.log(`[getToolStatus] ${definition.id}: unavailable — ${(result.stderr || result.message || "not found").substring(0, 80)}`);
+      }
       statuses.push({
         id: definition.id,
         label: definition.label,
@@ -418,7 +415,7 @@ function createToolingService({ processService, settingsService }) {
     if (provider === "codex") {
       const codexCmd = settings.cliTools?.codexCli || getCommandName("codex");
       // Codex needs stdin for the prompt on Windows (EINVAL with long args)
-      const args = ["exec", "--full-auto"];
+      const args = ["exec", "-s", "danger-full-access"];
       if (selectedModel && selectedModel !== "auto" && selectedModel !== "default") {
         args.push("--model", selectedModel);
       }
@@ -458,7 +455,7 @@ function createToolingService({ processService, settingsService }) {
 
     return new Promise((resolve, reject) => {
       // gh auth login --web launches device-code flow
-      const child = spawn(ghCmd, ["auth", "login", "--web", "-p", "https"], {
+      const child = spawn(ghCmd, ["auth", "login", "--hostname", "github.com", "--web", "-p", "https"], {
         cwd: process.cwd(),
         windowsHide: true,
         env: { ...process.env },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
 type MessageView = "team" | "direct";
@@ -63,10 +63,8 @@ export default function ProjectMessagesPage() {
 
   if (canUseDesktopProject && !activeProject) {
     return (
-      <div className="flex min-h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-        <ProjectSidebar />
-
-        <div className="flex min-w-0 flex-1 items-center justify-center px-6 pt-[5.6rem]">
+      <div className="flex min-h-screen text-text">
+        <div className="flex min-w-0 flex-1 items-center justify-center px-6 py-8">
           <div className="app-surface max-w-2xl rounded-[1.8rem] p-8 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted">Project messages</p>
             <h1 className="display-font mt-4 text-[2rem] font-semibold tracking-tight theme-fg">No active real project</h1>
@@ -80,16 +78,14 @@ export default function ProjectMessagesPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
-      <div className="min-w-0 flex-1 px-5 pb-20 pt-[5.6rem] sm:px-6 xl:px-8">
+    <div className="min-h-screen text-text">
+      <div className="min-w-0 flex-1 px-6 py-8 pb-20">
         <div className="mx-auto flex w-full max-w-[1160px] flex-col gap-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] theme-muted">Project messages</p>
-              <h1 className="display-font mt-2 text-[2rem] font-semibold tracking-tight theme-fg">Talk with the team</h1>
-              <p className="mt-2 text-[13px] theme-muted">
+              <p className="text-label font-semibold uppercase tracking-[0.18em] text-text-dim">Project messages</p>
+              <h1 className="font-display mt-2 text-display-sm font-semibold tracking-tight text-text">Talk with the team</h1>
+              <p className="mt-2 text-body-sm text-text-dim">
                 {activeProject
                   ? `Messages for ${activeProject.name} now come from the real project dashboard.`
                   : "Open a real project to load channels and direct messages."}

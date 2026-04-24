@@ -1,13 +1,34 @@
-"use client";
+﻿"use client";
+
+/**
+ * PM Chat Page — Project Manager conversation, task threads, and AI agent interaction.
+ *
+ * TESTING GUIDE:
+ * 1. Prompt persistence: Type in composer → navigate away → come back → draft should persist (sessionStorage).
+ * 2. Inline edit: Click edit on a sent message → textarea auto-sizes to fit content, including long single-line prompts.
+ * 3. Streaming output: Agent responses should strip ANSI escape codes (no garbled [32m sequences).
+ * 4. Task menu: Click "All Conversations" button → dropdown shows tasks with numbering (1.1, 1.2...), status dots,
+ *    and thread indicators. Tasks should feel prominent enough to click.
+ * 5. Scroll: Chat area should not double-scroll with the layout (uses h-full, not h-screen).
+ * 6. Light/dark mode: Scrollbars should match the active theme — no light scrollbar in dark mode or vice versa.
+ * 7. Model recommendations: Emerald badge suggests best model for current context.
+ */
 
 import { Suspense, useState, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChatBubble } from "@/components";
+import ActivityStream from "@/components/activity-stream-v2";
+import RunSummaryCard from "@/components/run-summary-card";
+import PromptCard from "@/components/prompt-card";
+import FormattedLiveOutput from "@/components/formatted-live-output";
+import { RunInTerminalButton } from "@/components/run-in-terminal-button";
 import { buildArtifacts, conversation, ideas, projectBuildPlans, taskConversationThreads, type BuildArtifact, type Message } from "@/lib/mock-data";
-import ProjectSidebar from "@/components/project-sidebar";
+
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
+import { useStreamEvents } from "@/hooks/use-stream-events";
+import { nowTimestamp } from "@/lib/format-time";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -126,10 +147,17 @@ function CloseSmallIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
 
 type QuickPromptType = "summary" | "remaining" | "documentation";
 
+/** Strip ANSI escape codes from CLI output */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
 type ComposerAttachment = {
   id: string;
   label: string;
   path?: string;
+  dataUrl?: string;
 };
 
 type RealProjectConversationMessage = {
@@ -141,6 +169,7 @@ type RealProjectConversationMessage = {
   isAI?: boolean;
   attachments?: string[];
   modelId?: string;
+  provider?: string;
   checkpointId?: string | null;
 };
 
@@ -238,13 +267,64 @@ function normalizeChatDisplayText(text: string) {
 }
 
 function renderInlineChatFormatting(text: string) {
-  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((segment, index) => {
+  // Split on bold (**text**), inline code (`text`), and file paths
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((segment, index) => {
     if (segment.startsWith("**") && segment.endsWith("**")) {
       return <strong key={`seg-${index}`} className="font-semibold">{segment.slice(2, -2)}</strong>;
     }
 
+    if (segment.startsWith("`") && segment.endsWith("`")) {
+      const inner = segment.slice(1, -1);
+      // Check if it looks like a file path
+      const isFilePath = /^[\w@./-]+\.[a-z]{1,6}$/.test(inner) || /^(src|lib|app|components|pages|public|docs|electron)\//i.test(inner);
+      if (isFilePath) {
+        return <code key={`seg-${index}`} className="rounded bg-sky/10 px-1.5 py-0.5 font-mono text-[0.85em] text-sky">{inner}</code>;
+      }
+      return <code key={`seg-${index}`} className="rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[0.85em]">{inner}</code>;
+    }
+
     return <span key={`seg-${index}`}>{segment}</span>;
   });
+}
+
+/** Parse AI response text into VS Code-style activity lines when applicable */
+function parseAgentActivity(text: string): { icon: string; text: string }[] | null {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+
+  const activityPatterns: Array<{ pattern: RegExp; icon: string; label: (m: RegExpMatchArray) => string }> = [
+    { pattern: /^(?:reading|read)\s+(?:file\s+)?[`"']?(.+?)[`"']?\s*\.{0,3}$/i, icon: "📄", label: (m) => `Read ${m[1]}` },
+    { pattern: /^(?:wrote|writing|updated|edited|modified|changed)\s+(?:file\s+)?[`"']?(.+?)[`"']?\s*\.{0,3}$/i, icon: "✏️", label: (m) => `Edited ${m[1]}` },
+    { pattern: /^(?:created|creating)\s+(?:file\s+)?[`"']?(.+?)[`"']?\s*\.{0,3}$/i, icon: "➕", label: (m) => `Created ${m[1]}` },
+    { pattern: /^(?:deleted|removing|removed)\s+(?:file\s+)?[`"']?(.+?)[`"']?\s*\.{0,3}$/i, icon: "🗑️", label: (m) => `Deleted ${m[1]}` },
+    { pattern: /^(?:ran|running|executed)\s+(?:command\s+)?[`"']?(.+?)[`"']?\s*\.{0,3}$/i, icon: "▶️", label: (m) => `Ran ${m[1]}` },
+    { pattern: /^(?:installed|installing)\s+(.+)$/i, icon: "📦", label: (m) => `Installed ${m[1]}` },
+    { pattern: /^(?:searched|searching|looking)\s+(.+)$/i, icon: "🔍", label: (m) => `Searched ${m[1]}` },
+  ];
+
+  const parsed: { icon: string; text: string }[] = [];
+  let matchCount = 0;
+
+  for (const line of lines) {
+    const stripped = line.replace(/^[-*•]\s*/, "");
+    let matched = false;
+    for (const { pattern, icon, label } of activityPatterns) {
+      const m = stripped.match(pattern);
+      if (m) {
+        parsed.push({ icon, text: label(m) });
+        matchCount++;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      parsed.push({ icon: "💬", text: stripped });
+    }
+  }
+
+  // Only show activity style if at least 30% of lines matched patterns
+  if (matchCount / lines.length < 0.3) return null;
+  return parsed;
 }
 
 function renderChatMessageBody(text: string, tone: "user" | "assistant") {
@@ -268,23 +348,23 @@ function renderChatMessageBody(text: string, tone: "user" | "assistant") {
       const level = headingMatch[1].length;
       const title = headingMatch[2];
       const headingClass = level === 1
-        ? "text-[17px] font-semibold"
+        ? "text-[15px] font-semibold"
         : level === 2
-          ? "text-[16px] font-semibold"
-          : "text-[15px] font-semibold";
+          ? "text-[14px] font-semibold"
+          : "text-[13px] font-semibold";
       return <p key={key} className={`${headingClass} break-words ${tone === "user" ? "text-white/98" : "theme-fg"}`}>{renderInlineChatFormatting(title)}</p>;
     }
 
     if (lines.every((line) => /^[-*]\s+/.test(line))) {
       return (
-        <ul key={key} className={`ml-5 list-disc space-y-1 break-words text-[15px] leading-[1.7] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
+        <ul key={key} className={`ml-5 list-disc space-y-1 break-words text-[13px] leading-[1.7] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
           {lines.map((line, lineIndex) => <li key={`${key}-${lineIndex}`}>{renderInlineChatFormatting(line.replace(/^[-*]\s+/, ""))}</li>)}
         </ul>
       );
     }
 
     return (
-      <p key={key} className={`whitespace-pre-wrap break-words text-[15px] leading-[1.72] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
+      <p key={key} className={`whitespace-pre-wrap break-words text-[13px] leading-[1.72] ${tone === "user" ? "text-white/96" : "theme-fg"}`}>
         {renderInlineChatFormatting(block)}
       </p>
     );
@@ -1014,12 +1094,12 @@ function InlineBuildPanel({
   return (
     <div
       onClick={handlePanelClick}
-      className={`app-surface overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.06)] transition dark:bg-[#1a1c20] dark:shadow-[0_24px_64px_rgba(0,0,0,0.24)] ${
+      className={`overflow-hidden bg-stage-up2 shadow-[0_24px_64px_rgba(0,0,0,0.06)] transition dark:bg-stage-up dark:shadow-[0_24px_64px_rgba(0,0,0,0.24)] ${
         isSidebar ? "h-full rounded-none border-0" : "ml-11 rounded-[1.6rem]"
       }`}
     >
-      <div className={`border-b border-white/[0.06] px-3 py-2.5 ${
-        isSidebar ? "sticky top-0 z-10 bg-[#17191d]/96 backdrop-blur-xl" : "bg-[#17191d]"
+      <div className={`border-b border-edge px-3 py-2.5 ${
+        isSidebar ? "sticky top-0 z-10 bg-stage-up/96 backdrop-blur-xl" : "bg-stage-up"
       }`}>
         <div className="flex items-center justify-between gap-3 overflow-x-auto">
           <div data-panel-interactive="true" className="flex min-w-max items-center gap-2">
@@ -1033,10 +1113,10 @@ function InlineBuildPanel({
                   onClick={() => onTabChange(tab.id)}
                   className={`inline-flex h-9 items-center justify-center rounded-[10px] border text-[13px] font-semibold transition ${
                     isActive
-                      ? "border-[#2e6cf6] bg-[#0f1629] px-4 text-[#69a0ff] shadow-[inset_0_0_0_1px_rgba(84,145,255,0.25)]"
+                      ? "border-sky bg-sky/10 px-4 text-sky shadow-[inset_0_0_0_1px_rgba(84,145,255,0.25)]"
                       : tab.compact
-                        ? "w-9 border-white/[0.12] bg-[#1d2025] text-white/78 hover:border-white/[0.22] hover:bg-[#23262c] hover:text-white"
-                        : "border-white/[0.12] bg-[#1d2025] px-4 text-white/78 hover:border-white/[0.22] hover:bg-[#23262c] hover:text-white"
+                        ? "w-9 border-edge bg-stage-up2 text-text-soft hover:border-text-ghost hover:bg-stage-up3 hover:text-text"
+                        : "border-edge bg-stage-up2 px-4 text-text-soft hover:border-text-ghost hover:bg-stage-up3 hover:text-text"
                   }`}
                   aria-label={tab.label}
                   title={tab.label}
@@ -1051,7 +1131,7 @@ function InlineBuildPanel({
 
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.12] bg-[#1d2025] text-white/78 transition hover:border-white/[0.22] hover:bg-[#23262c] hover:text-white"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-edge bg-stage-up2 text-text-soft transition hover:border-text-ghost hover:bg-stage-up3 hover:text-text"
               aria-label="More options"
               title="More options"
             >
@@ -1073,9 +1153,9 @@ function InlineBuildPanel({
       </div>
 
       {activeTab === "details" && (
-        <div className="h-[calc(100vh-9rem)] bg-[#111317]">
-          <div data-panel-interactive="true" className="flex h-full flex-col overflow-hidden bg-[#111317]">
-            <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#14171b] px-4 py-3">
+        <div className="flex-1 min-h-0 bg-stage">
+          <div data-panel-interactive="true" className="flex h-full flex-col overflow-hidden bg-stage">
+            <div className="flex items-center justify-between border-b border-edge bg-stage-up px-4 py-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/38">Raw AI output</p>
                 <p className="mt-1 text-[12px] text-white/56">{artifact.title}</p>
@@ -1088,7 +1168,7 @@ function InlineBuildPanel({
                 {copiedUrl ? "Copied" : "Copy localhost"}
               </button>
             </div>
-            <pre className="custom-scroll flex-1 overflow-auto bg-[#0f1115] px-5 py-5 text-[12px] leading-7 text-[#d6def0] whitespace-pre-wrap">
+            <pre className="custom-scroll flex-1 overflow-auto bg-void px-5 py-5 text-[12px] leading-7 text-text-soft whitespace-pre-wrap">
               <code>{rawAiOutput}</code>
             </pre>
           </div>
@@ -1096,9 +1176,9 @@ function InlineBuildPanel({
       )}
 
       {activeTab === "preview" && (
-        <div className="h-[calc(100vh-9rem)] bg-[#0d0f12]">
-          <div data-panel-interactive="true" className="flex h-full flex-col overflow-hidden bg-[#0d0f12]">
-            <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#14171b] px-4 py-3">
+        <div className="flex-1 min-h-0 bg-void">
+          <div data-panel-interactive="true" className="flex h-full flex-col overflow-hidden bg-void">
+            <div className="flex items-center gap-2 border-b border-edge bg-stage-up px-4 py-3">
               <div className="flex gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-white/12" />
                 <span className="h-2.5 w-2.5 rounded-full bg-white/12" />
@@ -1112,12 +1192,12 @@ function InlineBuildPanel({
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto custom-scroll bg-[#0b0d10] p-0">
+            <div className="flex-1 overflow-auto custom-scroll bg-void p-0">
               {localPreviewUrl.startsWith("http://localhost") ? (
                 <div className="relative h-full min-h-full bg-white">
                   <iframe title={`${artifact.title} preview`} src={localPreviewUrl} className="h-full min-h-[540px] w-full border-0 bg-white" />
                   {previewStatusLabel && previewStatusLabel !== "Preview server ready" ? (
-                    <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-[#111317]/82 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
+                    <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-stage/82 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text shadow-[0_10px_24px_rgba(0,0,0,0.24)]">
                       {previewStatusLabel}
                     </div>
                   ) : null}
@@ -1142,9 +1222,9 @@ function InlineBuildPanel({
       )}
 
       {activeTab === "code" && (
-        <div className="h-[calc(100vh-9rem)] bg-[#111317]">
-          <div data-panel-interactive="true" className="grid h-full grid-cols-[288px_minmax(0,1fr)] overflow-hidden border-t border-white/[0.04]">
-            <div className="border-r border-white/[0.06] bg-[#17191d]">
+        <div className="flex-1 min-h-0 bg-stage">
+          <div data-panel-interactive="true" className="grid h-full grid-cols-[288px_minmax(0,1fr)] overflow-hidden border-t border-edge/40">
+            <div className="border-r border-edge bg-stage-up">
               <div className="border-b border-white/[0.06] px-3 py-3">
                 <div className="relative">
                   <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/28" />
@@ -1152,7 +1232,7 @@ function InlineBuildPanel({
                     type="text"
                     readOnly
                     placeholder="Search code"
-                    className="w-full rounded-[8px] border border-white/[0.08] bg-[#1c1f24] py-2 pl-10 pr-3 text-[12px] text-white/54 outline-none placeholder:text-white/34"
+                    className="w-full rounded-[8px] border border-edge bg-stage-up2 py-2 pl-10 pr-3 text-[12px] text-text-soft outline-none placeholder:text-text-dim"
                   />
                 </div>
               </div>
@@ -1161,10 +1241,10 @@ function InlineBuildPanel({
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-col bg-[#1a1c20]">
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] bg-[#1b1d21] px-3 pt-2">
+            <div className="flex min-w-0 flex-col bg-stage-up2">
+              <div className="flex items-center justify-between gap-3 border-b border-edge bg-stage-up px-3 pt-2">
                 <div className="flex min-w-0 items-end">
-                  <div className="inline-flex max-w-full items-center gap-2 rounded-t-[10px] border border-b-0 border-white/[0.08] bg-[#202227] px-4 py-2 text-white/82">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-t-[10px] border border-b-0 border-edge bg-stage-up2 px-4 py-2 text-text-soft">
                     <FileCodeIcon className="h-3.5 w-3.5 shrink-0 text-white/40" />
                     <span className="truncate text-[12px] font-medium">{editorTabLabel}</span>
                     <CloseSmallIcon className="h-3.5 w-3.5 shrink-0 text-white/28" />
@@ -1174,7 +1254,7 @@ function InlineBuildPanel({
                   <button
                     type="button"
                     onClick={handleCopyCode}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] border border-white/[0.08] bg-[#202227] text-white/64 transition hover:border-white/[0.14] hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] border border-edge bg-stage-up2 text-text-mid transition hover:border-text-ghost hover:text-text"
                     aria-label="Copy code"
                     title={copiedCode ? "Copied" : "Copy code"}
                   >
@@ -1182,7 +1262,7 @@ function InlineBuildPanel({
                   </button>
                   <button
                     type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] border border-white/[0.08] bg-[#202227] text-white/64 transition hover:border-white/[0.14] hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] border border-edge bg-stage-up2 text-text-mid transition hover:border-text-ghost hover:text-text"
                     aria-label="Split view"
                     title="Split view"
                   >
@@ -1191,7 +1271,7 @@ function InlineBuildPanel({
                   <button
                     type="button"
                     onClick={handleDownloadCode}
-                    className="inline-flex h-8 items-center justify-center gap-2 rounded-[10px] bg-white px-3.5 text-[12px] font-semibold text-[#1d2025] transition hover:bg-white/90"
+                    className="inline-flex h-8 items-center justify-center gap-2 rounded-[10px] bg-text px-3.5 text-[12px] font-semibold text-stage transition hover:bg-text/90"
                   >
                     <DownloadIcon className="h-3.5 w-3.5" />
                     <span>Download</span>
@@ -1700,9 +1780,7 @@ function ProjectChatPageContent() {
   const isSendDisabled = !composerText.trim() || isCopilotRunning || desktopToolsLoading;
 
   return (
-    <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
+    <div className="flex h-full bg-[var(--stage)] text-text">
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <div ref={splitContainerRef} className="min-h-0 flex flex-1 overflow-hidden">
           <div
@@ -1792,7 +1870,7 @@ function ProjectChatPageContent() {
                               <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink/20 animate-pulse-soft" style={{ animationDelay: "0.15s" }} />
                               <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink/20 animate-pulse-soft" style={{ animationDelay: "0.3s" }} />
                             </div>
-                            <span className="text-[14px] theme-soft">Building your changes...</span>
+                            <span className="text-[12px] theme-soft">Building your changes...</span>
                           </div>
                         </div>
                       </div>
@@ -1831,15 +1909,18 @@ function ProjectChatPageContent() {
                             <p className="mt-2 text-[12px] leading-relaxed theme-fg">{copilotPrompt}</p>
                           </div>
 
-                          <div className="rounded-[1rem] border border-black/[0.06] bg-[#0f1216] px-3 py-3 text-white dark:border-white/[0.08]">
+                          <div className="rounded-[1rem] border border-white/[0.06] bg-[#0a0a0c] px-4 py-3.5 text-white dark:border-white/[0.06]">
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/52">Streamed output</p>
-                              <p className="text-[10px] text-white/46">
-                                {isCopilotRunning ? "Running..." : copilotExitCode !== null ? `Exit ${copilotExitCode}` : "Idle"}
+                              <div className="flex items-center gap-2">
+                                {isCopilotRunning && <span className="inline-block h-1.5 w-1.5 rounded-full bg-mint animate-pulse" />}
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Live output</p>
+                              </div>
+                              <p className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${isCopilotRunning ? "bg-mint/10 text-mint" : copilotExitCode !== null ? "bg-white/[0.06] text-white/40" : "bg-white/[0.04] text-white/30"}`}>
+                                {isCopilotRunning ? "Running" : copilotExitCode !== null ? `Exit ${copilotExitCode}` : "Idle"}
                               </p>
                             </div>
-                            <pre className="custom-scroll mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap text-[12px] leading-relaxed text-white/82">
-                              {copilotOutput || (isCopilotRunning ? "Waiting for GitHub Copilot CLI output..." : "No output yet.")}
+                            <pre className="custom-scroll mt-3 max-h-[320px] overflow-y-auto whitespace-pre-wrap font-mono text-[11.5px] leading-[1.65] text-white/75 selection:bg-mint/20">
+                              {copilotOutput || (isCopilotRunning ? "Waiting for output…" : "No output yet.")}
                             </pre>
                           </div>
                         </div>
@@ -1850,9 +1931,9 @@ function ProjectChatPageContent() {
               </div>
             </div>
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-[linear-gradient(180deg,rgba(243,239,231,0)_0%,rgba(243,239,231,0.86)_26%,rgba(243,239,231,1)_100%)] px-4 pb-5 pt-12 sm:px-6 dark:bg-[linear-gradient(180deg,rgba(14,14,14,0)_0%,rgba(14,14,14,0.86)_26%,rgba(14,14,14,1)_100%)]">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-[linear-gradient(180deg,rgba(243,239,231,0)_0%,rgba(243,239,231,0.86)_26%,rgba(243,239,231,1)_100%)] px-4 pb-4 pt-10 sm:px-5 dark:bg-[linear-gradient(180deg,rgba(14,14,14,0)_0%,rgba(14,14,14,0.86)_26%,rgba(14,14,14,1)_100%)]">
               <div className={`pointer-events-auto mx-auto w-full ${composerShellClasses}`}>
-                <div className="app-surface-strong rounded-[1.35rem] shadow-[0_18px_48px_rgba(0,0,0,0.08)] dark:shadow-[0_22px_48px_rgba(0,0,0,0.28)]">
+                <div className="app-surface-strong rounded-[1.15rem] shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_36px_rgba(0,0,0,0.2)]">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1861,8 +1942,8 @@ function ProjectChatPageContent() {
                     className="hidden"
                   />
 
-                  <div className="p-2.5 sm:p-3">
-                    <div className="min-w-0 rounded-[1.05rem] bg-white/52 px-3 py-2.5 dark:bg-white/[0.03]">
+                  <div className="p-2">
+                    <div className="min-w-0 rounded-[0.85rem] bg-white/48 px-2.5 py-2 dark:bg-white/[0.03]">
                       <textarea
                         ref={composerRef}
                         placeholder="Ask the Project Manager anything"
@@ -1889,10 +1970,10 @@ function ProjectChatPageContent() {
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className={`inline-flex h-8 items-center gap-2 rounded-full bg-black/[0.04] text-[11px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1] ${isTightComposer ? "px-3" : "px-3"}`}
+                            className={`inline-flex h-7 items-center gap-1.5 rounded-full bg-black/[0.04] text-[10.5px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1] px-2.5`}
                             title="Attach files"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                               <path d="M8.5 3.75A3.75 3.75 0 0012.25 7.5v5a2.75 2.75 0 11-5.5 0V6.75a1.75 1.75 0 113.5 0v5.5a.75.75 0 01-1.5 0V7.5a.75.75 0 00-1.5 0v4.75a2.25 2.25 0 104.5 0v-5a5.25 5.25 0 10-10.5 0v5.25a4.75 4.75 0 109.5 0v-4.5a.75.75 0 011.5 0v4.5a6.25 6.25 0 11-12.5 0V8.25A6.75 6.75 0 018.5 1.5a.75.75 0 010 1.5z" />
                             </svg>
                             {isTightComposer ? "Attach" : "Attach files"}
@@ -1912,7 +1993,7 @@ function ProjectChatPageContent() {
                               ref={modelMenuBtnRef}
                               type="button"
                               onClick={() => setShowModelMenu((v) => !v)}
-                              className="h-8 rounded-full bg-black/[0.04] px-3 text-[11px] font-semibold theme-fg outline-none transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                              className="h-7 rounded-full bg-black/[0.04] px-2.5 text-[10.5px] font-semibold theme-fg outline-none transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
                               title="Model"
                             >
                               {modelCatalog.find((m) => m.id === selectedModel)?.label ?? selectedModel}
@@ -1978,7 +2059,7 @@ function ProjectChatPageContent() {
                               <button
                                 type="button"
                                 onClick={() => setShowPromptMenu((value) => !value)}
-                                className="inline-flex h-8 items-center gap-2 rounded-full bg-black/[0.04] px-3 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                                className="inline-flex h-7 items-center gap-1.5 rounded-full bg-black/[0.04] px-2.5 text-[10.5px] font-semibold theme-fg transition hover:bg-black/[0.06] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
                                 title="Prompt tools"
                               >
                                 Tools
@@ -2017,10 +2098,10 @@ function ProjectChatPageContent() {
                             type="button"
                             onClick={() => void handleRunCopilot()}
                             disabled={isSendDisabled}
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-cream shadow-[0_10px_24px_rgba(0,0,0,0.12)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#141414] ${isTightComposer ? "ml-auto" : ""}`}
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink text-cream shadow-[0_6px_18px_rgba(0,0,0,0.1)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 dark:bg-white dark:text-[#141414] ${isTightComposer ? "ml-auto" : ""}`}
                             title={enabledProviderCount > 0 ? "Run with AI CLI" : "No AI CLI available"}
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                               <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
                             </svg>
                           </button>
@@ -2113,6 +2194,8 @@ type RealProjectChatProps = {
         time: string;
         isMine?: boolean;
         isAI?: boolean;
+        modelId?: string;
+        provider?: string;
       }>;
       taskThreads: Array<{
         id: string;
@@ -2137,6 +2220,8 @@ type RealProjectChatProps = {
           isMine?: boolean;
           isAI?: boolean;
           attachments?: string[];
+          modelId?: string;
+          provider?: string;
         }>;
       }>;
     };
@@ -2158,7 +2243,16 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       || null
     : null;
 
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPromptRaw] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("codebuddy:chat:draft") ?? "";
+    }
+    return "";
+  });
+  const setPrompt = (v: string) => {
+    setPromptRaw(v);
+    try { sessionStorage.setItem("codebuddy:chat:draft", v); } catch { /* quota */ }
+  };
   const [displayName, setDisplayName] = useState("");
   const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({});
   const [catalogSources, setCatalogSources] = useState<CatalogSources>({
@@ -2167,7 +2261,11 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     codex: DEFAULT_codexModels,
   });
   const modelCatalog = getActiveModelCatalog(featureFlags, catalogSources);
-  const [selectedModel, setSelectedModel] = useState(() => getDefaultModelId(featureFlags));
+  const [selectedModel, setSelectedModel] = useState(() => {
+    // Restore last-used model from the active thread/session if available
+    if (taskContext && activeTaskThread?.lastModel) return activeTaskThread.lastModel;
+    return getDefaultModelId(featureFlags);
+  });
   const [attachedFiles, setAttachedFiles] = useState<ComposerAttachment[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ComposerAttachment[]>([]);
@@ -2175,16 +2273,21 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   const [pendingCheckpointId, setPendingCheckpointId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const isGeneratingViaAwaitRef = useRef(false); // true when handleGeneratePlan is actively awaiting
+  const [pendingApproval, setPendingApproval] = useState<{ toolName: string; toolInput: Record<string, unknown> } | null>(null);
+  const [composerApprovalMode, setComposerApprovalMode] = useState<"default" | "auto" | "manual">("default");
+  const [settingsApprovalMode, setSettingsApprovalMode] = useState<"auto" | "manual">("auto");
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [agentLiveStatus, setAgentLiveStatus] = useState("Idle");
-  const [agentLiveOutput, setAgentLiveOutput] = useState("");
   const [liveStatusFrame, setLiveStatusFrame] = useState(0);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [inlineEditId, setInlineEditId] = useState<string | null>(null);
   const [inlineEditText, setInlineEditText] = useState("");
   const [replacementSourceMessageId, setReplacementSourceMessageId] = useState<string | null>(null);
   const [isRestoringCheckpoint, setIsRestoringCheckpoint] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
   const [selectedBuildArtifact, setSelectedBuildArtifact] = useState<BuildArtifact | null>(null);
   const [selectedBuildMessageId, setSelectedBuildMessageId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<BuildDetailTab>("details");
@@ -2213,7 +2316,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setPreviewMode(value);
   };
   const [showRightPane, setShowRightPane] = useState(false);
-  const [rightPaneMode, setRightPaneMode] = useState<"preview" | "details" | "terminal">("preview");
+  const [rightPaneMode, setRightPaneMode] = useState<"preview" | "details" | "terminal" | "task-details">("preview");
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [rightPaneResponseText, setRightPaneResponseText] = useState("");
   const [terminalOutput, setTerminalOutput] = useState("");
@@ -2237,7 +2340,8 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   }>(null);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
-  const thinkingOutputRef = useRef<HTMLPreElement | null>(null);
+  const thinkingOutputRef = useRef<HTMLDivElement | null>(null);
+  const { events: liveEvents, processChunk: liveProcessChunk, startStreaming: liveStartStreaming, finalize: liveFinalize, reset: liveResetEvents, getRawText: liveGetRawText, setScrollCallback: liveSetScrollCallback } = useStreamEvents();
   const [thinkingPanelExpanded, setThinkingPanelExpanded] = useState(true);
   const [interruptPrompt, setInterruptPrompt] = useState("");
   const previousTaskStateRef = useRef<{ taskId: string | null; status: string | null }>({ taskId: null, status: null });
@@ -2249,6 +2353,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   const taskMenuPanelRef = useRef<HTMLDivElement | null>(null);
   const [taskMenuLayout, setTaskMenuLayout] = useState<null | { top: number; left: number; width: number; maxHeight: number }>(null);
   const [showTaskMenu, setShowTaskMenu] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [customContextMarkdown, setCustomContextMarkdown] = useState<string | null>(null);
 
   // ── P2P Peer Activity State ─────────────────────────────────
@@ -2282,15 +2387,20 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       ? replacementSourceMessageId
       : cancelledRun?.replaceFromMessageId ?? null;
 
-    if (!sourceMessageId) {
-      return filteredConversation;
-    }
+    const base = sourceMessageId
+      ? (() => { const idx = filteredConversation.findIndex((entry) => entry.id === sourceMessageId); return idx >= 0 ? filteredConversation.slice(0, idx) : filteredConversation; })()
+      : filteredConversation;
 
-    const sourceIndex = filteredConversation.findIndex((entry) => entry.id === sourceMessageId);
-    return sourceIndex >= 0 ? filteredConversation.slice(0, sourceIndex) : filteredConversation;
+    // Deduplicate by message id to prevent tripled messages from settings reload races
+    const seen = new Set<string>();
+    return base.filter((msg) => {
+      if (seen.has(msg.id)) return false;
+      seen.add(msg.id);
+      return true;
+    });
   })();
   const visibleConversation: RealProjectConversationMessage[] = pendingPrompt
-    ? [...visibleConversationBase, { id: "pending-user-message", from: displayName || "You", text: pendingPrompt, time: "Now", isMine: true, attachments: pendingAttachments.map((file) => file.path || file.label) }]
+    ? [...visibleConversationBase, { id: "pending-user-message", from: displayName || "You", text: pendingPrompt, time: nowTimestamp(), isMine: true, attachments: pendingAttachments.map((file) => file.path || file.label) }]
     : visibleConversationBase;
   const hasConversation = visibleConversation.length > 0;
   const hasSavedConversation = visibleConversationBase.length > 0;
@@ -2313,18 +2423,13 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       ? "This task is already marked done. Use a verification or polish prompt if you want another pass."
       : "Generate a context-aware next-step prompt instead of writing the task kickoff manually.")
     : "";
-  const liveOutputTitle = isGenerating ? buildWorkingLabel(liveStatusFrame) : "Live output";
-  const liveOutputFooter = isGenerating
-    ? `${assistantName} is actively responding ${"•".repeat((liveStatusFrame % 3) + 1)}`
-    : pendingPreviewLaunch || previewProcessId
-      ? previewServerStatus
-      : agentLiveOutput
-        ? "Last model transcript captured."
-        : "The model transcript will stay visible here while it works.";
-  const liveOutputBody = agentLiveOutput || previewServerOutput || (isGenerating ? "Preparing context..." : "No live output yet.");
+  // Dead-code cleanup: liveOutputTitle/Body/Footer were computed but never rendered.
+  // The actual streaming panel uses liveEvents from useStreamEvents() in the Thinking panel JSX.
 
   // Reset conversation-level state when switching tasks or threads
+  const isFirstChatRender = useRef(true);
   useEffect(() => {
+    if (isFirstChatRender.current) { isFirstChatRender.current = false; return; }
     setPrompt("");
     setAttachedFiles([]);
     setPendingPrompt(null);
@@ -2335,9 +2440,8 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setReplacementSourceMessageId(null);
     setCancelledRun(null);
     setGenerationError(null);
-    setAgentLiveOutput("");
+    liveResetEvents();
     setAgentLiveStatus("Idle");
-    setShowTaskMenu(false);
     setTaskAutomationNotice(null);
     setSelectedBuildArtifact(null);
     setSelectedBuildMessageId(null);
@@ -2516,7 +2620,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       setAgentLiveStatus(event.message || "Starting agent...");
-      setAgentLiveOutput("");
+      liveStartStreaming();
       setPendingCheckpointId(event.checkpointId || null);
     });
 
@@ -2526,14 +2630,18 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       setAgentLiveStatus(event.stream === "stderr" ? "Agent reported an issue" : "Working...");
-      setAgentLiveOutput((current) => {
-        const next = `${current}${event.chunk || ""}`.slice(-12000);
-        requestAnimationFrame(() => {
-          if (thinkingOutputRef.current) {
-            thinkingOutputRef.current.scrollTop = thinkingOutputRef.current.scrollHeight;
-          }
-        });
-        return next;
+      const chunk = event.chunk || "";
+      if (chunk) {
+        liveProcessChunk(chunk);
+      }
+    });
+
+    // Scroll callback for the typewriter inside useStreamEvents
+    liveSetScrollCallback(() => {
+      requestAnimationFrame(() => {
+        if (thinkingOutputRef.current) {
+          thinkingOutputRef.current.scrollTop = thinkingOutputRef.current.scrollHeight;
+        }
       });
     });
 
@@ -2541,6 +2649,8 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       if (!matchesCurrentRequest(event)) {
         return;
       }
+
+      setPendingApproval(null);
 
       // Mark that the LOCAL agent completed this task (not a peer).
       // This prevents auto-advance from firing on P2P task status changes.
@@ -2562,16 +2672,19 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       // When reconnected to an in-progress generation (no handleGeneratePlan await),
       // the event listener must reset isGenerating since there's no finally block.
       if (!isGeneratingViaAwaitRef.current) {
-        setTimeout(() => {
-          setIsGenerating(false);
-          setAgentLiveOutput("");
-          setAgentLiveStatus("Idle");
-        }, 1500);
+        // Finalize the event stream (waits for typewriter to catch up)
+        void liveFinalize().then(() => {
+          setTimeout(() => {
+            setIsGenerating(false);
+            liveResetEvents();
+            setAgentLiveStatus("Idle");
+          }, 500);
+        });
       } else {
         // Even when the await will handle final cleanup, dismiss the live
         // output panel quickly so it doesn't linger alongside the saved response.
         setTimeout(() => {
-          setAgentLiveOutput("");
+          liveResetEvents();
           setAgentLiveStatus("Idle");
         }, 300);
       }
@@ -2583,7 +2696,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       }
 
       setAgentLiveStatus("Agent failed");
-      setAgentLiveOutput((current) => `${current}${event.message ? `${event.message}\n` : ""}`.slice(-12000));
+      if (event.message) liveProcessChunk(event.message + "\n");
       setPendingPrompt(null);
       setPendingAttachments([]);
       setPendingModelId(null);
@@ -2592,7 +2705,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       if (!isGeneratingViaAwaitRef.current) {
         setTimeout(() => {
           setIsGenerating(false);
-          setAgentLiveOutput("");
+          liveResetEvents();
           setAgentLiveStatus("Idle");
         }, 2000);
       }
@@ -2603,6 +2716,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         return;
       }
 
+      setPendingApproval(null);
       setAgentLiveStatus(event.message || "Stopped.");
       setPendingPrompt(null);
       setPendingAttachments([]);
@@ -2612,10 +2726,15 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       if (!isGeneratingViaAwaitRef.current) {
         setTimeout(() => {
           setIsGenerating(false);
-          setAgentLiveOutput("");
+          liveResetEvents();
           setAgentLiveStatus("Idle");
         }, 1000);
       }
+    });
+
+    const stopApprovalRequest = window.electronAPI.project.onAgentApprovalRequest?.((event) => {
+      if (!matchesCurrentRequest(event)) return;
+      setPendingApproval({ toolName: event.toolName, toolInput: event.toolInput });
     });
 
     return () => {
@@ -2624,8 +2743,17 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       stopCompleted();
       stopError();
       stopCancelled();
+      stopApprovalRequest?.();
+      liveSetScrollCallback(null);
     };
   }, [activeProject.id, activeTaskThread?.id, taskContext]);
+
+  // Sync selectedModel when switching task threads (restore last used model)
+  useEffect(() => {
+    if (activeTaskThread?.lastModel) {
+      setSelectedModel(activeTaskThread.lastModel);
+    }
+  }, [activeTaskThread?.id]);
 
   // ── Reconnect to active generation on mount ─────────────────
   useEffect(() => {
@@ -2662,12 +2790,24 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         setAgentLiveStatus("Working...");
         // Restore accumulated output from main process
         if (req.output) {
-          setAgentLiveOutput(req.output);
+          liveStartStreaming();
+          liveProcessChunk(req.output);
         }
         // Restore the user's prompt so it shows above the thinking panel
         if (req.promptText) {
           setPendingPrompt(req.promptText);
         }
+
+        // Recover any pending approval request that was shown before navigation
+        try {
+          const pending = await window.electronAPI?.project?.getPendingApproval?.();
+          if (!cancelled && pending && (!pending.projectId || pending.projectId === activeProject.id)) {
+            const matchesTask = !pending.taskId || (taskContext && pending.taskId === taskContext.task.id);
+            if (matchesTask) {
+              setPendingApproval({ toolName: pending.toolName, toolInput: pending.toolInput });
+            }
+          }
+        } catch { /* ignore */ }
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
@@ -2682,7 +2822,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         if (!req?.active && !isGeneratingViaAwaitRef.current) {
           console.warn("[watchdog] isGenerating=true but no active request — resetting.");
           setIsGenerating(false);
-          setAgentLiveOutput("");
+          liveResetEvents();
           setAgentLiveStatus("Idle");
           setOtherAgentMeta(null);
           setPendingPrompt(null);
@@ -2716,7 +2856,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
             peerName,
             conversationId,
             scope,
-            tokens: ((existing?.tokens || "") + token).slice(-4000),
+            tokens: ((existing?.tokens || "") + token).slice(-500000),
             updatedAt: Date.now(),
             taskId: event.taskId || existing?.taskId || null,
             taskName: event.taskName || existing?.taskName || null,
@@ -2762,7 +2902,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
             conversationId: event.conversationId || "unknown",
             scope: event.scope || "unknown",
             text: event.message?.text || "",
-            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            time: nowTimestamp(),
           },
           ...prev,
         ].slice(0, 20));
@@ -3179,15 +3319,22 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         if (!cancelled) {
           const flags = settings.featureFlags ?? {};
           setFeatureFlags(flags);
-          const defaultModel = getDefaultModelId(flags);
-          setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
+          // Only set model from global defaults when no thread-level lastModel exists
+          if (!activeTaskThread?.lastModel) {
+            const defaultModel = getDefaultModelId(flags);
+            setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
+          }
+          setComposerApprovalMode("default");
+          setSettingsApprovalMode(settings.projectDefaults?.approvalMode ?? "auto");
           if ((settings as unknown as Record<string, unknown>).displayName) {
             setDisplayName((settings as unknown as Record<string, unknown>).displayName as string);
           }
         }
       } catch {
         if (!cancelled) {
-          setSelectedModel(getDefaultModelId(featureFlags));
+          if (!activeTaskThread?.lastModel) {
+            setSelectedModel(getDefaultModelId(featureFlags));
+          }
         }
       }
     }
@@ -3198,7 +3345,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       if (!cancelled) {
         const flags = settings.featureFlags ?? {};
         setFeatureFlags(flags);
-        if (!pendingModelId) {
+        // Don't override model selection from settings changes — thread lastModel
+        // and explicit user picks take priority. Only fall back to defaults when
+        // there is no thread-level model and no pending send.
+        if (!pendingModelId && !activeTaskThread?.lastModel) {
           const defaultModel = getDefaultModelId(flags);
           setSelectedModel(settings.projectDefaults?.copilotModel ?? defaultModel);
         }
@@ -3252,18 +3402,52 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     });
   };
 
-  const handleAttachFiles = (nextFiles: File[]) => {
+  const handleAttachFiles = async (nextFiles: File[]) => {
     const unsupported = nextFiles.filter((f) => /\.(exe|dll|bin|iso|dmg|zip|tar|gz|7z|rar|mp4|mov|avi|mkv|mp3|wav)$/i.test(f.name));
     if (unsupported.length > 0) {
       setGenerationError(`Can't attach ${unsupported.map((f) => f.name).join(", ")} — binary and media files are not supported.`);
       const supported = nextFiles.filter((f) => !unsupported.includes(f));
       if (supported.length > 0) {
-        setAttachedFiles((current) => mergeComposerAttachments(current, supported));
+        await saveAndMergeAttachments(supported);
       }
       return;
     }
     setGenerationError(null);
-    setAttachedFiles((current) => mergeComposerAttachments(current, nextFiles));
+    await saveAndMergeAttachments(nextFiles);
+  };
+
+  /** Save files without .path to .codebuddy/uploads/, then merge all as attachments */
+  const saveAndMergeAttachments = async (files: File[]) => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    const projectDir = activeProject.repoPath;
+
+    // Files with absolute paths can be merged directly
+    const withPath: File[] = [];
+    const withoutPath: File[] = [];
+    for (const f of files) {
+      const fp = (f as File & { path?: string }).path;
+      if (fp && (fp.startsWith("/") || /^[A-Za-z]:/.test(fp))) withPath.push(f);
+      else withoutPath.push(f);
+    }
+    if (withPath.length) setAttachedFiles((current) => mergeComposerAttachments(current, withPath));
+
+    // Save files without .path to project uploads dir
+    if (withoutPath.length && projectDir && api?.system?.saveUploadedFile) {
+      for (const file of withoutPath) {
+        const buf = await file.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const savedPath = await api.system.saveUploadedFile({ projectDir, fileName: file.name, base64Data: base64 });
+        if (savedPath) {
+          // Create a synthetic File-like object with .path set
+          const synth = Object.assign(new File([new Uint8Array(buf)], file.name, { type: file.type }), { path: savedPath });
+          setAttachedFiles((current) => mergeComposerAttachments(current, [synth]));
+        } else {
+          setAttachedFiles((current) => mergeComposerAttachments(current, [file]));
+        }
+      }
+    } else if (withoutPath.length) {
+      setAttachedFiles((current) => mergeComposerAttachments(current, withoutPath));
+    }
   };
 
   const handleRemoveAttachment = (attachmentId: string) => {
@@ -3658,6 +3842,11 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       return;
     }
 
+    const confirmed = window.confirm(
+      "Restore checkpoint?\n\nThis will roll back all project files to this point. Any changes made after this checkpoint will be overwritten."
+    );
+    if (!confirmed) return;
+
     try {
       setIsRestoringCheckpoint(true);
       setGenerationError(null);
@@ -3665,11 +3854,45 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         projectId: activeProject.id,
         checkpointId,
       });
+      console.log("[restore] Checkpoint restore complete, syncing workspace...");
+      // Explicitly sync so settings:changed fires with the restored state.
+      // (syncWorkspace only runs on /project mount, not on /project/chat)
+      try {
+        await window.electronAPI.project.syncWorkspace(activeProject.id);
+        console.log("[restore] syncWorkspace complete — UI should reflect restored state");
+      } catch (syncErr) {
+        console.warn("[restore] syncWorkspace failed after restore:", syncErr);
+      }
+      showToast("\u2713 Workspace rolled back");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to restore that checkpoint.";
       setGenerationError(message);
     } finally {
       setIsRestoringCheckpoint(false);
+    }
+  };
+
+  const handleCompactConversation = async () => {
+    if (!window.electronAPI?.project?.compactConversation) {
+      setGenerationError("Compact is only available in the desktop app.");
+      return;
+    }
+    if (isCompacting || isGenerating) return;
+
+    try {
+      setIsCompacting(true);
+      setGenerationError(null);
+      await window.electronAPI.project.compactConversation({
+        projectId: activeProject.id,
+        taskId: taskParam || undefined,
+        threadId: activeTaskThread?.id || undefined,
+      });
+      showToast("\u2713 Conversation compacted");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to compact conversation.";
+      setGenerationError(message);
+    } finally {
+      setIsCompacting(false);
     }
   };
 
@@ -3705,7 +3928,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
     setPendingModelId(null);
     setPendingCheckpointId(null);
     setReplacementSourceMessageId(null);
-    setAgentLiveOutput("");
+    liveResetEvents();
     setAgentLiveStatus("Idle");
     setOtherAgentMeta(null);
     setGeneratingForMeta(null);
@@ -3744,7 +3967,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         setGeneratingForMeta({ taskId: taskContext.task.id, taskName: taskContext.task.title, scope: "task-agent" });
         setOtherAgentMeta(null);
         setGenerationError(null);
-        setAgentLiveOutput("");
+        liveStartStreaming();
         setAgentLiveStatus("Starting agent...");
         setCancelledRun(null);
         setPendingPrompt(trimmedPrompt);
@@ -3763,6 +3986,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
           model: currentModelId,
           attachedFiles: attachmentPaths,
           replaceFromMessageId,
+          approvalMode: composerApprovalMode === "default" ? settingsApprovalMode : composerApprovalMode,
         });
         setEditingMessageId(null);
       } catch (error) {
@@ -3774,8 +3998,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
         setGenerationError(message);
       } finally {
         isGeneratingViaAwaitRef.current = false;
+        await liveFinalize();
         setIsGenerating(false);
-        setAgentLiveOutput("");
+        liveResetEvents();
         setAgentLiveStatus("Idle");
         setPendingPrompt(null);
         setPendingAttachments([]);
@@ -3800,7 +4025,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       setGeneratingForMeta({ scope: "project-manager" });
       setOtherAgentMeta(null);
       setGenerationError(null);
-      setAgentLiveOutput("");
+      liveStartStreaming();
       setAgentLiveStatus("Starting agent...");
       setCancelledRun(null);
       setPendingPrompt(trimmedPrompt);
@@ -3837,9 +4062,10 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
       setGenerationError(message);
     } finally {
       isGeneratingViaAwaitRef.current = false;
+      await liveFinalize();
       setIsGenerating(false);
       setGeneratingForMeta(null);
-      setAgentLiveOutput("");
+      liveResetEvents();
       setAgentLiveStatus("Idle");
       setPendingPrompt(null);
       setPendingAttachments([]);
@@ -3940,13 +4166,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 
   if (!hasConversation && !hasPlan && !isGenerating) {
     return (
-      <div className="flex min-h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-        <ProjectSidebar />
-
+      <div className="flex min-h-full bg-[var(--stage)] text-text">
         <div className="flex min-w-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="orb left-[-4rem] top-20 h-40 w-40 bg-[#9ec5ff]" />
-            <div className="orb bottom-[-2rem] right-10 h-44 w-44 bg-[#f7c87f]" />
             <div className="flex flex-1 items-center justify-center px-6 pb-32 pt-[5.2rem]">
               <div className="relative w-full max-w-[860px] text-center">
                 <div className="app-surface relative overflow-hidden rounded-[2.2rem] px-8 py-10 shadow-[0_24px_80px_rgba(20,16,10,0.08)] dark:shadow-[0_28px_88px_rgba(0,0,0,0.3)]">
@@ -4001,9 +4223,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                     );
                   })()}
                 {generationError ? (
-                  <p className="danger-surface mx-auto mt-6 max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
-                    {generationError}
-                  </p>
+                  <div className="danger-surface mx-auto mt-6 max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
+                    <FormattedLiveOutput text={generationError} />
+                  </div>
                 ) : null}
                 </div>
               </div>
@@ -4031,7 +4253,19 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                   contextMarkdown={contextMarkdown}
                   contextPath={contextPath}
                   contextTitle={`${activeProject.name} project context`}
+                  conversationText={filteredConversation.map((m) => `${m.from}: ${m.text}`).join("\n\n")}
                   onContextEdit={setCustomContextMarkdown}
+                  onCompact={handleCompactConversation}
+                  isCompacting={isCompacting}
+                  approvalMode={composerApprovalMode}
+                  settingsApprovalMode={settingsApprovalMode}
+                  onApprovalModeChange={async (mode) => {
+                    setComposerApprovalMode(mode);
+                    if (mode !== "default") {
+                      setSettingsApprovalMode(mode);
+                      await window.electronAPI?.settings?.update({ projectDefaults: { approvalMode: mode } });
+                    }
+                  }}
                   isDraggingFiles={isDraggingFiles}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
@@ -4047,117 +4281,290 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
   }
 
   return (
-    <div className="flex h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-      <ProjectSidebar />
-
+    <div className="flex h-full text-text">
       <div ref={splitContainerRef} className="flex min-w-0 flex-1 overflow-hidden" data-split-container>
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="orb left-[-4rem] top-24 h-36 w-36 bg-[#9ec5ff]" />
-          <div className="orb bottom-10 right-[-3rem] h-44 w-44 bg-[#f7c87f]" />
-          <div className="relative px-5 pb-2 pt-4 sm:px-6 xl:px-8">
-            <div className="mx-auto w-full max-w-[1040px]">
-              <div ref={taskMenuRef} className="relative">
+          {/* ═══════════════════ HEADER BAR ═══════════════════ */}
+          <div className="relative border-b border-edge/40 px-4 sm:px-5">
+            <div className="mx-auto flex w-full max-w-[1040px] items-center gap-2 py-1.5">
+              {/* Left: back + project name */}
+              <button type="button" onClick={() => router.push("/project")} className="text-[11px] text-text-dim transition hover:text-text-soft">←</button>
+              <span className="text-text-ghost/40">·</span>
+              <span className="text-[12px] font-medium text-text-mid truncate">{activeProject.name}</span>
+
+              {/* Mode tabs inline */}
+              <div className="ml-3 flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => handleNavigateConversation()}
+                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${!taskContext ? "bg-sun/10 text-sun" : "text-text-ghost hover:text-text-dim"}`}
+                >
+                  PM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!taskContext && taskMenuSections.length > 0 && taskMenuSections[0].tasks.length > 0) {
+                      handleNavigateConversation(taskMenuSections[0].tasks[0].id);
+                    } else if (!taskContext) {
+                      setShowTaskMenu(true);
+                    }
+                  }}
+                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${taskContext ? "bg-sun/10 text-sun" : "text-text-ghost hover:text-text-dim"}`}
+                >
+                  Task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/project/code")}
+                  className="rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-ghost transition hover:text-text-dim"
+                >
+                  Free
+                </button>
+              </div>
+
+              {/* IDE quick actions — VS Code / File Explorer / Terminal */}
+              <div className="ml-2 flex items-center gap-1 border-l border-edge/40 pl-2">
+                <button
+                  type="button"
+                  title="Open in VS Code"
+                  onClick={async () => {
+                    if (!activeProject?.repoPath) return;
+                    try { await window.electronAPI?.process?.run?.({ command: `code "${activeProject.repoPath}"`, cwd: activeProject.repoPath }); } catch { /* */ }
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-text-ghost transition hover:bg-stage-up hover:text-text-dim"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5"><path d="M17.5 2.5l4 2v15l-4 2-9-8-5 4-1-.5v-14l1-.5 5 4 9-8zm-2 5l-6 4.5 6 4.5v-9z"/></svg>
+                </button>
+                <button
+                  type="button"
+                  title="Open in File Explorer"
+                  onClick={async () => {
+                    if (!activeProject?.repoPath) return;
+                    try { await window.electronAPI?.process?.run?.({ command: `explorer "${activeProject.repoPath}"`, cwd: activeProject.repoPath }); } catch { /* */ }
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-text-ghost transition hover:bg-stage-up hover:text-text-dim"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5"><path d="M2 4.5A1.5 1.5 0 013.5 3h3.4a1.5 1.5 0 011.06.44l1.1 1.1A1.5 1.5 0 0010.12 5H16.5A1.5 1.5 0 0118 6.5v8A1.5 1.5 0 0116.5 16h-13A1.5 1.5 0 012 14.5v-10z"/></svg>
+                </button>
+                <button
+                  type="button"
+                  title="Open in Terminal"
+                  onClick={async () => {
+                    if (!activeProject?.repoPath) return;
+                    try { await window.electronAPI?.system?.openTerminal?.({ cwd: activeProject.repoPath }); } catch { /* */ }
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-text-ghost transition hover:bg-stage-up hover:text-text-dim"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5"><path d="M2 4a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V4zm3 3.5a.75.75 0 011.06-.02l3 2.75a.75.75 0 010 1.1l-3 2.75a.75.75 0 11-1.02-1.1l2.4-2.2-2.4-2.2A.75.75 0 015 7.5zM10 13h4a.75.75 0 010 1.5h-4A.75.75 0 0110 13z"/></svg>
+                </button>
+              </div>
+
+              {/* Right: task switcher */}
+              <div className="ml-auto flex items-center gap-1" ref={taskMenuRef}>
                 <button
                   ref={taskMenuButtonRef}
                   type="button"
                   onClick={() => setShowTaskMenu((value) => !value)}
-                  className="group flex w-full items-center justify-between gap-3 rounded-[1.2rem] bg-[rgba(255,255,255,0.56)] px-4 py-3 text-left shadow-[0_8px_28px_rgba(20,16,11,0.05)] backdrop-blur-md transition hover:bg-[rgba(255,255,255,0.74)] dark:bg-[rgba(255,255,255,0.04)] dark:shadow-[0_12px_30px_rgba(0,0,0,0.16)] dark:hover:bg-[rgba(255,255,255,0.06)]"
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition ${
+                    showTaskMenu
+                      ? "bg-violet/15 text-violet ring-1 ring-violet/25"
+                      : taskContext
+                        ? "bg-sun/10 text-sun ring-1 ring-sun/20 hover:bg-sun/15"
+                        : "bg-stage-up text-text-dim ring-1 ring-edge hover:bg-stage-up2 hover:text-text-mid"
+                  }`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[17px] font-semibold tracking-[-0.02em] theme-fg sm:text-[19px]">{currentHeaderTitle}</p>
-                  </div>
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-ink/60 transition group-hover:bg-black/[0.06] group-hover:text-ink dark:bg-white/[0.06] dark:text-white/60 dark:group-hover:bg-white/[0.1] dark:group-hover:text-white">
-                    <ChevronDownIcon className={`h-4 w-4 transition ${showTaskMenu ? "rotate-180" : ""}`} />
-                  </span>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 opacity-60">
+                    <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v.793a.5.5 0 01-.146.354l-3.207 3.207a.5.5 0 00-.147.354V11.5a.5.5 0 01-.276.447l-2 1A.5.5 0 017.5 12.5V8.207a.5.5 0 00-.146-.354L4.146 4.646A.5.5 0 014 4.293V3.5z"/>
+                  </svg>
+                  {taskContext ? taskContext.task.title : "All Conversations"}
+                  <ChevronDownIcon className={`h-2.5 w-2.5 transition ${showTaskMenu ? "rotate-180" : ""}`} />
                 </button>
-
-                {showTaskMenu && taskMenuLayout ? (
+                {taskContext ? (
                   <>
+                    {/* Status dropdown */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusMenu((v) => !v)}
+                        title="Change task status"
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] transition ${
+                          taskContext.task.status === "done" ? "bg-mint/15 text-mint ring-1 ring-mint/25 hover:bg-mint/25" :
+                          taskContext.task.status === "building" ? "bg-sun/15 text-sun ring-1 ring-sun/25 hover:bg-sun/25" :
+                          taskContext.task.status === "review" ? "bg-violet/15 text-violet ring-1 ring-violet/25 hover:bg-violet/25" :
+                          "bg-stage-up text-text-dim ring-1 ring-edge hover:bg-stage-up2 hover:text-text-mid"
+                        }`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${
+                          taskContext.task.status === "done" ? "bg-mint" :
+                          taskContext.task.status === "building" ? "bg-sun animate-pulse" :
+                          taskContext.task.status === "review" ? "bg-violet" :
+                          "bg-text-ghost"
+                        }`} />
+                        {taskContext.task.status === "done" ? "Done" : taskContext.task.status === "building" ? "Building" : taskContext.task.status === "review" ? "Review" : "Planned"}
+                        <ChevronDownIcon className={`h-2.5 w-2.5 transition ${showStatusMenu ? "rotate-180" : ""}`} />
+                      </button>
+                      {showStatusMenu ? (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowStatusMenu(false)} />
+                          <div className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border border-edge bg-stage-up shadow-lg">
+                            {(["planned","building","review","done"] as const).map((s) => {
+                              const active = taskContext.task.status === s;
+                              const dotCls = s === "done" ? "bg-mint" : s === "building" ? "bg-sun" : s === "review" ? "bg-violet" : "bg-text-ghost";
+                              return (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={async () => {
+                                    setShowStatusMenu(false);
+                                    const plan = activeProject.dashboard.plan as { buildOrder: unknown; subprojects: Array<{ id: string; tasks: Array<{ id: string; status: string }> }> } | null;
+                                    if (!plan) return;
+                                    const nextPlan = {
+                                      ...plan,
+                                      subprojects: plan.subprojects.map((sp) => ({
+                                        ...sp,
+                                        tasks: sp.tasks.map((t) => (t.id === taskContext.task.id ? { ...t, status: s } : t)),
+                                      })),
+                                    };
+                                    try { await window.electronAPI?.project?.savePlan?.({ projectId: activeProject.id, plan: nextPlan }); } catch { /* */ }
+                                    try {
+                                      window.electronAPI?.p2p?.broadcastStateChange?.({
+                                        projectId: activeProject.id,
+                                        category: "tasks",
+                                        id: taskContext.task.id,
+                                        data: {
+                                          taskId: taskContext.task.id,
+                                          title: taskContext.task.title,
+                                          previousStatus: taskContext.task.status,
+                                          status: s,
+                                          subprojectTitle: taskContext.subproject.title,
+                                          updatedAt: new Date().toISOString(),
+                                        },
+                                      });
+                                    } catch { /* */ }
+                                  }}
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold transition ${active ? "bg-sun/10 text-text-soft" : "text-text-dim hover:bg-stage-up2 hover:text-text-soft"}`}
+                                >
+                                  <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />
+                                  <span className="capitalize flex-1">{s}</span>
+                                  {active ? <span className="text-sun">✓</span> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
-                      aria-label="Close conversations menu"
-                      onClick={() => setShowTaskMenu(false)}
-                      className="fixed inset-0 z-30 bg-transparent"
-                    />
-                    <div
-                      ref={taskMenuPanelRef}
-                      style={{ top: taskMenuLayout.top, left: taskMenuLayout.left, width: taskMenuLayout.width, maxHeight: taskMenuLayout.maxHeight }}
-                      className="fixed z-40 overflow-hidden rounded-[1.6rem] border border-black/[0.08] bg-[rgba(255,252,246,0.99)] shadow-[0_28px_72px_rgba(22,18,12,0.16)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[rgba(24,26,31,0.99)] dark:shadow-[0_32px_84px_rgba(0,0,0,0.34)]"
+                      onClick={() => { if (showRightPane && rightPaneMode === "task-details") { setShowRightPane(false); } else { setShowRightPane(true); setRightPaneMode("task-details"); } }}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition ${
+                        showRightPane && rightPaneMode === "task-details"
+                          ? "bg-violet/15 text-violet ring-1 ring-violet/25"
+                          : "bg-stage-up text-text-dim ring-1 ring-edge hover:bg-stage-up2 hover:text-text-mid"
+                      }`}
+                      title="View task details"
                     >
-                      <div className="border-b border-black/[0.06] px-5 py-4 dark:border-white/[0.08]">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted">Conversations</p>
-                        <p className="mt-2 text-[14px] leading-relaxed theme-muted">Jump between the project manager and every task chat for this project.</p>
-                      </div>
-
-                      <div className="custom-scroll overflow-y-auto px-3 py-3" style={{ maxHeight: taskMenuLayout.maxHeight - 84 }}>
-                        <button
-                          type="button"
-                          onClick={() => handleNavigateConversation()}
-                          className={`mb-3 flex w-full items-center justify-between gap-3 rounded-[1.2rem] border px-4 py-3 text-left transition ${!taskContext ? "border-transparent bg-[linear-gradient(135deg,#0f172a,#2563eb)] text-white shadow-[0_18px_34px_rgba(37,99,235,0.24)]" : "border-black/[0.05] bg-black/[0.02] hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:bg-white/[0.05]"}`}
-                        >
-                          <div className="min-w-0">
-                            <p className={`truncate text-[14px] font-semibold ${!taskContext ? "text-white" : "theme-fg"}`}>Project Manager for {activeProject.name}</p>
-                          </div>
-                          {!taskContext ? <span className="rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/88">Current</span> : null}
-                        </button>
-
-                        {taskMenuSections.map((subproject, subprojectIndex) => (
-                          <div key={subproject.id} className="mb-3 last:mb-0">
-                            <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{subprojectIndex + 1}) {subproject.title}</p>
-                            <div className="space-y-2">
-                              {subproject.tasks.map((task) => {
-                                const isActive = taskContext?.task.id === task.id;
-                                const taskThread = activeProject.dashboard.taskThreads.find((thread) => thread.taskId === task.id);
-                                const hasMessages = (taskThread?.messages?.length ?? 0) > 0;
-                                const statusLabel = isActive
-                                  ? "Current"
-                                  : task.status === "done"
-                                    ? "Done"
-                                    : task.status === "review"
-                                      ? "Review"
-                                      : task.status === "building"
-                                        ? "Building"
-                                        : hasMessages
-                                          ? "Active"
-                                          : "Ready";
-                                const statusClass = isActive
-                                  ? "bg-white/12 text-white/88"
-                                  : task.status === "done"
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/12 dark:text-emerald-200"
-                                    : task.status === "review"
-                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-500/12 dark:text-amber-200"
-                                      : task.status === "building"
-                                        ? "bg-violet-100 text-violet-700 dark:bg-violet-500/12 dark:text-violet-200"
-                                        : hasMessages
-                                          ? "bg-sky-100 text-sky-700 dark:bg-sky-500/12 dark:text-sky-200"
-                                          : "bg-stone-100 text-stone-700 dark:bg-stone-500/12 dark:text-stone-200";
-
-                                return (
-                                  <button
-                                    key={task.id}
-                                    type="button"
-                                    onClick={() => handleNavigateConversation(task.id)}
-                                    className={`flex w-full items-start justify-between gap-3 rounded-[1.2rem] border px-4 py-3 text-left transition ${isActive ? "border-transparent bg-[linear-gradient(135deg,#0f172a,#1d4ed8)] text-white shadow-[0_18px_34px_rgba(29,78,216,0.24)]" : "border-black/[0.05] bg-black/[0.02] hover:bg-black/[0.04] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:bg-white/[0.05]"}`}
-                                  >
-                                    <div className="min-w-0">
-                                      <p className={`truncate text-[14px] font-semibold ${isActive ? "text-white" : "theme-fg"}`}>{task.title}</p>
-                                    </div>
-                                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusClass}`}>
-                                      {statusLabel}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 opacity-60">
+                        <path fillRule="evenodd" d="M4.5 2A2.5 2.5 0 0 0 2 4.5v7A2.5 2.5 0 0 0 4.5 14h7a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 11.5 2h-7ZM4 5.75A.75.75 0 0 1 4.75 5h6.5a.75.75 0 0 1 0 1.5h-6.5A.75.75 0 0 1 4 5.75ZM4.75 7.5a.75.75 0 0 0 0 1.5h6.5a.75.75 0 0 0 0-1.5h-6.5ZM4 10.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
+                      </svg>
+                      Details
+                    </button>
                   </>
                 ) : null}
               </div>
             </div>
           </div>
+
+          {/* ═══════════════════ TASK MENU DROPDOWN ═══════════════════ */}
+          {showTaskMenu && taskMenuLayout ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close conversations menu"
+                onClick={() => setShowTaskMenu(false)}
+                className="fixed inset-0 z-30 bg-transparent"
+              />
+              <div
+                ref={taskMenuPanelRef}
+                style={{ top: taskMenuLayout.top, left: taskMenuLayout.left, width: taskMenuLayout.width, maxHeight: taskMenuLayout.maxHeight }}
+                className="fixed z-40 overflow-hidden rounded-xl border border-edge bg-stage shadow-[0_24px_64px_rgba(0,0,0,0.3)] backdrop-blur-xl"
+              >
+                <div className="border-b border-edge px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-dim">Conversations</p>
+                </div>
+
+                <div className="custom-scroll overflow-y-auto px-2 py-2" style={{ maxHeight: taskMenuLayout.maxHeight - 56 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateConversation()}
+                    className={`mb-2 flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition ${!taskContext ? "bg-sun/10 text-sun ring-1 ring-sun/20" : "text-text-dim hover:bg-stage-up"}`}
+                  >
+                    <p className={`truncate text-[13px] font-semibold ${!taskContext ? "text-sun" : ""}`}>Project Manager</p>
+                    {!taskContext && <span className="rounded-full bg-sun/15 px-2 py-0.5 text-[9px] font-semibold text-sun">Active</span>}
+                  </button>
+
+                  {taskMenuSections.map((subproject, subprojectIndex) => (
+                    <div key={subproject.id} className="mb-3 last:mb-0">
+                      <p className="px-2 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-ghost">{subprojectIndex + 1}) {subproject.title}</p>
+                      <div className="space-y-1">
+                        {subproject.tasks.map((task, taskIndex) => {
+                          const isActive = taskContext?.task.id === task.id;
+                          const isDone = task.status === "done";
+                          const isBuilding = task.status === "building";
+                          const isReview = task.status === "review";
+                          const statusLabel = isActive ? "Active" : isDone ? "Done" : isReview ? "Review" : isBuilding ? "Building" : "Ready";
+                          const statusColor = isDone ? "text-mint" : isBuilding ? "text-sun" : isReview ? "text-violet" : "text-text-ghost";
+                          const statusDot = isDone ? "bg-mint" : isBuilding ? "bg-sun" : isReview ? "bg-violet" : "bg-text-ghost/30";
+                          // Find thread for this task to show message count
+                          const thread = activeProject.dashboard.taskThreads?.find((t) => t.taskId === task.id);
+                          const msgCount = thread ? 1 : 0; // has conversation
+                          return (
+                            <button
+                              key={task.id}
+                              type="button"
+                              onClick={() => handleNavigateConversation(task.id)}
+                              className={`group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition ${isActive ? "bg-sun/10 ring-1 ring-sun/20" : "hover:bg-stage-up"}`}
+                            >
+                              {/* Task number + status dot */}
+                              <div className="flex flex-col items-center gap-1 pt-0.5">
+                                <span className={`text-[10px] font-bold tabular-nums ${isActive ? "text-sun" : "text-text-ghost"}`}>
+                                  {subprojectIndex + 1}.{taskIndex + 1}
+                                </span>
+                                <span className={`h-1.5 w-1.5 rounded-full ${statusDot} ${isBuilding ? "animate-pulse" : ""}`} />
+                              </div>
+
+                              {/* Task info */}
+                              <div className="min-w-0 flex-1">
+                                <p className={`text-[12px] leading-tight ${isActive ? "font-semibold text-sun" : isDone ? "text-text-ghost line-through" : "text-text-dim group-hover:text-text-mid"}`}>
+                                  {task.title}
+                                </p>
+                                {task.note && (
+                                  <p className="mt-0.5 truncate text-[10px] text-text-ghost/60">{task.note}</p>
+                                )}
+                                {/* Collaboration indicators */}
+                                <div className="mt-1 flex items-center gap-2">
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider ${isActive ? "bg-sun/15 text-sun" : isDone ? "bg-mint/10 text-mint" : isBuilding ? "bg-sun/10 text-sun" : "bg-stage-up text-text-ghost"}`}>
+                                    {statusLabel}
+                                  </span>
+                                  {msgCount > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] text-text-ghost">
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 opacity-50"><path d="M1 3.5A1.5 1.5 0 012.5 2h11A1.5 1.5 0 0115 3.5v7a1.5 1.5 0 01-1.5 1.5H8.5l-3.3 2.475A.5.5 0 014.5 14V12h-2A1.5 1.5 0 011 10.5v-7z"/></svg>
+                                      has thread
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : null}
 
           <div ref={conversationRef} className="custom-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-2 sm:px-6 xl:px-8">
             <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-8">
@@ -4226,39 +4633,46 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                           <div className="mb-1.5 flex justify-end">
                             <p className="text-[11px] font-medium theme-muted">{message.from}</p>
                           </div>
-                          <div className="rounded-[1.7rem] rounded-br-[0.6rem] border border-sky-400/30 bg-[linear-gradient(135deg,#1e293b,#0f172a)] px-5 py-4 shadow-[0_18px_36px_rgba(15,23,42,0.22)] dark:border-sky-400/24 dark:shadow-[0_22px_44px_rgba(0,0,0,0.32)]">
+                          <div className="rounded-[1.25rem] rounded-br-[6px] bg-[linear-gradient(135deg,#1a2030,#0f172a)] px-6 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.16)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
                             <textarea
+                              ref={(el) => {
+                                if (el) {
+                                  el.style.height = "auto";
+                                  el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+                                }
+                              }}
                               value={inlineEditText}
-                              onChange={(e) => setInlineEditText(e.target.value)}
+                              onChange={(e) => {
+                                setInlineEditText(e.target.value);
+                                const el = e.target;
+                                el.style.height = "auto";
+                                el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmitInlineEdit(); }
                                 if (e.key === "Escape") handleCancelEdit();
                               }}
-                              rows={Math.min(8, Math.max(2, inlineEditText.split("\n").length))}
-                              className="w-full resize-none bg-transparent text-[15px] leading-[1.65] text-white/96 outline-none placeholder:text-white/40"
+                              className="w-full resize-none bg-transparent text-[15px] leading-[1.75] text-white/95 outline-none placeholder:text-white/30"
+                              style={{ minHeight: "3.3em", maxHeight: "240px", overflow: "auto" }}
                               autoFocus
                             />
                           </div>
-                          <div className="mt-2 flex justify-end gap-2">
-                            <button type="button" onClick={handleCancelEdit} className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] font-semibold text-white/64 transition hover:bg-white/[0.08] hover:text-white">Cancel</button>
-                            <button type="button" onClick={handleSubmitInlineEdit} disabled={!inlineEditText.trim()} className="rounded-full bg-white px-4 py-1.5 text-[11px] font-semibold text-slate-900 shadow-[0_8px_20px_rgba(255,255,255,0.16)] transition hover:-translate-y-[0.5px] hover:shadow-[0_10px_24px_rgba(255,255,255,0.22)] disabled:opacity-50">Resend</button>
+                          <div className="mt-2.5 flex justify-end gap-2">
+                            <button type="button" onClick={handleCancelEdit} className="rounded-full px-3.5 py-1.5 text-[11px] font-medium text-black/50 dark:text-white/50 transition hover:text-black/80 dark:hover:text-white/80">Cancel</button>
+                            <button type="button" onClick={handleSubmitInlineEdit} disabled={!inlineEditText.trim()} className="rounded-full bg-black px-4 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/90 disabled:opacity-40">Resend</button>
                           </div>
                         </div>
                       </div>
                     ) : (
                       <RealProjectChatBubble
                         message={message}
+                        onEdit={message.isMine ? (newText: string) => {
+                          setPrompt(newText);
+                          setEditingMessageId(message.id);
+                          void handleGeneratePlan({ replaceFromMessageId: message.id });
+                        } : undefined}
                         actions={message.isMine ? (
                           <div className="mt-2 flex flex-wrap justify-end gap-2">
-                            {(!taskContext || !String(message.id).startsWith("msg-user-")) ? (
-                              <button
-                                type="button"
-                                onClick={() => handleBeginEditMessage(message)}
-                                className={chatActionButtonClass}
-                              >
-                                Edit prompt
-                              </button>
-                            ) : null}
                             {message.checkpointId ? (
                               <button
                                 type="button"
@@ -4337,15 +4751,13 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                         isMine: true,
                         attachments: cancelledRun.attachments,
                       }}
+                      onEdit={(newText: string) => {
+                        setPrompt(newText);
+                        setCancelledRun(null);
+                        void handleGeneratePlan({ replaceFromMessageId: cancelledRun.messageId });
+                      }}
                       actions={
                         <div className="mt-2 flex flex-wrap justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleBeginEditMessage({ id: cancelledRun.messageId, text: cancelledRun.prompt, attachments: cancelledRun.attachments, modelId: cancelledRun.modelId })}
-                            className={chatActionButtonClass}
-                          >
-                            Edit prompt
-                          </button>
                           {cancelledRun.checkpointId ? (
                             <button
                               type="button"
@@ -4487,9 +4899,15 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                         </span>
                       </div>
                       <div className="app-surface overflow-hidden rounded-[1.45rem] rounded-tl-[0.7rem] shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.2)]">
-                        <pre className="custom-scroll max-h-[280px] min-h-[60px] overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.72] theme-soft whitespace-pre-wrap selection:bg-cyan-500/15">
-                          {stream.tokens.slice(-4000) || <span className="theme-muted italic">Waiting for response...</span>}
-                        </pre>
+                        {stream.tokens && stream.tokens.trim().length > 0 ? (
+                          <ActivityStream
+                            text={stream.tokens}
+                            isStreaming
+                            className="max-h-[480px] min-h-[80px]"
+                          />
+                        ) : (
+                          <div className="px-4 py-3 text-[11.5px] italic theme-muted">Waiting for response...</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4591,62 +5009,103 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                           Thinking
                         </span>
                       </div>
-                      <div className="app-surface overflow-hidden rounded-[1.45rem] shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.2)]">
-                        {/* Header */}
-                        <div className="flex items-center justify-between gap-3 border-b border-black/[0.04] px-4 py-3 dark:border-white/[0.06]">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex gap-[3px]">
-                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" />
-                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" style={{ animationDelay: "0.15s" }} />
-                              <span className="inline-block h-[5px] w-[5px] rounded-full bg-violet-500/50 animate-pulse-soft" style={{ animationDelay: "0.3s" }} />
+                      {/* ─── Modern Streaming Output Panel (VS Code Copilot-inspired) ─── */}
+                      <div className="overflow-hidden rounded-2xl border border-black/[0.06] bg-[var(--stage)] dark:border-white/[0.08]">
+                        {/* Minimal header bar */}
+                        <div className="flex items-center gap-2 px-3.5 py-2 border-b border-black/[0.04] dark:border-white/[0.06]">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className="relative flex h-4 w-4 items-center justify-center">
+                              <span className="absolute h-4 w-4 rounded-full bg-violet-500/20 animate-ping" style={{ animationDuration: "2s" }} />
+                              <span className="relative h-2 w-2 rounded-full bg-violet-500" />
                             </div>
-                            <span className="text-[12px] font-medium theme-soft">{agentLiveStatus === "Idle" ? "Preparing..." : agentLiveStatus}</span>
+                            <span className="truncate text-[12px] font-medium text-violet-600 dark:text-violet-400">
+                              {agentLiveStatus === "Idle" ? "Preparing..." : agentLiveStatus}
+                            </span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               type="button"
                               onClick={() => setThinkingPanelExpanded((v) => !v)}
-                              className="rounded-full p-1.5 text-[11px] theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:hover:bg-white/[0.06]"
+                              className="rounded-md p-1 theme-muted transition hover:bg-black/[0.05] hover:theme-fg dark:hover:bg-white/[0.06]"
                               title={thinkingPanelExpanded ? "Collapse" : "Expand"}
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3.5 w-3.5 transition ${thinkingPanelExpanded ? "rotate-180" : ""}`}>
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3 w-3 transition ${thinkingPanelExpanded ? "rotate-180" : ""}`}>
                                 <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
                               </svg>
                             </button>
                             <button
                               type="button"
                               onClick={() => void handleCancelGeneration()}
-                              className="rounded-full bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-500/18 dark:text-red-400 dark:hover:bg-red-500/20"
+                              className="rounded-md px-2.5 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-500/10 dark:text-red-400"
                             >
                               Stop
                             </button>
                             <button
                               type="button"
                               onClick={() => void handleForceReset()}
-                              className="rounded-full bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-600 transition hover:bg-amber-500/18 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                              className="rounded-md px-2.5 py-1 text-[11px] font-medium text-amber-600 transition hover:bg-amber-500/10 dark:text-amber-400"
                               title="Force-kill the agent and clean up git state"
                             >
-                              Force Reset
+                              Reset
                             </button>
                           </div>
                         </div>
-                        {/* Live output stream */}
+                        {/* Streaming output body */}
                         {thinkingPanelExpanded ? (
-                          <div className="relative">
-                            <pre
-                              ref={thinkingOutputRef}
-                              className="custom-scroll max-h-[280px] min-h-[80px] overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.72] theme-soft selection:bg-violet-500/15"
-                            >
-                              {agentLiveOutput || (
-                                <span className="theme-muted italic">Waiting for model response...</span>
-                              )}
-                            </pre>
-                            {/* Fade-out gradient at top for visual depth */}
-                            <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[var(--surface)] to-transparent opacity-60" />
+                          <div ref={thinkingOutputRef} className="relative bg-[var(--void)]">
+                            <ActivityStream
+                              events={liveEvents}
+                              rawText={liveGetRawText()}
+                              isStreaming={isGenerating}
+                              className="max-h-[480px] min-h-[80px] selection:bg-violet-500/15"
+                              showRawOutput
+                            />
+                            <div className="pointer-events-none absolute inset-x-0 top-0 h-5 bg-gradient-to-b from-[var(--void)] to-transparent" />
+                          </div>
+                        ) : null}
+                        {/* Manual approval banner — shown when agent is waiting for approval */}
+                        {pendingApproval ? (
+                          <div className="border-t border-amber-500/20 bg-amber-500/8 px-3.5 py-2.5 dark:bg-amber-500/6">
+                            <div className="mb-1.5 flex items-center gap-1.5">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5 shrink-0 text-amber-500">
+                                <path fillRule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                              </svg>
+                              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Approval required</span>
+                            </div>
+                            <p className="mb-2 text-[12px] font-medium theme-fg">
+                              <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300">{pendingApproval.toolName}</span>
+                              {pendingApproval.toolInput && Object.keys(pendingApproval.toolInput).length > 0 ? (
+                                <span className="ml-1 text-[11px] theme-muted">
+                                  — {Object.entries(pendingApproval.toolInput).map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`).join(", ")}
+                                </span>
+                              ) : null}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingApproval(null);
+                                  void window.electronAPI?.project?.approveToolCall?.({ approved: true });
+                                }}
+                                className="rounded-md bg-emerald-500/12 px-3 py-1 text-[12px] font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
+                              >
+                                Allow
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingApproval(null);
+                                  void window.electronAPI?.project?.cancelActiveRequest?.();
+                                }}
+                                className="rounded-md bg-red-500/10 px-3 py-1 text-[12px] font-semibold text-red-600 transition hover:bg-red-500/20 dark:text-red-400"
+                              >
+                                Deny
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                         {/* Interrupt input */}
-                        <div className="border-t border-black/[0.04] px-4 py-2.5 dark:border-white/[0.06]">
+                        <div className="border-t border-black/[0.04] px-3.5 py-2 dark:border-white/[0.06]">
                           <div className="flex items-center gap-2">
                             <input
                               value={interruptPrompt}
@@ -4679,9 +5138,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                                   void handleGeneratePlan({ prompt: msg });
                                 });
                               }}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/12 text-violet-600 transition hover:bg-violet-500/20 disabled:opacity-30 dark:text-violet-400"
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-600 transition hover:bg-violet-500/20 disabled:opacity-30 dark:text-violet-400"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
                                 <path d="M2.87 2.298a.75.75 0 0 0-.812.93l1.962 4.856A1.5 1.5 0 0 0 5.419 9.2h3.831a.75.75 0 0 0 0-1.5H5.419l-1.2-2.968 8.086 3.24a.75.75 0 0 0 .024-1.395L2.87 2.298Z" />
                               </svg>
                             </button>
@@ -4694,9 +5153,9 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
               </div>
 
               {generationError ? (
-                <p className="danger-surface max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
-                  {generationError}
-                </p>
+                <div className="danger-surface max-w-xl rounded-[1.15rem] px-4 py-3 text-[12px]">
+                  <FormattedLiveOutput text={generationError} />
+                </div>
               ) : null}
             </div>
           </div>
@@ -4723,7 +5182,19 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 contextMarkdown={contextMarkdown}
                 contextPath={contextPath}
                 contextTitle={taskContext ? `${taskContext.task.title} context` : `${activeProject.name} project context`}
+                conversationText={filteredConversation.map((m) => `${m.from}: ${m.text}`).join("\n\n")}
                 onContextEdit={setCustomContextMarkdown}
+                onCompact={handleCompactConversation}
+                isCompacting={isCompacting}
+                approvalMode={composerApprovalMode}
+                settingsApprovalMode={settingsApprovalMode}
+                onApprovalModeChange={async (mode) => {
+                  setComposerApprovalMode(mode);
+                  if (mode !== "default") {
+                    setSettingsApprovalMode(mode);
+                    await window.electronAPI?.settings?.update({ projectDefaults: { approvalMode: mode } });
+                  }
+                }}
                 taskAutomation={taskContext ? {
                   message: taskAutomationMessage,
                   noticeTone: taskAutomationNotice?.tone,
@@ -4770,7 +5241,7 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 <div className="app-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.8rem] shadow-[0_20px_52px_rgba(20,16,10,0.08)] dark:shadow-[0_24px_60px_rgba(0,0,0,0.26)]">
             <div className="flex items-center gap-3 border-b border-black/[0.06] px-4 py-4 dark:border-white/[0.08]">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : "Response details"}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : rightPaneMode === "task-details" ? "Task details" : "Response details"}</p>
                 <p className="mt-1 truncate text-[14px] font-semibold theme-fg">{taskContext ? taskContext.task.title : activeProject.name}</p>
               </div>
               <div className="app-control-rail ml-auto flex gap-1 rounded-full p-1">
@@ -4783,18 +5254,20 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRightPaneMode("details")}
-                  className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "details" ? "app-control-active" : "app-control-idle"}`}
-                >
-                  Details
-                </button>
-                <button
-                  type="button"
                   onClick={() => { setRightPaneMode("terminal"); }}
                   className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "terminal" ? "app-control-active" : "app-control-idle"}`}
                 >
                   Terminal
                 </button>
+                {taskContext ? (
+                  <button
+                    type="button"
+                    onClick={() => setRightPaneMode("task-details")}
+                    className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${rightPaneMode === "task-details" ? "app-control-active" : "app-control-idle"}`}
+                  >
+                    Task
+                  </button>
+                ) : null}
               </div>
               {rightPaneMode === "preview" && previewReady && (previewMode === "terminal" || detectedPreviewUrl) ? (
                 <>
@@ -4973,10 +5446,152 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                   </div>
                 </div>
               </div>
+            ) : rightPaneMode === "task-details" && taskContext ? (
+              <div className="flex-1 overflow-y-auto custom-scroll px-5 py-4">
+                <div className="space-y-4">
+                  <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Task</p>
+                    <h3 className="mt-1.5 text-[16px] font-semibold theme-fg">{taskContext.task.title}</h3>
+                    <p className="mt-1 text-[11px] theme-muted">{taskContext.subproject.title}</p>
+                  </div>
+
+                  {/* Editable status */}
+                  <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Status</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(["planned","building","review","done"] as const).map((s) => {
+                        const active = taskContext.task.status === s;
+                        const dotCls = s === "done" ? "bg-emerald-500" : s === "building" ? "bg-amber-500" : s === "review" ? "bg-violet-500" : "bg-neutral-400";
+                        return (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={async () => {
+                              const plan = activeProject.dashboard.plan as { buildOrder: unknown; subprojects: Array<{ id: string; tasks: Array<{ id: string; status: string }> }> } | null;
+                              if (!plan) return;
+                              const nextPlan = {
+                                ...plan,
+                                subprojects: plan.subprojects.map((sp) => ({
+                                  ...sp,
+                                  tasks: sp.tasks.map((t) => (t.id === taskContext.task.id ? { ...t, status: s } : t)),
+                                })),
+                              };
+                              try { await window.electronAPI?.project?.savePlan?.({ projectId: activeProject.id, plan: nextPlan }); } catch { /* */ }
+                              try {
+                                window.electronAPI?.p2p?.broadcastStateChange?.({
+                                  projectId: activeProject.id,
+                                  category: "tasks",
+                                  id: taskContext.task.id,
+                                  data: { taskId: taskContext.task.id, title: taskContext.task.title, previousStatus: taskContext.task.status, status: s, subprojectTitle: taskContext.subproject.title, updatedAt: new Date().toISOString() },
+                                });
+                              } catch { /* */ }
+                            }}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${active ? "app-control-active ring-1 ring-black/[0.06] dark:ring-white/[0.08]" : "app-control-idle hover:bg-[var(--app-control-hover)]"}`}
+                          >
+                            <span className={`h-2 w-2 rounded-full ${dotCls} ${s === "building" && active ? "animate-pulse" : ""}`} />
+                            <span className="capitalize">{s}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Editable assignee */}
+                  <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Assignee</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(() => {
+                        const planForRoster = activeProject.dashboard.plan as { subprojects: Array<{ agentName?: string; tasks: Array<{ owner?: string }> }> } | null;
+                        const me = (displayName || "You").trim();
+                        const roster: Array<{ name: string; initials: string }> = [
+                          { name: me, initials: me.slice(0, 2).toUpperCase() },
+                          { name: "Project Manager", initials: "PM" },
+                        ];
+                        const seen = new Set(roster.map((r) => r.name.toLowerCase()));
+                        if (planForRoster) {
+                          for (const sp of planForRoster.subprojects) {
+                            const spA = (sp.agentName || "").trim();
+                            if (spA && !seen.has(spA.toLowerCase())) {
+                              seen.add(spA.toLowerCase());
+                              roster.push({ name: spA, initials: spA.slice(0, 2).toUpperCase() });
+                            }
+                            for (const t of sp.tasks) {
+                              const o = (t.owner || "").trim();
+                              if (!o || seen.has(o.toLowerCase())) continue;
+                              seen.add(o.toLowerCase());
+                              roster.push({ name: o, initials: o.slice(0, 2).toUpperCase() });
+                            }
+                          }
+                        }
+                        return roster;
+                      })().map((person) => {
+                        const active = (taskContext.task.owner || "") === person.name;
+                        return (
+                          <button
+                            key={person.name}
+                            type="button"
+                            onClick={async () => {
+                              const plan = activeProject.dashboard.plan as { buildOrder: unknown; subprojects: Array<{ id: string; tasks: Array<{ id: string; owner?: string }> }> } | null;
+                              if (!plan) return;
+                              const nextPlan = {
+                                ...plan,
+                                subprojects: plan.subprojects.map((sp) => ({
+                                  ...sp,
+                                  tasks: sp.tasks.map((t) => (t.id === taskContext.task.id ? { ...t, owner: person.name } : t)),
+                                })),
+                              };
+                              try { await window.electronAPI?.project?.savePlan?.({ projectId: activeProject.id, plan: nextPlan }); } catch { /* */ }
+                            }}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${active ? "app-control-active ring-1 ring-black/[0.06] dark:ring-white/[0.08]" : "app-control-idle hover:bg-[var(--app-control-hover)]"}`}
+                          >
+                            <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold ${active ? "bg-black/[0.08] dark:bg-white/[0.12]" : "bg-black/[0.05] dark:bg-white/[0.08]"}`}>{person.initials}</span>
+                            {person.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Editable note */}
+                  <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Notes</p>
+                    <textarea
+                      defaultValue={taskContext.task.note || ""}
+                      placeholder="Add a note for this task..."
+                      rows={3}
+                      onBlur={async (e) => {
+                        const nextNote = e.target.value;
+                        if (nextNote === (taskContext.task.note || "")) return;
+                        const plan = activeProject.dashboard.plan as { buildOrder: unknown; subprojects: Array<{ id: string; tasks: Array<{ id: string; note?: string }> }> } | null;
+                        if (!plan) return;
+                        const nextPlan = {
+                          ...plan,
+                          subprojects: plan.subprojects.map((sp) => ({
+                            ...sp,
+                            tasks: sp.tasks.map((t) => (t.id === taskContext.task.id ? { ...t, note: nextNote } : t)),
+                          })),
+                        };
+                        try { await window.electronAPI?.project?.savePlan?.({ projectId: activeProject.id, plan: nextPlan }); } catch { /* */ }
+                      }}
+                      className="mt-2 w-full resize-none rounded-lg bg-black/[0.04] px-3 py-2 text-[13px] leading-[1.6] theme-fg outline-none ring-1 ring-black/[0.04] transition focus:ring-violet-500/40 dark:bg-white/[0.04] dark:ring-white/[0.06]"
+                    />
+                    <p className="mt-1.5 text-[10px] theme-muted">Changes save automatically when you click away.</p>
+                  </div>
+
+                  {taskContext.task.startingPrompt ? (
+                    <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">Starting prompt</p>
+                      <p className="mt-2 text-[13px] leading-[1.7] theme-soft whitespace-pre-wrap">{taskContext.task.startingPrompt}</p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             ) : (
               <div className="flex-1 overflow-y-auto custom-scroll px-5 py-4">
                 {rightPaneResponseText ? (
-                  <div className="app-surface-soft space-y-3 rounded-[1.45rem] px-5 py-4 text-[14px] leading-[1.7] theme-fg">{renderChatMessageBody(rightPaneResponseText, "assistant")}</div>
+                  <div className="app-surface-soft rounded-[1.45rem] px-5 py-4">
+                    <RunSummaryCard text={rightPaneResponseText} />
+                  </div>
                 ) : (
                   <p className="text-[13px] theme-muted">Click &ldquo;Details&rdquo; on any AI response to see the full text here.</p>
                 )}
@@ -5081,6 +5696,15 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
           </div>
         </div>
       ) : null}
+
+      {/* Toast notification */}
+      {toast ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-8 z-[9999] flex justify-center">
+          <div className="pointer-events-auto animate-in slide-in-from-bottom-4 rounded-2xl bg-[#111214] px-5 py-3 text-[13px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.25)] ring-1 ring-white/[0.08]">
+            {toast}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -5088,9 +5712,11 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
 function RealProjectChatBubble({
   message,
   actions,
+  onEdit,
 }: {
   message: RealProjectConversationMessage;
   actions?: ReactNode;
+  onEdit?: (newText: string) => void;
 }) {
   // Peer user messages should show as left-aligned (not "mine") on the receiving machine
   const isEffectivelyMine = message.isMine && !(message as any).fromPeer;
@@ -5098,23 +5724,14 @@ function RealProjectChatBubble({
   if (isEffectivelyMine) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] xl:max-w-[74%]">
-          <div className="mb-2 flex items-center justify-end gap-2">
-            <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted dark:bg-white/[0.06]">You</span>
-            <p className="text-[11px] font-medium theme-muted">{message.time}</p>
-          </div>
-          <div className="rounded-[1.75rem] rounded-br-[0.65rem] border border-slate-900/10 bg-[linear-gradient(135deg,#1e293b,#0f172a)] px-5 py-4 text-white shadow-[0_18px_34px_rgba(15,23,42,0.18)] dark:border-white/[0.08] dark:shadow-[0_22px_42px_rgba(0,0,0,0.3)]">
-            {message.attachments?.length ? (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {message.attachments.map((attachment) => (
-                  <span key={attachment} className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white/78 backdrop-blur-sm">
-                    {attachment.split(/[/\\]/).pop() || attachment}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <div className="space-y-3 text-[14px] leading-[1.65] text-white/96">{renderChatMessageBody(message.text, "user")}</div>
-          </div>
+        <div className="max-w-[72%]">
+          <PromptCard
+            text={message.text}
+            sender="You"
+            time={message.time}
+            attachments={message.attachments}
+            onEdit={onEdit}
+          />
           {actions}
         </div>
       </div>
@@ -5123,34 +5740,40 @@ function RealProjectChatBubble({
 
   const isPeerMessage = (message as any).fromPeer;
   const peerDisplayName = isPeerMessage ? ((message as any).peerName || "Peer") : null;
-  const avatarBg = isPeerMessage && !message.isAI ? "bg-cyan-600" : "bg-[#1f2937]";
-  const avatarText = isPeerMessage && !message.isAI
-    ? (peerDisplayName || "P").slice(0, 2).toUpperCase()
-    : "✦";
+
+  // Parse agent activity lines from AI messages (VS Code-style)
+  const activityLines = message.isAI ? parseAgentActivity(message.text) : null;
 
   return (
-    <div className="flex items-start gap-3">
-      <div className="avatar-ring shrink-0">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-full ${avatarBg} text-[11px] font-bold text-white dark:${isPeerMessage ? avatarBg : "bg-[#f2efe8] dark:text-[#17181b]"}`}>
-          {avatarText}
-        </div>
-      </div>
-      <div className="max-w-[84%] xl:max-w-[78%]">
+    <div className="flex items-start gap-0">
+      <div className="max-w-[85%]">
         <div className="mb-1.5 flex items-center gap-2">
-          <p className="text-[11px] font-medium theme-fg">{isPeerMessage && !message.isAI ? peerDisplayName : message.from}</p>
-          {isPeerMessage && (
-            <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-600 dark:text-cyan-400">
-              {message.isAI ? `via ${peerDisplayName}` : "Peer"}
+          {isPeerMessage && !message.isAI ? (
+            <>
+              <span className="text-[9.5px] font-semibold uppercase tracking-[0.08em] theme-muted">{peerDisplayName}</span>
+              <span className="rounded-full bg-aqua/10 px-1.5 py-0.5 text-[8.5px] font-semibold text-aqua">Peer</span>
+            </>
+          ) : isPeerMessage && message.isAI ? (
+            <>
+              <span className="text-[9.5px] font-semibold uppercase tracking-[0.08em] theme-muted">{message.from}</span>
+              <span className="rounded-full bg-aqua/10 px-1.5 py-0.5 text-[8.5px] font-semibold text-aqua">via {peerDisplayName}</span>
+            </>
+          ) : (
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.08em] theme-muted">{message.from}</span>
+          )}
+          <span className="text-[9px] theme-muted opacity-35">{message.time}</span>
+          {message.isAI && message.modelId && message.modelId !== "auto" && (
+            <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[8px] font-medium theme-muted opacity-60">
+              {message.provider === "claude" ? "Claude" : message.provider === "codex" ? "Codex" : "Copilot"}
+              {" "}{message.modelId}
             </span>
           )}
-          <span className="text-[11px] theme-muted">{message.time}</span>
         </div>
-        <div className="app-surface rounded-[1.6rem] rounded-tl-[0.7rem] px-5 py-4 shadow-[0_16px_38px_rgba(20,16,10,0.05)] dark:shadow-[0_20px_44px_rgba(0,0,0,0.22)]">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted dark:bg-white/[0.06]">{message.isAI ? "Assistant" : peerDisplayName || message.from}</span>
-          </div>
-          <div className="space-y-3 theme-fg">{renderChatMessageBody(message.text, message.isAI ? "assistant" : "user")}</div>
-        </div>
+        {message.isAI ? (
+          <RunSummaryCard text={message.text} />
+        ) : (
+          <PromptCard text={message.text} showEdit={false} />
+        )}
         {actions ? <div className="mt-2">{actions}</div> : null}
       </div>
     </div>
@@ -5177,7 +5800,14 @@ function RealProjectComposer({
   contextMarkdown,
   contextPath,
   contextTitle,
+  conversationText = "",
   onContextEdit,
+  onCompact,
+  isCompacting: isCompactingProp,
+  approvalMode = "default",
+  settingsApprovalMode = "auto",
+  onApprovalModeChange,
+  activeProvider,
   taskAutomation,
   isDraggingFiles,
   onDragOver,
@@ -5204,7 +5834,14 @@ function RealProjectComposer({
   contextMarkdown: string;
   contextPath: string;
   contextTitle: string;
+  conversationText?: string;
   onContextEdit?: (newContext: string) => void;
+  onCompact?: () => void;
+  isCompacting?: boolean;
+  approvalMode?: "default" | "auto" | "manual";
+  settingsApprovalMode?: "auto" | "manual";
+  onApprovalModeChange?: (mode: "default" | "auto" | "manual") => void;
+  activeProvider?: string;
   taskAutomation?: {
     message: string;
     noticeTone?: "info" | "success";
@@ -5229,6 +5866,22 @@ function RealProjectComposer({
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const contextPanelRef = useRef<HTMLDivElement | null>(null);
+  const approvalMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const handleOpenFilePicker = async () => {
+    const api = typeof window !== "undefined" ? (window as { electronAPI?: { system?: { openFiles?: () => Promise<string[]> } } }).electronAPI : null;
+    if (api?.system?.openFiles) {
+      const paths = await api.system.openFiles();
+      if (paths.length > 0) {
+        const files = paths.map((p) => Object.assign(new File([], p.split(/[/\\]/).pop() || p), { path: p }));
+        onAttachFiles(files);
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+  const [showApprovalMenu, setShowApprovalMenu] = useState(false);
+  const [approvalMenuPos, setApprovalMenuPos] = useState<{ left: number; bottom: number } | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showContextPanel, setShowContextPanel] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
@@ -5236,10 +5889,32 @@ function RealProjectComposer({
   const [editingContext, setEditingContext] = useState(false);
   const [editedContext, setEditedContext] = useState("");
   const [chatMode, setChatMode] = useState<"agent" | "ask" | "plan">("agent");
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
 
   const cs = catalogs ?? { copilot: DEFAULT_copilotModels, claude: DEFAULT_claudeModels, codex: DEFAULT_codexModels };
   const enabledProviderCount = [!!featureFlags?.githubCopilotCli, !!featureFlags?.claudeCode, !!featureFlags?.codexCli].filter(Boolean).length;
   const hasMultipleProviders = enabledProviderCount > 1;
+
+  // Local data URL cache for image attachments (avoids CSP file:// block)
+  const [imgDataUrls, setImgDataUrls] = useState<Map<string, string>>(new Map());
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? (window as { electronAPI?: { system?: { readFileAsDataUrl?: (p: string) => Promise<string | null> } } }).electronAPI : null;
+    if (!api?.system?.readFileAsDataUrl) return;
+    const toLoad = attachedFiles.filter((a) => a.path && /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(a.label) && !imgDataUrls.has(a.id));
+    if (toLoad.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const a of toLoad) {
+        if (cancelled || !a.path) continue;
+        const url = await api.system!.readFileAsDataUrl!(a.path);
+        if (url && !cancelled) setImgDataUrls((prev) => { const m = new Map(prev); m.set(a.id, url); return m; });
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachedFiles]);
   const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">(() => {
     if (cs.claude.some((m) => m.id === selectedModel)) return "claude";
     if (cs.codex.some((m) => m.id === selectedModel)) return "codex";
@@ -5247,11 +5922,44 @@ function RealProjectComposer({
   });
 
   const selectedModelMeta = getModelCatalogEntry(selectedModel, modelCatalog);
-  const estimatedTokens = estimateTokens([contextMarkdown, value].filter(Boolean).join("\n"));
+  // Real-time context window accounting (approximates VS Code's breakdown).
+  // We use a ~4 chars-per-token heuristic. It is intentionally conservative so
+  // users see a slightly high reading rather than being surprised by a hard
+  // cut-off from the provider.
+  const TOOL_DEFINITIONS_TOKENS = 3200; // fixed overhead for tool schemas sent to the model
+  const systemTokens = estimateTokens(contextMarkdown);
+  const messagesTokens = estimateTokens(conversationText);
+  const draftTokens = estimateTokens(value);
+  const toolDefsTokens = TOOL_DEFINITIONS_TOKENS;
+  const estimatedTokens = systemTokens + messagesTokens + draftTokens + toolDefsTokens;
   const maxTokens = selectedModelMeta.maxTokens;
   const tokenPercent = Math.min(100, Math.round((estimatedTokens / maxTokens) * 100));
   const tokenLabel = `${formatTokenCount(estimatedTokens)} / ${selectedModelMeta.contextWindow}`;
   const contextPreview = contextMarkdown.trim().split(/\r?\n/).slice(0, 14).join("\n");
+  // Colour-code the indicator:
+  //   < 50%  → subtle / default
+  //   50–80% → amber "getting full" warning
+  //   ≥ 80%  → red "compact now" warning
+  const contextSeverity: "normal" | "warn" | "danger" =
+    tokenPercent >= 80 ? "danger" : tokenPercent >= 50 ? "warn" : "normal";
+  const contextBarColor =
+    contextSeverity === "danger" ? "#ef4444" :
+    contextSeverity === "warn" ? "#f59e0b" :
+    "#0078d4";
+  const contextPillClass =
+    contextSeverity === "danger"
+      ? "bg-red-500/15 text-red-600 dark:text-red-400 ring-1 ring-red-500/25"
+      : contextSeverity === "warn"
+        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/25"
+        : "bg-black/[0.04] theme-muted dark:bg-white/[0.06]";
+  const contextPercentOf = (n: number) => Math.min(100, Math.round((n / maxTokens) * 1000) / 10);
+  const bucket = (label: string, tokens: number) => ({ label, tokens, pct: contextPercentOf(tokens) });
+  const contextBreakdown = [
+    bucket("System Instructions", systemTokens),
+    bucket("Tool Definitions", toolDefsTokens),
+    bucket("Messages", messagesTokens),
+    bucket("Draft", draftTokens),
+  ];
   const filteredModels = modelCatalog.filter((entry) => {
     const haystack = `${entry.label} ${entry.provider} ${entry.id}`.toLowerCase();
     const matchesSearch = haystack.includes(modelSearch.trim().toLowerCase());
@@ -5276,7 +5984,7 @@ function RealProjectComposer({
   }, [value]);
 
   useEffect(() => {
-    if (!showModelMenu && !showContextPanel) {
+    if (!showModelMenu && !showContextPanel && !showApprovalMenu) {
       return;
     }
 
@@ -5286,18 +5994,23 @@ function RealProjectComposer({
       if (modelMenuRef.current?.contains(target) || contextPanelRef.current?.contains(target) || modelButtonRef.current?.contains(target)) {
         return;
       }
+      if (approvalMenuRef.current?.contains(target)) {
+        return;
+      }
 
       setShowModelMenu(false);
       setShowContextPanel(false);
+      setShowApprovalMenu(false);
     };
 
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, [showContextPanel, showModelMenu]);
+  }, [showContextPanel, showModelMenu, showApprovalMenu]);
 
   return (
+    <>
     <div
-      className={`relative overflow-hidden rounded-2xl bg-[rgba(245,241,234,0.7)] backdrop-blur-xl transition dark:bg-[rgba(28,30,36,0.6)] ${isDraggingFiles ? "ring-2 ring-sky-400/60" : ""}`}
+      className={`relative overflow-hidden rounded-[1.25rem] transition ${isDraggingFiles ? "ring-2 ring-sky-400/60" : ""}`}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -5319,92 +6032,136 @@ function RealProjectComposer({
         className="hidden"
       />
 
-      <div className="px-3 pb-3 pt-3">
+      <div className="px-2 pb-2 pt-2">
         <div className="relative">
           {showContextPanel ? (
-            <div ref={contextPanelRef} className="app-surface mb-3 overflow-hidden rounded-[1.3rem] shadow-[0_18px_42px_rgba(18,14,10,0.12)] dark:shadow-[0_20px_48px_rgba(0,0,0,0.28)]">
-              <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold theme-fg">Context</p>
-                  <p className="truncate text-[10px] theme-muted">{contextTitle}</p>
+            <div ref={contextPanelRef} className="app-surface mb-3 overflow-hidden rounded-[1.1rem] shadow-[0_14px_34px_rgba(18,14,10,0.1)] dark:shadow-[0_16px_36px_rgba(0,0,0,0.26)]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-[11.5px] font-semibold theme-fg">Context Window</p>
+                  <span className="truncate text-[10px] theme-muted">· {contextTitle}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowContextPanel(false)}
-                  className="app-control-rail rounded-full p-1.5 transition"
-                >
-                  <CloseSmallIcon />
-                </button>
-              </div>
-              <div className="relative h-1 bg-black/[0.06] dark:bg-white/[0.08]">
-                <div className="absolute inset-y-0 left-0 bg-[#0078d4] transition-all" style={{ width: `${tokenPercent}%` }} />
-              </div>
-              <div className="grid gap-3 px-4 py-3 text-[11px]">
-                <div className="rounded-[1rem] bg-black/[0.03] px-3 py-3 dark:bg-white/[0.04]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold theme-fg">Source</p>
-                    <p className="text-[10px] theme-muted">{tokenLabel}</p>
-                  </div>
-                  {contextPath ? <p className="mt-1.5 break-all text-[10px] leading-relaxed theme-muted">{contextPath}</p> : null}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10.5px] theme-muted tabular-nums">{tokenLabel}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${contextPillClass}`}>{tokenPercent}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowContextPanel(false)}
+                    className="app-control-rail rounded-full p-1 transition"
+                    aria-label="Close context panel"
+                  >
+                    <CloseSmallIcon />
+                  </button>
                 </div>
-                <div className="rounded-[1rem] bg-black/[0.03] px-3 py-3 dark:bg-white/[0.04]">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold theme-fg">Preview</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[10px] theme-muted">{tokenPercent}% of window</p>
-                      {!editingContext ? (
-                        <button
-                          type="button"
-                          onClick={() => { setEditingContext(true); setEditedContext(contextMarkdown); }}
-                          className="rounded-lg bg-violet-500/10 px-2 py-1 text-[10px] font-semibold text-violet-400 transition hover:bg-violet-500/20"
-                        >
-                          Edit
-                        </button>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setEditingContext(false)}
-                            className="rounded-lg bg-black/[0.04] px-2 py-1 text-[10px] font-semibold theme-muted transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onContextEdit) onContextEdit(editedContext);
-                              setEditingContext(false);
-                            }}
-                            className="rounded-lg bg-[#0078d4] px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-[#006cbf]"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      )}
-                    </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="relative h-1.5 bg-black/[0.06] dark:bg-white/[0.08]">
+                <div
+                  className="absolute inset-y-0 left-0 transition-all"
+                  style={{ width: `${tokenPercent}%`, background: contextBarColor }}
+                />
+              </div>
+
+              {/* Reserved hint + warning */}
+              <div className="px-3.5 pt-2 pb-1">
+                <p className="flex items-center gap-1.5 text-[10px] theme-muted">
+                  <span className="inline-block h-2 w-2 rounded-sm bg-gradient-to-br from-black/20 to-black/5 dark:from-white/25 dark:to-white/5" />
+                  Reserved for response
+                </p>
+                {contextSeverity !== "normal" ? (
+                  <p className={`mt-1.5 rounded-md px-2 py-1 text-[10.5px] font-medium ${contextSeverity === "danger" ? "bg-red-500/10 text-red-600 dark:text-red-300" : "bg-amber-500/10 text-amber-700 dark:text-amber-300"}`}>
+                    {contextSeverity === "danger"
+                      ? "Context is nearly full. Compact the conversation to avoid hitting rate limits."
+                      : "Context is getting full. Consider compacting the conversation."}
+                  </p>
+                ) : null}
+              </div>
+
+              {/* Breakdown */}
+              <div className="grid gap-0.5 px-3.5 pb-2 text-[11px]">
+                {contextBreakdown.map((b) => (
+                  <div key={b.label} className="flex items-center justify-between">
+                    <span className="theme-muted">{b.label}</span>
+                    <span className="theme-fg tabular-nums">{b.pct.toFixed(1)}%</span>
                   </div>
+                ))}
+              </div>
+
+              {/* Collapsible system prompt */}
+              <details className="group border-t border-black/[0.06] dark:border-white/[0.08]">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3.5 py-2 text-[10.5px] theme-muted transition hover:theme-fg">
+                  <span className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 transition group-open:rotate-90">
+                      <path fillRule="evenodd" d="M6 4a.75.75 0 0 1 .53.22l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 1 1-1.06-1.06L8.94 9 5.47 5.53A.75.75 0 0 1 6 4.25Z" clipRule="evenodd" />
+                    </svg>
+                    System prompt
+                    {contextPath ? <span className="truncate text-[9.5px] opacity-70">· {contextPath}</span> : null}
+                  </span>
+                  {!editingContext ? (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingContext(true); setEditedContext(contextMarkdown); }}
+                      className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-500 transition hover:bg-violet-500/20"
+                    >
+                      Edit
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingContext(false); }}
+                        className="rounded-md bg-black/[0.04] px-2 py-0.5 text-[10px] font-semibold theme-muted transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (onContextEdit) onContextEdit(editedContext); setEditingContext(false); }}
+                        className="rounded-md bg-[#0078d4] px-2 py-0.5 text-[10px] font-semibold text-white transition hover:bg-[#006cbf]"
+                      >
+                        Save
+                      </button>
+                    </span>
+                  )}
+                </summary>
+                <div className="px-3.5 pb-3">
                   {editingContext ? (
                     <textarea
                       value={editedContext}
                       onChange={(e) => setEditedContext(e.target.value)}
-                      className="custom-scroll w-full min-h-[180px] max-h-[320px] resize-y overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/[0.03] p-2 font-mono text-[10.5px] leading-6 theme-soft outline-none ring-1 ring-violet-500/30 focus:ring-violet-500/50 dark:bg-white/[0.03]"
+                      className="custom-scroll w-full min-h-[160px] max-h-[280px] resize-y overflow-y-auto whitespace-pre-wrap rounded-md bg-black/[0.03] p-2 font-mono text-[10.5px] leading-6 theme-soft outline-none ring-1 ring-violet-500/30 focus:ring-violet-500/50 dark:bg-white/[0.03]"
                     />
                   ) : (
-                    <pre className="custom-scroll max-h-[180px] overflow-y-auto whitespace-pre-wrap text-[10.5px] leading-6 theme-soft">{contextPreview || "No context loaded yet."}</pre>
+                    <pre className="custom-scroll max-h-[160px] overflow-y-auto whitespace-pre-wrap rounded-md bg-black/[0.02] px-2 py-1.5 text-[10.5px] leading-5 theme-soft dark:bg-white/[0.03]">{contextPreview || "No context loaded yet."}</pre>
                   )}
                 </div>
-              </div>
+              </details>
+
+              {onCompact ? (
+                <div className="border-t border-black/[0.06] px-3.5 py-2 dark:border-white/[0.08]">
+                  <button
+                    type="button"
+                    onClick={() => void onCompact()}
+                    disabled={isCompactingProp}
+                    className={`w-full rounded-md px-3 py-2 text-[11px] font-semibold transition disabled:opacity-40 ${contextSeverity === "danger" ? "bg-red-500 text-white hover:bg-red-600" : contextSeverity === "warn" ? "bg-amber-500 text-white hover:bg-amber-600" : "bg-black/[0.04] theme-fg hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"}`}
+                  >
+                    {isCompactingProp ? "Compacting\u2026" : "Compact Conversation"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
-          <div className="rounded-[1.45rem] border border-black/[0.06] bg-[rgba(255,255,255,0.56)] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:border-white/[0.08] dark:bg-[rgba(255,255,255,0.03)]">
-            <div className="flex items-start gap-2.5">
+          <div className="rounded-xl bg-white dark:bg-white/[0.04] ring-1 ring-black/[0.06] dark:ring-white/[0.07] shadow-[0_1px_4px_rgba(0,0,0,0.03)] dark:shadow-[0_1px_4px_rgba(0,0,0,0.1)] px-3 py-2">
+            <div className="flex items-start gap-2">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="app-control-rail flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition"
+                onClick={handleOpenFilePicker}
+                className="app-control-rail flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                   <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
                 </svg>
               </button>
@@ -5417,23 +6174,34 @@ function RealProjectComposer({
                   onKeyDown={onKeyDown}
                   rows={1}
                   placeholder={placeholder}
-                  className="min-h-[3rem] w-full resize-none overflow-y-hidden bg-transparent text-[15px] leading-[1.68] text-ink placeholder:text-ink-muted/45 outline-none dark:text-[var(--fg)] dark:placeholder:text-[var(--muted)]"
+                  className="min-h-[2rem] w-full resize-none overflow-y-hidden bg-transparent text-[13px] leading-[1.5] text-ink placeholder:text-ink-muted/40 outline-none dark:text-[var(--fg)] dark:placeholder:text-[var(--muted)]"
                 />
 
                 {attachedFiles.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {attachedFiles.map((attachment) => (
-                      <span key={attachment.id} className="inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-3 py-1.5 text-[11px] font-medium theme-fg dark:bg-white/[0.07]">
-                        <span>{attachment.label}</span>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveAttachment(attachment.id)}
-                          className="rounded-full text-ink-muted transition hover:text-ink dark:hover:text-white"
+                  {attachedFiles.map((attachment) => {
+                      const isImg = /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(attachment.label);
+                      const imgSrc = isImg ? (imgDataUrls.get(attachment.id) ?? attachment.dataUrl ?? null) : null;
+                      return (
+                        <span
+                          key={attachment.id}
+                          className="inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-2 py-1 text-[11px] font-medium theme-fg dark:bg-white/[0.07] cursor-pointer hover:bg-black/[0.08] dark:hover:bg-white/[0.1]"
+                          onClick={() => { if (isImg && imgSrc) setLightboxSrc(imgSrc); }}
                         >
-                          <CloseSmallIcon className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
+                          {imgSrc ? (
+                            <img src={imgSrc} alt="" className="h-5 w-5 rounded object-cover" />
+                          ) : null}
+                          <span>{attachment.label}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onRemoveAttachment(attachment.id); }}
+                            className="rounded-full text-ink-muted transition hover:text-ink dark:hover:text-white"
+                          >
+                            <CloseSmallIcon className="h-3 w-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
@@ -5442,10 +6210,10 @@ function RealProjectComposer({
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-600 transition hover:bg-red-500/25 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/12 text-red-600 transition hover:bg-red-500/20 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25"
                   title="Stop generating"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                     <rect x="5" y="5" width="10" height="10" rx="1.5" />
                   </svg>
                 </button>
@@ -5454,9 +6222,9 @@ function RealProjectComposer({
                   type="button"
                   disabled={disabled || !value.trim()}
                   onClick={onSubmit}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111827] text-white transition hover:bg-[#0b1220] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black text-white transition hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                     <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
                   </svg>
                 </button>
@@ -5477,7 +6245,12 @@ function RealProjectComposer({
               >
                 <FileCodeIcon className="h-3.5 w-3.5 theme-muted group-hover:theme-fg" />
                 <span className="theme-fg">Context</span>
-                <span className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[10px] theme-muted dark:bg-white/[0.06]">{tokenPercent}%</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] tabular-nums ${contextPillClass}`}>{tokenPercent}%</span>
+                {contextSeverity !== "normal" ? (
+                  <span className={`hidden sm:inline text-[10px] font-medium ${contextSeverity === "danger" ? "text-red-500" : "text-amber-500"}`}>
+                    {contextSeverity === "danger" ? "Compact now" : "Compact soon"}
+                  </span>
+                ) : null}
               </button>
 
               {/* Mode toggle — Agent / Ask / Plan */}
@@ -5493,6 +6266,63 @@ function RealProjectComposer({
                   </button>
                 ))}
               </div>
+
+              {/* Approval mode dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    if (!showApprovalMenu) {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setApprovalMenuPos({ left: rect.left, bottom: window.innerHeight - rect.top + 6 });
+                    }
+                    setShowApprovalMenu((v) => !v);
+                    setShowModelMenu(false);
+                    setShowContextPanel(false);
+                  }}
+                  className={`app-control-rail inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${approvalMode === "manual" ? "text-amber-600 dark:text-amber-400" : "theme-fg"}`}
+                  title="Change approval mode for tool calls"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3.5 w-3.5 ${approvalMode === "manual" ? "text-amber-500 dark:text-amber-400" : "theme-muted"}`}>
+                    <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v4A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" />
+                  </svg>
+                  <span>{approvalMode === "manual" ? "Manual Approval" : approvalMode === "auto" ? "Auto Approve" : `Default (${settingsApprovalMode === "manual" ? "Manual" : "Auto"})`}</span>
+                  <ChevronDownIcon className="h-3 w-3 theme-muted" />
+                </button>
+              </div>
+
+              {showApprovalMenu && approvalMenuPos ? createPortal(
+                <div
+                  ref={approvalMenuRef}
+                  className="fixed z-[9999] min-w-[200px] overflow-hidden rounded-[1rem] shadow-[0_20px_44px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+                  style={{ left: approvalMenuPos.left, bottom: approvalMenuPos.bottom, background: isDark ? '#1e1f25' : 'rgba(255,255,255,0.98)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, color: isDark ? '#f0ece4' : '#020202' }}
+                >
+                  {(["default", "auto", "manual"] as const).map((opt) => {
+                    const label = opt === "default" ? `Default (${settingsApprovalMode === "manual" ? "Manual" : "Auto"})` : opt === "auto" ? "Auto Approve" : "Manual Approval";
+                    const isManualWithClaude = opt === "manual" && activeProvider === "claude";
+                    const desc = isManualWithClaude
+                      ? "Not supported — Claude always runs with skip-permissions"
+                      : opt === "default" ? "Follow your Settings value" : opt === "auto" ? "Approve all tool calls automatically" : "Confirm before each tool use";
+                    const isActive = approvalMode === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        disabled={isManualWithClaude}
+                        onClick={() => { if (!isManualWithClaude) { onApprovalModeChange?.(opt); setShowApprovalMenu(false); } }}
+                        className="flex w-full flex-col px-3 py-2.5 text-left transition"
+                        style={{ background: isActive ? (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent', opacity: isManualWithClaude ? 0.45 : 1, cursor: isManualWithClaude ? 'not-allowed' : 'pointer' }}
+                        onMouseEnter={(e) => { if (!isManualWithClaude) (e.currentTarget as HTMLElement).style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isActive ? (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent'; }}
+                      >
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: opt === "manual" && !isManualWithClaude ? (isDark ? '#fbbf24' : '#d97706') : 'inherit' }}>{label}{isActive ? " ✓" : ""}</span>
+                        <span style={{ fontSize: '10px', color: isDark ? 'rgba(240,236,228,0.45)' : 'rgba(2,2,2,0.45)' }}>{desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body
+              ) : null}
 
               <div className="relative">
                 <button
@@ -5517,21 +6347,22 @@ function RealProjectComposer({
               {showModelMenu && modelMenuPos ? createPortal(
                 <div
                   ref={modelMenuRef}
-                  className="fixed z-[9999] max-h-[min(420px,70vh)] w-[300px] overflow-hidden rounded-[1.2rem] border border-black/[0.08] bg-[rgba(255,255,255,0.98)] shadow-[0_20px_44px_rgba(0,0,0,0.14)] backdrop-blur-xl dark:border-white/[0.1] dark:bg-[#1e1f25]/98 dark:shadow-[0_20px_44px_rgba(0,0,0,0.4)]"
-                  style={{ left: modelMenuPos.left, bottom: modelMenuPos.bottom }}
+                  className="fixed z-[9999] max-h-[min(420px,70vh)] w-[300px] overflow-hidden rounded-[1.2rem] shadow-[0_20px_44px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+                  style={{ left: modelMenuPos.left, bottom: modelMenuPos.bottom, background: isDark ? '#1e1f25' : 'rgba(255,255,255,0.98)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, color: isDark ? '#f0ece4' : '#020202' }}
                 >
-                  <div className="flex items-center gap-2 border-b border-black/[0.06] px-2.5 py-2 dark:border-white/[0.08]">
-                    <SearchIcon className="h-3.5 w-3.5 theme-muted" />
+                  <div className="flex items-center gap-2 px-2.5 py-2" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}` }}>
+                    <span style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}><SearchIcon className="h-3.5 w-3.5" /></span>
                     <input
                       value={modelSearch}
                       onChange={(event) => setModelSearch(event.target.value)}
                       placeholder="Search models"
                       autoFocus
-                      className="w-full bg-transparent text-[12px] theme-fg outline-none placeholder:theme-muted"
+                      className="w-full bg-transparent text-[12px] outline-none"
+                      style={{ color: isDark ? '#f0ece4' : '#020202' }}
                     />
                   </div>
                   {hasMultipleProviders ? (
-                    <div className="flex gap-1 border-b border-black/[0.06] px-2.5 py-1.5 dark:border-white/[0.08]">
+                    <div className="flex gap-1 px-2.5 py-1.5" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}` }}>
                       {(["claude", "copilot", "codex"] as const)
                         .filter((tab) => {
                           if (tab === "claude") return !!featureFlags?.claudeCode;
@@ -5543,7 +6374,8 @@ function RealProjectComposer({
                           key={tab}
                           type="button"
                           onClick={() => setProviderTab(tab)}
-                          className={`rounded-full px-3 py-1 text-[10px] font-semibold transition ${providerTab === tab ? "bg-[#0078d4] text-white" : "theme-muted hover:theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                          className="rounded-full px-3 py-1 text-[10px] font-semibold transition"
+                          style={providerTab === tab ? { background: '#0078d4', color: 'white' } : { color: isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}
                         >
                           {tab === "claude" ? "Claude Code" : tab === "codex" ? "Codex CLI" : "GitHub Copilot"}
                         </button>
@@ -5556,7 +6388,7 @@ function RealProjectComposer({
                       if (groupModels.length === 0) return null;
                       return (
                         <div key={group} className="mb-0.5 last:mb-0">
-                          <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] theme-muted">
+                          <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>
                             {group === "featured" ? "Recommended" : "Other models"}
                           </p>
                           {groupModels.map((entry) => {
@@ -5566,20 +6398,23 @@ function RealProjectComposer({
                                 key={entry.id}
                                 type="button"
                                 onClick={() => { onModelChange(entry.id); setShowModelMenu(false); setModelSearch(""); }}
-                                className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition ${isSelected ? "bg-[#0078d4] text-white" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}
+                                className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition"
+                                style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
                               >
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[11.5px] font-medium">{entry.label}</span>
-                                    {entry.warning ? <span className={`text-[10px] ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.warning}</span> : null}
+                                    {entry.warning ? <span className="text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.warning}</span> : null}
                                   </div>
-                                  <div className={`mt-0.5 flex items-center gap-2 text-[10px] ${isSelected ? "text-white/72" : "theme-muted"}`}>
+                                  <div className="mt-0.5 flex items-center gap-2 text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.72)' : isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}>
                                     <span>{entry.provider}</span>
                                     <span>{entry.contextWindow}</span>
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-2">
-                                  <span className={`text-[10px] font-medium ${isSelected ? "text-white/70" : "theme-muted"}`}>{entry.usage}</span>
+                                  <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.usage}</span>
                                 </div>
                               </button>
                             );
@@ -5655,6 +6490,31 @@ function RealProjectComposer({
         </div>
       </div>
     </div>
+
+    {/* Image lightbox */}
+    {lightboxSrc ? (
+      <div
+        className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+        onClick={() => setLightboxSrc(null)}
+      >
+        <img
+          src={lightboxSrc}
+          alt="Preview"
+          className="max-h-[85vh] max-w-[85vw] rounded-xl object-contain shadow-2xl ring-1 ring-white/10"
+          onClick={(e) => e.stopPropagation()}
+        />
+        <button
+          type="button"
+          onClick={() => setLightboxSrc(null)}
+          className="absolute right-6 top-6 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+          </svg>
+        </button>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -5667,10 +6527,8 @@ function ProjectChatPageRouter() {
 
   if (canUseDesktopProject) {
     return (
-      <div className="flex min-h-screen bg-[linear-gradient(180deg,var(--gradient-page-start)_0%,var(--gradient-page-end)_100%)] text-ink dark:text-[var(--fg)]">
-        <ProjectSidebar />
-
-        <div className="flex min-w-0 flex-1 items-center justify-center px-6 pt-[5.2rem]">
+      <div className="flex min-h-full text-text">
+        <div className="flex min-w-0 flex-1 items-center justify-center px-6 py-8">
           <div className="app-surface max-w-2xl rounded-[1.8rem] p-8 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] theme-muted">Project manager chat</p>
             <h1 className="display-font mt-4 text-[2.1rem] font-semibold tracking-tight theme-fg">No active real project</h1>

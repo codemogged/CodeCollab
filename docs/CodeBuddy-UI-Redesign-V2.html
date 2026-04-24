@@ -1,0 +1,1476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeBuddy — Revolutionary UI Concepts v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Instrument+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #08080a;
+    color: #f0ece4;
+    line-height: 1.6;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ─── COVER ─── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #08080a;
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: 4rem 2rem;
+    page-break-after: always;
+  }
+
+  /* The living orb – CodeBuddy's soul */
+  .hero-orb {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #ffd6a0 0%, #ff9f1c 15%, #e85d04 30%, #7c5cfc 55%, #4ecdc4 75%, #08080a 100%);
+    filter: blur(0.5px);
+    box-shadow:
+      0 0 80px rgba(255,159,28,0.25),
+      0 0 160px rgba(124,92,252,0.15),
+      0 0 240px rgba(78,205,196,0.08);
+    margin-bottom: 3rem;
+    position: relative;
+    animation: orbBreathe 8s ease-in-out infinite;
+  }
+
+  @keyframes orbBreathe {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 80px rgba(255,159,28,0.25), 0 0 160px rgba(124,92,252,0.15); }
+    50% { transform: scale(1.04); box-shadow: 0 0 100px rgba(255,159,28,0.3), 0 0 180px rgba(124,92,252,0.2); }
+  }
+
+  .hero-orb::after {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 40%, rgba(255,255,255,0.15) 0%, transparent 50%);
+  }
+
+  .cover h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 3rem;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 0.9;
+    margin-bottom: 1.5rem;
+  }
+
+  .cover h1 .thin {
+    font-weight: 400;
+    color: rgba(240,236,228,0.4);
+    display: block;
+    font-size: 1.2rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  .cover .tagline {
+    font-size: 1rem;
+    color: rgba(240,236,228,0.45);
+    max-width: 480px;
+    line-height: 1.7;
+    margin-bottom: 2rem;
+  }
+
+  .cover .tagline em {
+    font-style: normal;
+    color: #ff9f1c;
+    font-weight: 500;
+  }
+
+  .cover .meta {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: rgba(240,236,228,0.2);
+  }
+
+  /* ─── MANIFESTO PAGE ─── */
+  .manifesto {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 5rem;
+    page-break-after: always;
+    max-width: 720px;
+  }
+
+  .manifesto h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    margin-bottom: 2rem;
+    line-height: 1.1;
+  }
+
+  .manifesto h2 span {
+    color: #ff9f1c;
+  }
+
+  .manifesto-body {
+    font-size: 0.92rem;
+    line-height: 1.9;
+    color: rgba(240,236,228,0.55);
+  }
+
+  .manifesto-body p { margin-bottom: 1.5rem; }
+
+  .manifesto-body strong {
+    color: #f0ece4;
+    font-weight: 600;
+  }
+
+  /* ─── SECTION TEMPLATE ─── */
+  .concept-page {
+    page-break-before: always;
+    padding: 2.5rem 3rem;
+    min-height: 100vh;
+  }
+
+  .concept-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: rgba(240,236,228,0.3);
+    margin-bottom: 1.5rem;
+    font-weight: 500;
+  }
+
+  .concept-badge .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    font-family: 'Space Grotesk';
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .concept-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin-bottom: 0.3rem;
+  }
+
+  .concept-subtitle {
+    font-size: 0.82rem;
+    color: rgba(240,236,228,0.35);
+    font-style: italic;
+    margin-bottom: 1.5rem;
+  }
+
+  .concept-philosophy {
+    font-size: 0.88rem;
+    line-height: 1.8;
+    color: rgba(240,236,228,0.5);
+    max-width: 700px;
+    margin-bottom: 2rem;
+  }
+
+  .concept-philosophy strong {
+    color: #f0ece4;
+    font-weight: 600;
+  }
+
+  /* ─── SIGNATURE STRIP ─── */
+  .sig-strip {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .sig-tag {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-weight: 600;
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+
+  /* ─── WIREFRAME PANELS ─── */
+  .wireframe-set {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    margin-top: 1.5rem;
+  }
+
+  .wf {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(240,236,228,0.06);
+  }
+
+  .wf-header {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid rgba(240,236,228,0.06);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(240,236,228,0.35);
+  }
+
+  .wf-header .accent-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+
+  .wf-body {
+    position: relative;
+    min-height: 300px;
+    overflow: hidden;
+  }
+
+  /* ─── DESIGN SPEC BLOCKS ─── */
+  .spec-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .spec-block {
+    border: 1px solid rgba(240,236,228,0.06);
+    border-radius: 12px;
+    padding: 1.25rem;
+  }
+
+  .spec-block h4 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .spec-block h4 .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+  }
+
+  .spec-list {
+    list-style: none;
+    font-size: 0.72rem;
+    line-height: 1.8;
+    color: rgba(240,236,228,0.45);
+  }
+
+  .spec-list li::before {
+    content: '▸ ';
+    font-weight: 700;
+  }
+
+  .swatches {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .sw {
+    text-align: center;
+    font-size: 0.48rem;
+    color: rgba(240,236,228,0.3);
+  }
+
+  .sw-color {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid rgba(240,236,228,0.08);
+    margin-bottom: 0.2rem;
+  }
+
+  /* ─── COMPARISON ─── */
+  .comparison {
+    page-break-before: always;
+    padding: 3rem 3rem;
+    min-height: 100vh;
+  }
+
+  .comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.68rem;
+    margin-top: 1.5rem;
+  }
+
+  .comp-table th {
+    text-align: left;
+    padding: 0.6rem 0.6rem;
+    font-weight: 600;
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(240,236,228,0.3);
+    border-bottom: 1px solid rgba(240,236,228,0.1);
+  }
+
+  .comp-table td {
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid rgba(240,236,228,0.04);
+    color: rgba(240,236,228,0.5);
+    vertical-align: top;
+  }
+
+  .comp-table td:first-child {
+    color: #f0ece4;
+    font-weight: 600;
+  }
+
+  .comp-table tr:hover td {
+    background: rgba(255,159,28,0.02);
+  }
+
+  /* ─── UTILITIES ─── */
+  .flex { display: flex; }
+  .flex-col { flex-direction: column; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .gap-1 { gap: 0.25rem; }
+  .gap-2 { gap: 0.5rem; }
+  .gap-3 { gap: 0.75rem; }
+  .gap-4 { gap: 1rem; }
+  .ml-auto { margin-left: auto; }
+  .text-right { text-align: right; }
+  .mb-1 { margin-bottom: 0.25rem; }
+  .mb-2 { margin-bottom: 0.5rem; }
+  .mb-3 { margin-bottom: 0.75rem; }
+  .mt-2 { margin-top: 0.5rem; }
+  .mt-4 { margin-top: 1rem; }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .concept-page { page-break-before: always; }
+  }
+
+  /* ─── Divider ─── */
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(240,236,228,0.08), transparent);
+    margin: 2.5rem 0;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!--  COVER                                                        -->
+<!-- ============================================================ -->
+<div class="cover">
+  <div class="hero-orb"></div>
+  <h1>
+    <span class="thin">CodeBuddy presents</span>
+    Revolutionary<br>Interface Design
+  </h1>
+  <p class="tagline">
+    Five concepts that don't just look different — they <em>feel</em> different.
+    Each one is designed to be an <em>extension of you</em>, not a tool you tolerate.
+  </p>
+  <p class="meta">v2 · Design Manifesto · April 2026</p>
+</div>
+
+<!-- ============================================================ -->
+<!--  MANIFESTO                                                    -->
+<!-- ============================================================ -->
+<div class="manifesto">
+  <h2>The old designs were <span>polished noise.</span><br>These aren't.</h2>
+  <div class="manifesto-body">
+    <p><strong>The problem with most developer tools</strong> is they copy each other. Another glass panel. Another kanban board. Another chatbot with rounded bubbles. You could swap the logo and nobody would know the difference.</p>
+    <p><strong>CodeBuddy shouldn't look like "a developer tool."</strong> It should look like CodeBuddy. The person using it should feel a gravitational pull — a sense that this interface was crafted specifically for the way their mind works. The AI shouldn't sit in a message box waiting to be asked. It should be a living presence in the space, a collaborator you can feel.</p>
+    <p><strong>These five concepts each propose a radical idea:</strong> What if the interface itself communicated the emotional state of your project? What if navigation wasn't pages — it was places? What if your chat with AI felt less like texting a bot and more like thinking out loud with a brilliant friend sitting next to you?</p>
+    <p><strong>Every concept has a "signature" —</strong> a single visual element or interaction pattern so distinctive that you'd recognize CodeBuddy from a screenshot with the logo cropped out.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 1: LUMINA                                            -->
+<!-- ============================================================ -->
+<div class="concept-page">
+  <div class="concept-badge">
+    <span class="num" style="background: linear-gradient(135deg, #ff9f1c, #e85d04); color: #08080a;">01</span>
+    Concept One
+  </div>
+  <div class="concept-title" style="color: #ff9f1c;">Lumina</div>
+  <div class="concept-subtitle">"The AI isn't in the interface. The AI <em>is</em> the interface."</div>
+
+  <div class="concept-philosophy">
+    <strong>The Signature: The Orb.</strong> A luminous, morphing sphere that lives at the heart of every screen. It's not a decoration — it's CodeBuddy's soul rendered as light. When the AI is thinking, the orb undulates. When it's building your code, it crackles with energy. When idle, it breathes — slow, meditative. The orb replaces the traditional avatar/icon. It's always present, always alive.
+    <br><br>
+    <strong>The feeling:</strong> You're not using a tool. You're collaborating with an entity. The interface wraps around the orb — panels, tasks, and chat exist as orbital layers. Everything on screen has a subtle gravitational relationship to the orb's position. Surfaces are dark obsidian with warm, ember-like accent glow — never cold, never clinical.
+  </div>
+
+  <div class="sig-strip">
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Living Orb Core</span>
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Ember Glow System</span>
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Orbital Panels</span>
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Gravitational Focus</span>
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Dark Obsidian Canvas</span>
+  </div>
+
+  <div class="wireframe-set">
+    <!-- HOME -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #ff9f1c;"></span> Home — The Hearth</div>
+      <div class="wf-body" style="background: #0c0b0f; min-height: 340px;">
+        <!-- Ambient glow from orb -->
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(255,159,28,0.06) 0%, rgba(124,92,252,0.03) 40%, transparent 70%);"></div>
+
+        <!-- Top bar — barely there -->
+        <div style="padding: 0.6rem 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.6rem; letter-spacing: -0.02em; color: rgba(240,236,228,0.5);">cb</div>
+          <div style="display: flex; gap: 0.75rem; font-size: 0.48rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(240,236,228,0.25);">
+            <span style="color: rgba(255,159,28,0.7);">Projects</span>
+            <span>Friends</span>
+            <span>Settings</span>
+          </div>
+          <div style="width: 22px; height: 22px; border-radius: 50%; background: rgba(240,236,228,0.06); border: 1px solid rgba(240,236,228,0.08); display: flex; align-items: center; justify-content: center; font-size: 0.4rem; color: rgba(240,236,228,0.4); font-weight: 600;">CM</div>
+        </div>
+
+        <!-- Center: The Orb + greeting -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem;">
+          <!-- The orb -->
+          <div style="width: 72px; height: 72px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffd6a0, #ff9f1c 25%, #e85d04 45%, #7c5cfc 70%, rgba(8,8,10,0.6)); box-shadow: 0 0 50px rgba(255,159,28,0.2), 0 0 100px rgba(124,92,252,0.1); margin-bottom: 0.8rem; position: relative;">
+            <div style="position: absolute; inset: 3px; border-radius: 50%; background: radial-gradient(circle at 40% 38%, rgba(255,255,255,0.15), transparent 45%);"></div>
+          </div>
+          <div style="font-family: 'Space Grotesk'; font-weight: 500; font-size: 0.65rem; color: rgba(240,236,228,0.5); letter-spacing: 0.02em;">evening, cameron</div>
+          <div style="font-size: 0.48rem; color: rgba(240,236,228,0.2); margin-top: 0.2rem;">3 projects are warm</div>
+        </div>
+
+        <!-- Project cards — orbiting below -->
+        <div style="display: flex; gap: 0.5rem; padding: 0 2rem; justify-content: center;">
+          <!-- Active project (glowing) -->
+          <div style="width: 150px; background: rgba(240,236,228,0.03); border: 1px solid rgba(255,159,28,0.12); border-radius: 12px; padding: 0.7rem; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, rgba(255,159,28,0.1), transparent);"></div>
+            <div style="font-size: 0.55rem; font-weight: 600; color: #f0ece4; margin-bottom: 0.1rem;">Real Estate Site</div>
+            <div style="font-size: 0.42rem; color: rgba(240,236,228,0.3); margin-bottom: 0.5rem;">4 of 13 tasks</div>
+            <!-- Ember bar instead of progress bar -->
+            <div style="height: 3px; border-radius: 2px; background: rgba(240,236,228,0.04);">
+              <div style="height: 100%; width: 31%; border-radius: 2px; background: linear-gradient(90deg, #ff9f1c, #e85d04); box-shadow: 0 0 8px rgba(255,159,28,0.4);"></div>
+            </div>
+            <!-- Active task pulse -->
+            <div style="display: flex; align-items: center; gap: 0.25rem; margin-top: 0.5rem;">
+              <div style="width: 5px; height: 5px; border-radius: 50%; background: #ff9f1c; box-shadow: 0 0 6px rgba(255,159,28,0.6);"></div>
+              <div style="font-size: 0.4rem; color: rgba(255,159,28,0.6);">building layout</div>
+            </div>
+          </div>
+
+          <div style="width: 150px; background: rgba(240,236,228,0.02); border: 1px solid rgba(240,236,228,0.04); border-radius: 12px; padding: 0.7rem;">
+            <div style="font-size: 0.55rem; font-weight: 600; color: rgba(240,236,228,0.6);">Portfolio App</div>
+            <div style="font-size: 0.42rem; color: rgba(240,236,228,0.2); margin-bottom: 0.5rem;">5 of 6</div>
+            <div style="height: 3px; border-radius: 2px; background: rgba(240,236,228,0.04);">
+              <div style="height: 100%; width: 83%; border-radius: 2px; background: rgba(240,236,228,0.15);"></div>
+            </div>
+          </div>
+
+          <div style="width: 120px; background: rgba(240,236,228,0.01); border: 1px dashed rgba(240,236,228,0.06); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+            <div style="font-size: 0.6rem; color: rgba(240,236,228,0.1);">+</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #ff9f1c;"></span> Workspace — The Focus Ring</div>
+      <div class="wf-body" style="background: #0c0b0f; display: flex; min-height: 320px;">
+        <!-- Sidebar — near invisible, text only -->
+        <div style="width: 48px; border-right: 1px solid rgba(240,236,228,0.04); display: flex; flex-direction: column; align-items: center; padding: 0.6rem 0; gap: 0.8rem;">
+          <!-- Mini orb at top -->
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffd6a0, #ff9f1c 30%, #7c5cfc 70%); box-shadow: 0 0 12px rgba(255,159,28,0.2); margin-bottom: 0.3rem;"></div>
+          <!-- Icon placeholders as simple dots -->
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(255,159,28,0.12); border: 1px solid rgba(255,159,28,0.2);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.03); border: 1px solid rgba(240,236,228,0.06);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.03); border: 1px solid rgba(240,236,228,0.06);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.03); border: 1px solid rgba(240,236,228,0.06);"></div>
+        </div>
+        <!-- Main content -->
+        <div style="flex: 1; padding: 1rem 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+            <div>
+              <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.75rem; color: #f0ece4;">Real Estate Site</div>
+              <div style="font-size: 0.45rem; color: rgba(240,236,228,0.25);">Site Foundation & Layout</div>
+            </div>
+            <!-- Orb-style progress: ring of fire -->
+            <div style="width: 42px; height: 42px; border-radius: 50%; background: conic-gradient(#ff9f1c 0deg, #e85d04 112deg, rgba(240,236,228,0.04) 112deg); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px rgba(255,159,28,0.15);">
+              <div style="width: 30px; height: 30px; border-radius: 50%; background: #0c0b0f; display: flex; align-items: center; justify-content: center; font-size: 0.42rem; font-weight: 700; color: #ff9f1c;">31</div>
+            </div>
+          </div>
+          <!-- Task list — ember-lit rows -->
+          <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border-radius: 8px; background: rgba(240,236,228,0.02); font-size: 0.5rem; color: rgba(240,236,228,0.35);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(52,211,153,0.6); box-shadow: 0 0 4px rgba(52,211,153,0.3);"></div>
+              <span style="text-decoration: line-through;">Initialize Next.js project</span>
+              <span class="ml-auto" style="font-size: 0.4rem; color: rgba(52,211,153,0.5);">done</span>
+            </div>
+            <!-- Active task — ember glow border -->
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border-radius: 8px; background: rgba(255,159,28,0.04); border: 1px solid rgba(255,159,28,0.15); font-size: 0.5rem; color: #f0ece4;">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #ff9f1c; box-shadow: 0 0 8px rgba(255,159,28,0.5);"></div>
+              <span style="font-weight: 600;">Build shared layout</span>
+              <!-- Mini orb for active task -->
+              <div style="margin-left: auto; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #ff9f1c 20%, transparent 70%); opacity: 0.6;"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border-radius: 8px; background: rgba(240,236,228,0.02); font-size: 0.5rem; color: rgba(240,236,228,0.3);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(240,236,228,0.1);"></div>
+              <span>Create home page sections</span>
+              <span class="ml-auto" style="font-size: 0.4rem; color: rgba(240,236,228,0.15);">planned</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border-radius: 8px; background: rgba(240,236,228,0.02); font-size: 0.5rem; color: rgba(240,236,228,0.3);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(240,236,228,0.1);"></div>
+              <span>Property listing component</span>
+              <span class="ml-auto" style="font-size: 0.4rem; color: rgba(240,236,228,0.15);">planned</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT (unified PM + Task + Freestyle) -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #ff9f1c;"></span> Chat — Communion with the Orb</div>
+      <div class="wf-body" style="background: #0c0b0f; min-height: 340px; padding: 0; display: flex;">
+        <!-- Left: minimal sidebar -->
+        <div style="width: 48px; border-right: 1px solid rgba(240,236,228,0.04); display: flex; flex-direction: column; align-items: center; padding: 0.6rem 0; gap: 0.5rem;">
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffd6a0, #ff9f1c 30%, #7c5cfc 70%); box-shadow: 0 0 12px rgba(255,159,28,0.15);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.03);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(255,159,28,0.1); border: 1px solid rgba(255,159,28,0.15);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.03);"></div>
+        </div>
+        <!-- Chat area -->
+        <div style="flex: 1; display: flex; flex-direction: column; padding: 1rem 1.5rem;">
+          <!-- Chat mode tabs -->
+          <div style="display: flex; gap: 0.3rem; margin-bottom: 1rem;">
+            <div style="font-size: 0.45rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: rgba(255,159,28,0.1); color: #ff9f1c; font-weight: 600; letter-spacing: 0.06em;">PM</div>
+            <div style="font-size: 0.45rem; padding: 0.2rem 0.5rem; border-radius: 4px; color: rgba(240,236,228,0.2); letter-spacing: 0.06em;">TASK</div>
+            <div style="font-size: 0.45rem; padding: 0.2rem 0.5rem; border-radius: 4px; color: rgba(240,236,228,0.2); letter-spacing: 0.06em;">FREE</div>
+          </div>
+
+          <!-- Conversation -->
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 0.6rem; justify-content: flex-end;">
+            <!-- User message — minimal, right-aligned -->
+            <div style="max-width: 65%; margin-left: auto; padding: 0.5rem 0.75rem; border-radius: 12px 12px 3px 12px; background: rgba(240,236,228,0.06); color: rgba(240,236,228,0.8); font-size: 0.5rem; line-height: 1.6;">
+              I want a contact form on the landing page with email validation
+            </div>
+
+            <!-- AI response — orb-anchored -->
+            <div style="max-width: 80%; display: flex; gap: 0.5rem; align-items: flex-start;">
+              <!-- Mini orb -->
+              <div style="width: 24px; height: 24px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffd6a0, #ff9f1c 30%, #e85d04 50%, #7c5cfc 80%); box-shadow: 0 0 16px rgba(255,159,28,0.2); flex-shrink: 0;"></div>
+              <div style="flex: 1;">
+                <div style="font-size: 0.5rem; line-height: 1.7; color: rgba(240,236,228,0.55);">
+                  Done. I created a <strong style="color: #f0ece4;">"Lead Capture"</strong> subproject with 3 tasks and built the form component with Zod email validation.
+                </div>
+                <!-- Action card — warm dark surface -->
+                <div style="margin-top: 0.4rem; background: rgba(255,159,28,0.04); border: 1px solid rgba(255,159,28,0.08); border-radius: 10px; padding: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem;">
+                    <div style="width: 5px; height: 5px; border-radius: 50%; background: #ff9f1c; box-shadow: 0 0 4px rgba(255,159,28,0.5);"></div>
+                    <div style="font-size: 0.48rem; font-weight: 600; color: #ff9f1c;">Plan Updated</div>
+                  </div>
+                  <div style="font-size: 0.42rem; color: rgba(240,236,228,0.3);">+3 tasks added to Lead Capture</div>
+                  <div style="margin-top: 0.4rem; display: flex; gap: 0.2rem;">
+                    <div style="font-size: 0.4rem; padding: 0.15rem 0.4rem; border-radius: 4px; background: rgba(255,159,28,0.12); color: #ff9f1c; font-weight: 500;">View</div>
+                    <div style="font-size: 0.4rem; padding: 0.15rem 0.4rem; border-radius: 4px; background: rgba(240,236,228,0.04); color: rgba(240,236,228,0.3);">Details</div>
+                  </div>
+                </div>
+                <!-- Code snippet -->
+                <div style="margin-top: 0.4rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(240,236,228,0.04); border-radius: 8px; padding: 0.4rem 0.5rem; font-family: 'JetBrains Mono'; font-size: 0.42rem; color: rgba(240,236,228,0.5);">
+                  <span style="color: rgba(255,159,28,0.6);">const</span> schema = z.object({ email: z.<span style="color: #4ecdc4;">string</span>().<span style="color: #4ecdc4;">email</span>() })
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Composer — floating, ember-lit -->
+          <div style="margin-top: 0.75rem; background: rgba(240,236,228,0.03); border: 1px solid rgba(240,236,228,0.06); border-radius: 14px; padding: 0.5rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
+            <span style="font-size: 0.48rem; color: rgba(240,236,228,0.2); flex: 1;">Think out loud...</span>
+            <!-- Orb send button -->
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #ff9f1c 20%, #e85d04 60%, #7c5cfc); box-shadow: 0 0 8px rgba(255,159,28,0.25);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-row">
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #ff9f1c;"></span> Why This Is Different</h4>
+      <ul class="spec-list">
+        <li style="color: #ff9f1c;">The Orb is CodeBuddy's face — recognizable anywhere</li>
+        <li>AI presence is felt, not just seen — glow, pulse, gravity</li>
+        <li>Active tasks pulse with life; done tasks cool to embers</li>
+        <li>Sidebar is 48px — icon-only, gives all space to content</li>
+        <li>Chat composer says "think out loud" not "send a message"</li>
+        <li>Dark canvas means your code and content are always brightest</li>
+        <li>No borders on cards — only glow defines boundaries</li>
+      </ul>
+    </div>
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #ff9f1c;"></span> Signature Palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="sw-color" style="background: #0c0b0f;"></div>obsidian</div>
+        <div class="sw"><div class="sw-color" style="background: #ff9f1c;"></div>ember</div>
+        <div class="sw"><div class="sw-color" style="background: #e85d04;"></div>flame</div>
+        <div class="sw"><div class="sw-color" style="background: #7c5cfc;"></div>aura</div>
+        <div class="sw"><div class="sw-color" style="background: #ffd6a0;"></div>warmth</div>
+        <div class="sw"><div class="sw-color" style="background: rgba(240,236,228,0.5);" ></div>ash</div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.6rem;">
+        <li>Color comes from the orb — it bleeds outward into the UI</li>
+        <li>Active = warm (ember/flame), Idle = cool (aura/ash)</li>
+        <li>Light mode: cream canvas, orb becomes a sun</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 2: MERIDIAN                                          -->
+<!-- ============================================================ -->
+<div class="concept-page">
+  <div class="concept-badge">
+    <span class="num" style="background: linear-gradient(135deg, #4ecdc4, #2a9d8f); color: #08080a;">02</span>
+    Concept Two
+  </div>
+  <div class="concept-title" style="color: #4ecdc4;">Meridian</div>
+  <div class="concept-subtitle">"Your project is a river. You don't navigate pages — you follow the flow."</div>
+
+  <div class="concept-philosophy">
+    <strong>The Signature: The Flow Line.</strong> A luminous gradient river that literally runs through the entire interface — left to right, top to bottom. It represents your project's journey from idea → plan → building → done. Every element exists relative to this line. Tasks are nodes on the river. Chat is a tributary. Your progress is visible at a glance because you can see where you are on the flow.
+    <br><br>
+    <strong>The feeling:</strong> You're not clicking through tabs. You're traveling along your project's timeline. The current view smoothly shifts — workspace, chat, and code exist as layers you can pull in and out from the flow. Nothing feels disconnected because everything shares the same spatial context.
+  </div>
+
+  <div class="sig-strip">
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">The Flow Line</span>
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">Journey Navigation</span>
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">Layer Pull</span>
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">Spatial Memory</span>
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">Sea Glass Surfaces</span>
+  </div>
+
+  <div class="wireframe-set">
+    <!-- HOME -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #4ecdc4;"></span> Home — River Delta</div>
+      <div class="wf-body" style="background: #090f11; min-height: 340px; padding: 0;">
+        <!-- The Flow Line — horizontal gradient -->
+        <div style="position: absolute; top: 48%; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, rgba(78,205,196,0.02) 0%, rgba(78,205,196,0.3) 20%, rgba(124,92,252,0.3) 60%, rgba(255,159,28,0.15) 85%, rgba(240,236,228,0.02) 100%); box-shadow: 0 0 20px rgba(78,205,196,0.1); z-index: 1;"></div>
+
+        <!-- Nav -->
+        <div style="padding: 0.5rem 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.55rem; color: rgba(78,205,196,0.6);">codebuddy</div>
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(78,205,196,0.08); border: 1px solid rgba(78,205,196,0.12); font-size: 0.4rem; display: flex; align-items: center; justify-content: center; color: rgba(240,236,228,0.3);">CM</div>
+        </div>
+
+        <!-- Projects as nodes on the flow line -->
+        <div style="display: flex; align-items: center; justify-content: center; gap: 3rem; height: 240px; position: relative; padding: 0 2rem;">
+          <!-- Project 1 — large, above the line -->
+          <div style="position: relative; z-index: 2;">
+            <div style="width: 170px; background: rgba(78,205,196,0.04); border: 1px solid rgba(78,205,196,0.1); border-radius: 14px; padding: 0.75rem; position: relative; margin-bottom: -20px;">
+              <!-- Node connector to flow line -->
+              <div style="position: absolute; bottom: -22px; left: 50%; width: 2px; height: 20px; background: linear-gradient(to bottom, rgba(78,205,196,0.15), rgba(78,205,196,0.3));"></div>
+              <div style="position: absolute; bottom: -26px; left: 50%; transform: translateX(-50%); width: 8px; height: 8px; border-radius: 50%; background: #4ecdc4; box-shadow: 0 0 10px rgba(78,205,196,0.5);"></div>
+              <div style="font-size: 0.58rem; font-weight: 600; color: #f0ece4; margin-bottom: 0.1rem;">Real Estate Site</div>
+              <div style="font-size: 0.4rem; color: rgba(240,236,228,0.25); margin-bottom: 0.45rem;">13 tasks · 31% complete</div>
+              <!-- Flow bar -->
+              <div style="display: flex; gap: 1px; height: 4px; border-radius: 2px; overflow: hidden;">
+                <div style="flex: 4; background: rgba(52,211,153,0.6);"></div>
+                <div style="flex: 2; background: rgba(78,205,196,0.6);"></div>
+                <div style="flex: 7; background: rgba(240,236,228,0.06);"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 0.3rem;">
+                <span style="font-size: 0.35rem; color: rgba(52,211,153,0.5);">done 4</span>
+                <span style="font-size: 0.35rem; color: rgba(78,205,196,0.5);">active 2</span>
+                <span style="font-size: 0.35rem; color: rgba(240,236,228,0.15);">planned 7</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Project 2 -->
+          <div style="position: relative; z-index: 2; margin-top: 70px;">
+            <div style="width: 140px; background: rgba(124,92,252,0.03); border: 1px solid rgba(124,92,252,0.08); border-radius: 14px; padding: 0.65rem; position: relative; margin-top: 20px;">
+              <div style="position: absolute; top: -22px; left: 50%; width: 2px; height: 20px; background: linear-gradient(to top, rgba(124,92,252,0.1), rgba(124,92,252,0.2));"></div>
+              <div style="position: absolute; top: -26px; left: 50%; transform: translateX(-50%); width: 6px; height: 6px; border-radius: 50%; background: rgba(124,92,252,0.5);"></div>
+              <div style="font-size: 0.52rem; font-weight: 600; color: rgba(240,236,228,0.6);">Portfolio App</div>
+              <div style="font-size: 0.38rem; color: rgba(240,236,228,0.2);">6 tasks · 83%</div>
+            </div>
+          </div>
+
+          <!-- New project — ghost node -->
+          <div style="position: relative; z-index: 2;">
+            <div style="width: 80px; height: 60px; border: 1px dashed rgba(240,236,228,0.06); border-radius: 14px; display: flex; align-items: center; justify-content: center; position: relative; margin-bottom: -20px;">
+              <div style="position: absolute; bottom: -22px; left: 50%; width: 1px; height: 20px; background: rgba(240,236,228,0.04);"></div>
+              <div style="font-size: 0.5rem; color: rgba(240,236,228,0.08);">+</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #4ecdc4;"></span> Workspace — Following the Current</div>
+      <div class="wf-body" style="background: #090f11; min-height: 320px; padding: 0; display: flex;">
+        <div style="width: 48px; border-right: 1px solid rgba(78,205,196,0.06); display: flex; flex-direction: column; align-items: center; padding: 0.6rem 0; gap: 0.5rem;">
+          <div style="width: 18px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #4ecdc4, #2a9d8f); box-shadow: 0 0 6px rgba(78,205,196,0.3); margin-bottom: 0.3rem;"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(78,205,196,0.1); border: 1px solid rgba(78,205,196,0.15);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.02);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.02);"></div>
+        </div>
+        <div style="flex: 1; padding: 1rem 1.5rem; position: relative;">
+          <!-- Vertical flow line -->
+          <div style="position: absolute; left: 28px; top: 3.2rem; bottom: 1rem; width: 2px; background: linear-gradient(to bottom, rgba(52,211,153,0.4), rgba(78,205,196,0.3) 40%, rgba(240,236,228,0.04));"></div>
+
+          <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.75rem; color: #f0ece4; margin-bottom: 0.2rem;">Real Estate Site</div>
+          <div style="font-size: 0.42rem; color: rgba(240,236,228,0.2); margin-bottom: 1rem;">Site Foundation & Layout</div>
+
+          <!-- Tasks as nodes on vertical flow -->
+          <div style="display: flex; flex-direction: column; gap: 0.15rem; padding-left: 2rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.48rem; color: rgba(240,236,228,0.35); position: relative;">
+              <div style="position: absolute; left: -1.55rem; width: 8px; height: 8px; border-radius: 50%; background: rgba(52,211,153,0.5); box-shadow: 0 0 4px rgba(52,211,153,0.3);"></div>
+              <span style="text-decoration: line-through;">Initialize Next.js</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; background: rgba(78,205,196,0.04); border: 1px solid rgba(78,205,196,0.1); font-size: 0.48rem; color: #f0ece4; font-weight: 500; position: relative;">
+              <div style="position: absolute; left: -1.55rem; width: 10px; height: 10px; border-radius: 50%; background: #4ecdc4; box-shadow: 0 0 10px rgba(78,205,196,0.4);"></div>
+              <span>Build shared layout</span>
+              <span class="ml-auto" style="font-size: 0.38rem; color: #4ecdc4;">▸ open chat</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.48rem; color: rgba(240,236,228,0.2); position: relative;">
+              <div style="position: absolute; left: -1.55rem; width: 6px; height: 6px; border-radius: 50%; background: rgba(240,236,228,0.08);"></div>
+              <span>Create home page</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.48rem; color: rgba(240,236,228,0.15); position: relative;">
+              <div style="position: absolute; left: -1.55rem; width: 6px; height: 6px; border-radius: 50%; background: rgba(240,236,228,0.05);"></div>
+              <span>Property listing card</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #4ecdc4;"></span> Chat — The Tributary</div>
+      <div class="wf-body" style="background: #090f11; min-height: 300px; padding: 1rem 1.5rem; display: flex; flex-direction: column;">
+        <!-- Context bar — shows where you are on the flow -->
+        <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; background: rgba(78,205,196,0.03); border: 1px solid rgba(78,205,196,0.06); border-radius: 8px; margin-bottom: 0.75rem;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #4ecdc4; box-shadow: 0 0 6px rgba(78,205,196,0.4);"></div>
+          <span style="font-size: 0.45rem; color: rgba(78,205,196,0.6); font-weight: 500;">Build shared layout</span>
+          <span style="font-size: 0.38rem; color: rgba(240,236,228,0.15);">· task chat</span>
+          <div style="margin-left: auto; display: flex; gap: 0.2rem;">
+            <div style="font-size: 0.38rem; padding: 0.12rem 0.35rem; border-radius: 3px; color: rgba(240,236,228,0.2); border: 1px solid rgba(240,236,228,0.06);">PM</div>
+            <div style="font-size: 0.38rem; padding: 0.12rem 0.35rem; border-radius: 3px; color: #4ecdc4; background: rgba(78,205,196,0.08); border: 1px solid rgba(78,205,196,0.12);">TASK</div>
+            <div style="font-size: 0.38rem; padding: 0.12rem 0.35rem; border-radius: 3px; color: rgba(240,236,228,0.2); border: 1px solid rgba(240,236,228,0.06);">FREE</div>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem; justify-content: flex-end;">
+          <div style="max-width: 60%; margin-left: auto; padding: 0.45rem 0.7rem; border-radius: 10px 10px 3px 10px; background: rgba(240,236,228,0.06); color: rgba(240,236,228,0.7); font-size: 0.48rem; line-height: 1.6;">Make the nav sticky with a blur background</div>
+          <div style="max-width: 78%; display: flex; gap: 0.35rem; align-items: flex-start;">
+            <div style="width: 6px; height: 6px; border-radius: 50%; background: #4ecdc4; box-shadow: 0 0 6px rgba(78,205,196,0.4); margin-top: 6px; flex-shrink: 0;"></div>
+            <div>
+              <div style="font-size: 0.48rem; color: rgba(240,236,228,0.5); line-height: 1.7;">Done. Added <code style="background: rgba(78,205,196,0.08); padding: 0.1rem 0.3rem; border-radius: 3px; color: #4ecdc4; font-family: 'JetBrains Mono'; font-size: 0.42rem;">position: sticky</code> with <code style="background: rgba(78,205,196,0.08); padding: 0.1rem 0.3rem; border-radius: 3px; color: #4ecdc4; font-family: 'JetBrains Mono'; font-size: 0.42rem;">backdrop-filter</code> to the nav. Scroll behavior is smooth.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Composer -->
+        <div style="margin-top: 0.6rem; background: rgba(240,236,228,0.03); border: 1px solid rgba(240,236,228,0.05); border-radius: 12px; padding: 0.45rem 0.7rem; display: flex; align-items: center;">
+          <span style="font-size: 0.45rem; color: rgba(240,236,228,0.15); flex: 1;">Continue the flow...</span>
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #4ecdc4, #2a9d8f); box-shadow: 0 0 8px rgba(78,205,196,0.2);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-row">
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #4ecdc4;"></span> Why This Is Different</h4>
+      <ul class="spec-list">
+        <li style="color: #4ecdc4;">The Flow Line is always visible — you can't get lost</li>
+        <li>Projects are spatial nodes, not cards in a grid</li>
+        <li>Tasks use a vertical river with node-size = importance</li>
+        <li>Chat is contextual — it knows which task you're on</li>
+        <li>No page transitions — smooth scroll/zoom between views</li>
+        <li>Progress is physical position along the flow, not a number</li>
+        <li>AI responses emerge from the flow dot, not a chat bubble</li>
+      </ul>
+    </div>
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #4ecdc4;"></span> Signature Palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="sw-color" style="background: #090f11;"></div>deep</div>
+        <div class="sw"><div class="sw-color" style="background: #4ecdc4;"></div>current</div>
+        <div class="sw"><div class="sw-color" style="background: #2a9d8f;"></div>depth</div>
+        <div class="sw"><div class="sw-color" style="background: #7c5cfc;"></div>bloom</div>
+        <div class="sw"><div class="sw-color" style="background: #34d399;"></div>shore</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 3: MONOLITH                                          -->
+<!-- ============================================================ -->
+<div class="concept-page">
+  <div class="concept-badge">
+    <span class="num" style="background: #f0ece4; color: #08080a;">03</span>
+    Concept Three
+  </div>
+  <div class="concept-title">Monolith</div>
+  <div class="concept-subtitle">"One panel. Total focus. Everything else fades."</div>
+
+  <div class="concept-philosophy">
+    <strong>The Signature: The Focal Monolith.</strong> One large, beautifully rendered panel dominates 80% of the screen. It shows whatever you're doing right now — tasks, chat, code — at maximum scale. Everything else (sidebar, secondary info) lives at extreme periphery, barely visible until summoned. When you switch context, the monolith performs a cinematic crossfade.
+    <br><br>
+    <strong>The feeling:</strong> Total focus. Zero distraction. You're in the zone and the interface respects that. It's almost brutalist — but warm. Think: a single spotlight on a dark stage. The content is the performance. When you need navigation, a subtle gesture or keystroke reveals it — otherwise, it's just you and the work.
+  </div>
+
+  <div class="sig-strip">
+    <span class="sig-tag" style="border-color: rgba(240,236,228,0.15); color: rgba(240,236,228,0.6);">Single Focus Panel</span>
+    <span class="sig-tag" style="border-color: rgba(240,236,228,0.15); color: rgba(240,236,228,0.6);">Cinematic Transitions</span>
+    <span class="sig-tag" style="border-color: rgba(240,236,228,0.15); color: rgba(240,236,228,0.6);">Command Palette Nav</span>
+    <span class="sig-tag" style="border-color: rgba(240,236,228,0.15); color: rgba(240,236,228,0.6);">Brutalist Warmth</span>
+    <span class="sig-tag" style="border-color: rgba(240,236,228,0.15); color: rgba(240,236,228,0.6);">Keyboard First</span>
+  </div>
+
+  <div class="wireframe-set">
+    <!-- HOME -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #f0ece4;"></span> Home — The Gallery</div>
+      <div class="wf-body" style="background: #0a0a0a; min-height: 340px; display: flex; align-items: center; justify-content: center; padding: 2rem;">
+        <!-- The Monolith Panel -->
+        <div style="width: 85%; max-width: 500px; background: #111113; border: 1px solid rgba(240,236,228,0.06); border-radius: 16px; overflow: hidden;">
+          <!-- Top bar -->
+          <div style="padding: 0.6rem 1rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(240,236,228,0.04);">
+            <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.6rem; color: rgba(240,236,228,0.7); letter-spacing: -0.02em;">Your Projects</div>
+            <div style="font-size: 0.4rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid rgba(240,236,228,0.08); color: rgba(240,236,228,0.25); font-family: 'JetBrains Mono';">⌘K</div>
+          </div>
+          <!-- Project rows — big, spacious -->
+          <div style="padding: 0.25rem;">
+            <div style="padding: 0.75rem 0.85rem; border-radius: 10px; background: rgba(240,236,228,0.03); margin-bottom: 0.15rem; display: flex; align-items: center;">
+              <div style="flex: 1;">
+                <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.7rem; color: #f0ece4; letter-spacing: -0.01em; margin-bottom: 0.1rem;">Real Estate Site</div>
+                <div style="font-size: 0.42rem; color: rgba(240,236,228,0.25);">13 tasks · 2 building · last active 2m ago</div>
+              </div>
+              <div style="display: flex; gap: 2px; height: 24px; align-items: flex-end;">
+                <div style="width: 3px; height: 8px; background: rgba(52,211,153,0.4); border-radius: 1px;"></div>
+                <div style="width: 3px; height: 14px; background: rgba(78,205,196,0.5); border-radius: 1px;"></div>
+                <div style="width: 3px; height: 6px; background: rgba(240,236,228,0.08); border-radius: 1px;"></div>
+                <div style="width: 3px; height: 4px; background: rgba(240,236,228,0.06); border-radius: 1px;"></div>
+              </div>
+            </div>
+            <div style="padding: 0.75rem 0.85rem; border-radius: 10px; margin-bottom: 0.15rem; display: flex; align-items: center;">
+              <div style="flex: 1;">
+                <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.7rem; color: rgba(240,236,228,0.5); letter-spacing: -0.01em; margin-bottom: 0.1rem;">Portfolio App</div>
+                <div style="font-size: 0.42rem; color: rgba(240,236,228,0.15);">6 tasks · review · 1h ago</div>
+              </div>
+            </div>
+            <div style="padding: 0.75rem 0.85rem; border-radius: 10px; margin-bottom: 0.15rem; display: flex; align-items: center;">
+              <div style="flex: 1;">
+                <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.7rem; color: rgba(240,236,228,0.3); letter-spacing: -0.01em;">API Dashboard</div>
+                <div style="font-size: 0.42rem; color: rgba(240,236,228,0.1);">3 tasks · planned · 3d ago</div>
+              </div>
+            </div>
+          </div>
+          <!-- Bottom hint -->
+          <div style="padding: 0.5rem 1rem; border-top: 1px solid rgba(240,236,228,0.03); text-align: center; font-size: 0.38rem; color: rgba(240,236,228,0.12);">↑↓ navigate · enter to open · ⌘N new project</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #f0ece4;"></span> Workspace — The Spotlight</div>
+      <div class="wf-body" style="background: #0a0a0a; min-height: 320px; display: flex; align-items: center; justify-content: center; padding: 1.5rem 2rem;">
+        <div style="width: 85%; max-width: 500px; background: #111113; border: 1px solid rgba(240,236,228,0.06); border-radius: 16px; overflow: hidden;">
+          <div style="padding: 0.65rem 1rem; border-bottom: 1px solid rgba(240,236,228,0.04); display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.65rem; color: #f0ece4;">Real Estate Site</div>
+              <div style="font-size: 0.4rem; color: rgba(240,236,228,0.2);">Site Foundation & Layout · 1/3 done</div>
+            </div>
+            <div style="font-size: 0.4rem; color: rgba(240,236,228,0.15); font-family: 'JetBrains Mono';">esc ← back</div>
+          </div>
+          <div style="padding: 0.25rem;">
+            <div style="padding: 0.55rem 0.85rem; border-radius: 8px; font-size: 0.52rem; color: rgba(240,236,228,0.3); display: flex; align-items: center; gap: 0.4rem;">
+              <div style="width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid rgba(52,211,153,0.4); display: flex; align-items: center; justify-content: center; font-size: 0.4rem; color: rgba(52,211,153,0.5);">✓</div>
+              <span style="text-decoration: line-through;">Initialize Next.js project</span>
+            </div>
+            <div style="padding: 0.55rem 0.85rem; border-radius: 8px; background: rgba(240,236,228,0.03); font-size: 0.52rem; color: #f0ece4; display: flex; align-items: center; gap: 0.4rem; border: 1px solid rgba(240,236,228,0.06);">
+              <div style="width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid rgba(78,205,196,0.5); display: flex; align-items: center; justify-content: center;">
+                <div style="width: 6px; height: 6px; border-radius: 2px; background: #4ecdc4;"></div>
+              </div>
+              <span style="font-weight: 600;">Build shared layout</span>
+              <span class="ml-auto" style="font-size: 0.38rem; color: rgba(240,236,228,0.2); font-family: 'JetBrains Mono';">enter → chat</span>
+            </div>
+            <div style="padding: 0.55rem 0.85rem; border-radius: 8px; font-size: 0.52rem; color: rgba(240,236,228,0.2); display: flex; align-items: center; gap: 0.4rem;">
+              <div style="width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid rgba(240,236,228,0.08);"></div>
+              <span>Create home page sections</span>
+            </div>
+          </div>
+          <div style="padding: 0.5rem 1rem; border-top: 1px solid rgba(240,236,228,0.03); text-align: center; font-size: 0.38rem; color: rgba(240,236,228,0.12);">space to toggle status · enter to chat · tab for PM</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #f0ece4;"></span> Chat — Center Stage</div>
+      <div class="wf-body" style="background: #0a0a0a; min-height: 320px; display: flex; align-items: center; justify-content: center; padding: 1.5rem 2rem;">
+        <div style="width: 85%; max-width: 500px; background: #111113; border: 1px solid rgba(240,236,228,0.06); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column;">
+          <div style="padding: 0.55rem 1rem; border-bottom: 1px solid rgba(240,236,228,0.04); display: flex; align-items: center; gap: 0.4rem;">
+            <div style="width: 7px; height: 7px; border-radius: 50%; background: #4ecdc4;"></div>
+            <div style="font-size: 0.5rem; color: rgba(240,236,228,0.5); font-weight: 500;">Build shared layout</div>
+            <div class="ml-auto" style="display: flex; gap: 0.15rem;">
+              <div style="font-size: 0.35rem; padding: 0.1rem 0.3rem; border-radius: 3px; color: rgba(240,236,228,0.15); border: 1px solid rgba(240,236,228,0.05);">PM</div>
+              <div style="font-size: 0.35rem; padding: 0.1rem 0.3rem; border-radius: 3px; color: #f0ece4; background: rgba(240,236,228,0.06);">TASK</div>
+              <div style="font-size: 0.35rem; padding: 0.1rem 0.3rem; border-radius: 3px; color: rgba(240,236,228,0.15); border: 1px solid rgba(240,236,228,0.05);">FREE</div>
+            </div>
+          </div>
+          <div style="flex: 1; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; justify-content: flex-end; min-height: 180px;">
+            <!-- User -->
+            <div style="max-width: 70%; margin-left: auto; padding: 0.45rem 0.7rem; border-radius: 10px 10px 3px 10px; background: rgba(240,236,228,0.05); font-size: 0.48rem; color: rgba(240,236,228,0.7); line-height: 1.6; text-align: right;">Use a navy blue header with white logo</div>
+            <!-- AI — no avatar, text-only, clean -->
+            <div style="max-width: 80%; font-size: 0.48rem; color: rgba(240,236,228,0.5); line-height: 1.8;">
+              Done. The header is <code style="background: rgba(240,236,228,0.04); padding: 0.1rem 0.3rem; border-radius: 3px; font-family: 'JetBrains Mono'; font-size: 0.42rem; color: rgba(240,236,228,0.6);">#1e3a5f</code> with the logo in white. Also added a subtle bottom shadow for depth.
+              <div style="margin-top: 0.35rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(240,236,228,0.04); border-radius: 8px; padding: 0.4rem; font-family: 'JetBrains Mono'; font-size: 0.4rem; color: rgba(240,236,228,0.4);">
+                <div><span style="color: rgba(78,205,196,0.6);">header</span> { background: <span style="color: rgba(240,236,228,0.6);">#1e3a5f</span>; }</div>
+                <div><span style="color: rgba(78,205,196,0.6);">.logo</span> { color: <span style="color: rgba(240,236,228,0.6);">white</span>; }</div>
+              </div>
+            </div>
+          </div>
+          <!-- Composer -->
+          <div style="padding: 0.5rem 0.75rem; border-top: 1px solid rgba(240,236,228,0.04);">
+            <div style="background: rgba(240,236,228,0.03); border-radius: 10px; padding: 0.45rem 0.7rem; display: flex; align-items: center;">
+              <span style="font-size: 0.45rem; color: rgba(240,236,228,0.15); flex: 1;">What's next?</span>
+              <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(240,236,228,0.08);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-row">
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #f0ece4;"></span> Why This Is Different</h4>
+      <ul class="spec-list">
+        <li style="color: #f0ece4;">NO sidebar. NO navbar. Just the monolith panel + darkness</li>
+        <li>Navigation is 100% keyboard: ⌘K command palette</li>
+        <li>Active content occupies 80% of viewport — maximum immersion</li>
+        <li>Cinematic crossfade between views (300ms, opacity+scale)</li>
+        <li>Keyboard shortcuts visible as gentle hints at panel bottom</li>
+        <li>AI has no avatar — it IS the panel responding to you</li>
+        <li>Status uses checkbox morphology: □ planned, ◧ building, ☑ done</li>
+      </ul>
+    </div>
+    <div class="spec-block">
+      <h4><span class="dot" style="background: #f0ece4;"></span> Signature Palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="sw-color" style="background: #0a0a0a;"></div>void</div>
+        <div class="sw"><div class="sw-color" style="background: #111113;"></div>stage</div>
+        <div class="sw"><div class="sw-color" style="background: rgba(240,236,228,0.3);"></div>ghost</div>
+        <div class="sw"><div class="sw-color" style="background: #f0ece4;"></div>spot</div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.5rem;">
+        <li>Almost monochrome — color only for status feedback</li>
+        <li>Light mode: white void, dark monolith panel</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 4: HEARTHSTONE                                       -->
+<!-- ============================================================ -->
+<div class="concept-page">
+  <div class="concept-badge">
+    <span class="num" style="background: linear-gradient(135deg, #ff6b6b, #ff9f1c); color: #08080a;">04</span>
+    Concept Four
+  </div>
+  <div class="concept-title" style="color: #ff6b6b;">Hearthstone</div>
+  <div class="concept-subtitle">"Gather around the fire. Build something together."</div>
+
+  <div class="concept-philosophy">
+    <strong>The Signature: The Warmth Gradient.</strong> The entire background is a living, slowly breathing warm gradient — deep charcoal at the edges, gentle amber warmth toward the center where your content lives. It's like working by firelight. The warmth isn't decorative — it's functional. Active areas are warmer (amber glow). Inactive areas are cooler (ash). The temperature of the UI tells you where the action is.
+    <br><br>
+    <strong>The feeling:</strong> Cozy. Safe. Like your favorite coffee shop at night. The AI isn't a cold assistant — it's a warm companion. Its responses arrive with a subtle amber pulse. Your friends' activity shows as warm spots on the periphery. This is the anti-corporate tool — it feels handcrafted, personal, alive.
+  </div>
+
+  <div class="sig-strip">
+    <span class="sig-tag" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">Warmth Gradient</span>
+    <span class="sig-tag" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">Firelight UI</span>
+    <span class="sig-tag" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">Temperature = Status</span>
+    <span class="sig-tag" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">Companion AI</span>
+    <span class="sig-tag" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">Campfire Social</span>
+  </div>
+
+  <div class="wireframe-set">
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #ff6b6b;"></span> Home — The Fireside</div>
+      <div class="wf-body" style="background: radial-gradient(ellipse at 50% 60%, #1a1410 0%, #12100d 40%, #0a0908 100%); min-height: 340px; overflow: hidden;">
+        <!-- Warm ambient glow -->
+        <div style="position: absolute; bottom: -50px; left: 40%; width: 400px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(255,159,28,0.06) 0%, rgba(255,107,107,0.03) 40%, transparent 70%);"></div>
+
+        <div style="padding: 0.5rem 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.6rem; color: rgba(255,200,150,0.5);">codebuddy</div>
+          <div style="display: flex; gap: 0.5rem;">
+            <!-- Friends as warm spots -->
+            <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(255,159,28,0.08); border: 1px solid rgba(255,159,28,0.15); box-shadow: 0 0 8px rgba(255,159,28,0.1); display: flex; align-items: center; justify-content: center; font-size: 0.35rem; color: rgba(255,200,150,0.4);">JD</div>
+            <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(255,107,107,0.08); border: 1px solid rgba(255,107,107,0.12); box-shadow: 0 0 6px rgba(255,107,107,0.08); display: flex; align-items: center; justify-content: center; font-size: 0.35rem; color: rgba(255,180,180,0.4);">AK</div>
+            <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(240,236,228,0.04); border: 1px solid rgba(240,236,228,0.06); display: flex; align-items: center; justify-content: center; font-size: 0.35rem; color: rgba(240,236,228,0.2);">CM</div>
+          </div>
+        </div>
+
+        <div style="padding: 2rem 2rem 1rem; text-align: center;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 300; font-size: 1rem; color: rgba(255,200,150,0.35); letter-spacing: -0.02em;">good evening</div>
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.5rem; color: rgba(240,236,228,0.15); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 0.3rem;">3 projects warming</div>
+        </div>
+
+        <!-- Projects as embers/hearth stones -->
+        <div style="display: flex; justify-content: center; gap: 0.75rem; padding: 0 1.5rem;">
+          <!-- Hot project -->
+          <div style="width: 150px; border-radius: 14px; padding: 0.7rem; background: linear-gradient(170deg, rgba(255,159,28,0.06), rgba(255,107,107,0.03)); border: 1px solid rgba(255,159,28,0.1); box-shadow: 0 4px 24px rgba(255,159,28,0.06), inset 0 1px 0 rgba(255,200,150,0.04);">
+            <div style="display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem;">
+              <div style="width: 6px; height: 6px; border-radius: 50%; background: #ff9f1c; box-shadow: 0 0 8px rgba(255,159,28,0.5);"></div>
+              <div style="font-size: 0.5rem; font-weight: 600; color: rgba(255,200,150,0.8);">Real Estate Site</div>
+            </div>
+            <div style="font-size: 0.4rem; color: rgba(255,200,150,0.3); margin-bottom: 0.5rem;">active · 2 building</div>
+            <div style="height: 3px; border-radius: 2px; background: rgba(255,200,150,0.06);">
+              <div style="height: 100%; width: 31%; border-radius: 2px; background: linear-gradient(90deg, #ff6b6b, #ff9f1c); box-shadow: 0 0 6px rgba(255,159,28,0.3);"></div>
+            </div>
+          </div>
+          <!-- Warm project -->
+          <div style="width: 140px; border-radius: 14px; padding: 0.65rem; background: rgba(255,107,107,0.02); border: 1px solid rgba(255,107,107,0.06);">
+            <div style="display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem;">
+              <div style="width: 5px; height: 5px; border-radius: 50%; background: rgba(255,107,107,0.4);"></div>
+              <div style="font-size: 0.5rem; font-weight: 500; color: rgba(240,236,228,0.45);">Portfolio App</div>
+            </div>
+            <div style="font-size: 0.38rem; color: rgba(240,236,228,0.15);">review · almost done</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #ff6b6b;"></span> Chat — Fireside Conversation</div>
+      <div class="wf-body" style="background: radial-gradient(ellipse at 50% 80%, #1a1410, #0a0908); min-height: 320px; padding: 1rem 1.5rem; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.75rem;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #ff9f1c; box-shadow: 0 0 6px rgba(255,159,28,0.4);"></div>
+          <span style="font-size: 0.48rem; color: rgba(255,200,150,0.5); font-weight: 500;">Build shared layout</span>
+        </div>
+
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 0.6rem; justify-content: flex-end;">
+          <!-- User -->
+          <div style="max-width: 60%; margin-left: auto; padding: 0.5rem 0.75rem; border-radius: 12px 12px 3px 12px; background: rgba(240,236,228,0.05); color: rgba(240,236,228,0.65); font-size: 0.48rem; line-height: 1.6;">Add a property search bar to the header</div>
+
+          <!-- AI — warm companion response -->
+          <div style="max-width: 80%; display: flex; gap: 0.4rem; align-items: flex-start;">
+            <!-- Warm companion dot -->
+            <div style="width: 8px; height: 8px; border-radius: 50%; background: radial-gradient(circle, #ffd6a0, #ff9f1c); box-shadow: 0 0 12px rgba(255,159,28,0.3); margin-top: 5px; flex-shrink: 0;"></div>
+            <div>
+              <div style="font-size: 0.48rem; color: rgba(255,200,150,0.5); line-height: 1.7;">
+                Built the search bar with autocomplete. It filters properties by location, price range, and type. Also hooked up debounced API calls.
+              </div>
+              <!-- Warmly-lit code block -->
+              <div style="margin-top: 0.35rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,159,28,0.06); border-radius: 8px; padding: 0.4rem; font-family: 'JetBrains Mono'; font-size: 0.4rem;">
+                <div style="color: rgba(255,159,28,0.5);">// SearchBar.tsx</div>
+                <div style="color: rgba(240,236,228,0.4);"><span style="color: rgba(255,107,107,0.6);">const</span> [query, setQuery] = <span style="color: rgba(78,205,196,0.5);">useState</span>('')</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Composer with warmth -->
+        <div style="margin-top: 0.6rem; background: rgba(255,200,150,0.02); border: 1px solid rgba(255,200,150,0.06); border-radius: 14px; padding: 0.45rem 0.7rem; display: flex; align-items: center;">
+          <span style="font-size: 0.45rem; color: rgba(255,200,150,0.2); flex: 1;">Talk to your buddy...</span>
+          <div style="width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle, #ffd6a0, #ff9f1c); box-shadow: 0 0 6px rgba(255,159,28,0.2); opacity: 0.7;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-row">
+    <div class="spec-block" style="background: rgba(255,159,28,0.02); border-color: rgba(255,159,28,0.06);">
+      <h4><span class="dot" style="background: #ff6b6b;"></span> Why This Is Different</h4>
+      <ul class="spec-list">
+        <li style="color: #ff6b6b;">Warmth IS the design language — heat = activity</li>
+        <li>Friends appear as warm spots, not profile pictures</li>
+        <li>The AI is your "buddy" — language is casual, warm, personal</li>
+        <li>Background breathes — radial gradient slowly oscillates</li>
+        <li>Hot project → amber glow, cooling project → ash gray</li>
+        <li>Composer says "Talk to your buddy" — intimate, not corporate</li>
+        <li>No hard edges anywhere — everything is soft, rounded, alive</li>
+      </ul>
+    </div>
+    <div class="spec-block" style="background: rgba(255,107,107,0.02); border-color: rgba(255,107,107,0.06);">
+      <h4><span class="dot" style="background: #ff6b6b;"></span> Signature Palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="sw-color" style="background: #0a0908;"></div>night</div>
+        <div class="sw"><div class="sw-color" style="background: #1a1410;"></div>hearth</div>
+        <div class="sw"><div class="sw-color" style="background: #ff6b6b;"></div>ember</div>
+        <div class="sw"><div class="sw-color" style="background: #ff9f1c;"></div>flame</div>
+        <div class="sw"><div class="sw-color" style="background: #ffd6a0;"></div>glow</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  CONCEPT 5: PRISM                                             -->
+<!-- ============================================================ -->
+<div class="concept-page">
+  <div class="concept-badge">
+    <span class="num" style="background: linear-gradient(135deg, #a78bfa, #60a5fa, #4ecdc4, #ff9f1c); color: #08080a;">05</span>
+    Concept Five
+  </div>
+  <div class="concept-title" style="background: linear-gradient(90deg, #a78bfa, #60a5fa, #4ecdc4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Prism</div>
+  <div class="concept-subtitle">"Every project is a world. Enter one, and the entire universe shifts to match."</div>
+
+  <div class="concept-philosophy">
+    <strong>The Signature: Chromatic Identity.</strong> Each project gets its own color DNA — a unique gradient that permeates the entire interface when you're inside that project. Enter "Real Estate Site" and the UI bathes in deep navy + gold. Switch to "Portfolio App" and it shifts to emerald + cream. The transition between worlds is a spectacular chromatic morph — a prismatic shift that feels like stepping through a portal.
+    <br><br>
+    <strong>The feeling:</strong> Your projects aren't folders. They're worlds you inhabit. The color shift makes context-switching visceral — you FEEL that you've changed projects because the entire environment transforms. The home page shows all your project worlds as a prismatic spectrum bar — your creative rainbow. Friends inherit your project's color identity when they're collaborating with you.
+  </div>
+
+  <div class="sig-strip">
+    <span class="sig-tag" style="border-color: rgba(167,139,250,0.3); color: #a78bfa;">Project Color DNA</span>
+    <span class="sig-tag" style="border-color: rgba(96,165,250,0.3); color: #60a5fa;">World Shifting</span>
+    <span class="sig-tag" style="border-color: rgba(78,205,196,0.3); color: #4ecdc4;">Prismatic Transitions</span>
+    <span class="sig-tag" style="border-color: rgba(255,159,28,0.3); color: #ff9f1c;">Spectrum Bar</span>
+    <span class="sig-tag" style="border-color: rgba(167,139,250,0.3); color: #a78bfa;">Identity Through Color</span>
+  </div>
+
+  <div class="wireframe-set">
+    <!-- HOME -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: linear-gradient(135deg, #a78bfa, #60a5fa, #4ecdc4);"></span> Home — The Spectrum</div>
+      <div class="wf-body" style="background: #0a0a0e; min-height: 340px; overflow: hidden;">
+        <!-- Spectrum bar at top — THE signature element -->
+        <div style="height: 3px; display: flex;">
+          <div style="flex: 5; background: linear-gradient(90deg, #1e3a5f, #d4af37);"></div>
+          <div style="flex: 3; background: linear-gradient(90deg, #065f46, #6ee7b7);"></div>
+          <div style="flex: 2; background: linear-gradient(90deg, #4c1d95, #a78bfa);"></div>
+          <div style="flex: 3; background: rgba(240,236,228,0.03);"></div>
+        </div>
+
+        <div style="padding: 0.6rem 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 700; font-size: 0.6rem; color: rgba(240,236,228,0.5);">codebuddy</div>
+          <div style="font-size: 0.4rem; color: rgba(240,236,228,0.15);">3 worlds</div>
+        </div>
+
+        <!-- Project worlds as large color-identity panels -->
+        <div style="padding: 0.5rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- World 1: Navy + Gold -->
+          <div style="display: flex; border-radius: 14px; overflow: hidden; border: 1px solid rgba(30,58,95,0.3);">
+            <div style="width: 6px; background: linear-gradient(to bottom, #1e3a5f, #d4af37);"></div>
+            <div style="flex: 1; padding: 0.65rem 0.85rem; background: rgba(30,58,95,0.08);">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <div style="font-size: 0.58rem; font-weight: 600; color: #d4af37;">Real Estate Site</div>
+                  <div style="font-size: 0.4rem; color: rgba(212,175,55,0.35);">4 of 13 tasks · 2 building</div>
+                </div>
+                <div style="display: flex; gap: 2px;">
+                  <div style="width: 8px; height: 8px; border-radius: 50%; background: rgba(212,175,55,0.15); border: 1px solid rgba(212,175,55,0.2); font-size: 0.3rem; display: flex; align-items: center; justify-content: center; color: rgba(212,175,55,0.4);">C</div>
+                  <div style="width: 8px; height: 8px; border-radius: 50%; background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.15); font-size: 0.3rem; display: flex; align-items: center; justify-content: center; color: rgba(212,175,55,0.3);">J</div>
+                </div>
+              </div>
+              <div style="margin-top: 0.4rem; height: 3px; border-radius: 2px; background: rgba(30,58,95,0.2);">
+                <div style="height: 100%; width: 31%; border-radius: 2px; background: linear-gradient(90deg, #1e3a5f, #d4af37);"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- World 2: Emerald + Cream -->
+          <div style="display: flex; border-radius: 14px; overflow: hidden; border: 1px solid rgba(6,95,70,0.2);">
+            <div style="width: 6px; background: linear-gradient(to bottom, #065f46, #6ee7b7);"></div>
+            <div style="flex: 1; padding: 0.6rem 0.85rem; background: rgba(6,95,70,0.04);">
+              <div style="font-size: 0.55rem; font-weight: 600; color: rgba(110,231,183,0.7);">Portfolio App</div>
+              <div style="font-size: 0.38rem; color: rgba(110,231,183,0.25);">5 of 6 · review</div>
+            </div>
+          </div>
+
+          <!-- World 3: Purple -->
+          <div style="display: flex; border-radius: 14px; overflow: hidden; border: 1px solid rgba(76,29,149,0.15);">
+            <div style="width: 6px; background: linear-gradient(to bottom, #4c1d95, #a78bfa);"></div>
+            <div style="flex: 1; padding: 0.55rem 0.85rem; background: rgba(76,29,149,0.03);">
+              <div style="font-size: 0.52rem; font-weight: 500; color: rgba(167,139,250,0.5);">API Dashboard</div>
+              <div style="font-size: 0.36rem; color: rgba(167,139,250,0.2);">0 of 3 · planned</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKSPACE (inside navy+gold world) -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #d4af37;"></span> Workspace — Inside the Navy + Gold World</div>
+      <div class="wf-body" style="background: linear-gradient(170deg, #0d1520 0%, #0a0e15 100%); min-height: 320px; padding: 0; display: flex; overflow: hidden;">
+        <!-- World-colored spectrum bar at top -->
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #1e3a5f, #d4af37, rgba(212,175,55,0.1));"></div>
+
+        <!-- Sidebar -->
+        <div style="width: 48px; border-right: 1px solid rgba(212,175,55,0.06); display: flex; flex-direction: column; align-items: center; padding: 0.75rem 0; gap: 0.5rem;">
+          <div style="width: 18px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #1e3a5f, #d4af37); margin-bottom: 0.2rem;"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.15);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.02);"></div>
+          <div style="width: 18px; height: 18px; border-radius: 6px; background: rgba(240,236,228,0.02);"></div>
+        </div>
+
+        <div style="flex: 1; padding: 1rem 1.5rem;">
+          <div style="font-family: 'Space Grotesk'; font-weight: 600; font-size: 0.75rem; color: #d4af37; margin-bottom: 0.15rem;">Real Estate Site</div>
+          <div style="font-size: 0.42rem; color: rgba(212,175,55,0.25); margin-bottom: 0.75rem;">Site Foundation & Layout</div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.48rem; color: rgba(212,175,55,0.3);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(52,211,153,0.5);"></div>
+              <span style="text-decoration: line-through;">Initialize Next.js</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; background: rgba(212,175,55,0.04); border: 1px solid rgba(212,175,55,0.1); font-size: 0.48rem; color: #d4af37;">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: #d4af37; box-shadow: 0 0 6px rgba(212,175,55,0.4);"></div>
+              <span style="font-weight: 600;">Build shared layout</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.48rem; color: rgba(212,175,55,0.15);">
+              <div style="width: 7px; height: 7px; border-radius: 50%; background: rgba(212,175,55,0.08);"></div>
+              <span>Create home page</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT (inside navy+gold world) -->
+    <div class="wf">
+      <div class="wf-header"><span class="accent-dot" style="background: #d4af37;"></span> Chat — World-Colored Conversation</div>
+      <div class="wf-body" style="background: linear-gradient(170deg, #0d1520, #0a0e15); min-height: 300px; padding: 1rem 1.5rem; display: flex; flex-direction: column;">
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #1e3a5f, #d4af37, transparent);"></div>
+
+        <div style="display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.5rem;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #d4af37; box-shadow: 0 0 6px rgba(212,175,55,0.4);"></div>
+          <span style="font-size: 0.45rem; color: rgba(212,175,55,0.5);">PM Chat · Real Estate Site</span>
+        </div>
+
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem; justify-content: flex-end;">
+          <div style="max-width: 60%; margin-left: auto; padding: 0.45rem 0.7rem; border-radius: 10px 10px 3px 10px; background: rgba(212,175,55,0.06); border: 1px solid rgba(212,175,55,0.08); color: rgba(240,236,228,0.7); font-size: 0.48rem;">Add a map view for property listings</div>
+          <div style="max-width: 78%; display: flex; gap: 0.35rem; align-items: flex-start;">
+            <div style="width: 6px; height: 6px; border-radius: 50%; background: rgba(212,175,55,0.6); margin-top: 5px; flex-shrink: 0;"></div>
+            <div style="font-size: 0.48rem; color: rgba(212,175,55,0.4); line-height: 1.7;">Created a "Map Integration" subproject. I'll use Mapbox GL with custom pins styled in your navy + gold palette. Three tasks added: map component, pin system, and search-filter sync.</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 0.6rem; background: rgba(212,175,55,0.03); border: 1px solid rgba(212,175,55,0.06); border-radius: 12px; padding: 0.45rem 0.7rem; display: flex; align-items: center;">
+          <span style="font-size: 0.45rem; color: rgba(212,175,55,0.15); flex: 1;">Shape this world...</span>
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #1e3a5f, #d4af37);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec-row">
+    <div class="spec-block" style="border-color: rgba(167,139,250,0.08);">
+      <h4><span class="dot" style="background: #a78bfa;"></span> Why This Is Different</h4>
+      <ul class="spec-list">
+        <li style="color: #a78bfa;">The ENTIRE UI changes color per project — instant context</li>
+        <li>Spectrum bar at top = your creative rainbow at a glance</li>
+        <li>Project transitions are prismatic morphs (400ms, saturation wave)</li>
+        <li>Collaborators inherit your project's color when they join</li>
+        <li>Home page spectrum width = project size/importance</li>
+        <li>Left edge color bar on cards = project DNA strip</li>
+        <li>AI responses are tinted to project color — it lives in your world</li>
+      </ul>
+    </div>
+    <div class="spec-block" style="border-color: rgba(96,165,250,0.08);">
+      <h4><span class="dot" style="background: #60a5fa;"></span> Signature Palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="sw-color" style="background: linear-gradient(135deg, #1e3a5f, #d4af37);"></div>navy+gold</div>
+        <div class="sw"><div class="sw-color" style="background: linear-gradient(135deg, #065f46, #6ee7b7);"></div>emerald</div>
+        <div class="sw"><div class="sw-color" style="background: linear-gradient(135deg, #4c1d95, #a78bfa);"></div>violet</div>
+        <div class="sw"><div class="sw-color" style="background: linear-gradient(135deg, #7c2d12, #fb923c);"></div>rust</div>
+      </div>
+      <ul class="spec-list" style="margin-top: 0.5rem;">
+        <li>Each project picks 2 colors: a deep and a bright</li>
+        <li>User can customize — or AI auto-generates from project name</li>
+        <li>Base canvas is always near-black — color comes from identity</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  COMPARISON TABLE                                             -->
+<!-- ============================================================ -->
+<div class="comparison">
+  <div class="concept-badge" style="margin-bottom: 0.5rem;">
+    <span class="num" style="background: rgba(240,236,228,0.08); color: rgba(240,236,228,0.5);">↔</span>
+    Comparison
+  </div>
+  <div class="concept-title" style="font-size: 1.8rem; margin-bottom: 0.3rem;">The Five Worlds</div>
+  <p style="font-size: 0.82rem; color: rgba(240,236,228,0.35); max-width: 640px; margin-bottom: 1.5rem;">Each concept proposes a fundamentally different relationship between the user, the AI, and the work.</p>
+
+  <table class="comp-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th style="color: #ff9f1c;">01 Lumina</th>
+        <th style="color: #4ecdc4;">02 Meridian</th>
+        <th style="color: #f0ece4;">03 Monolith</th>
+        <th style="color: #ff6b6b;">04 Hearthstone</th>
+        <th style="color: #a78bfa;">05 Prism</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Core Idea</td>
+        <td>AI as living entity</td>
+        <td>Project as journey</td>
+        <td>Radical focus</td>
+        <td>Warmth as design</td>
+        <td>Color as identity</td>
+      </tr>
+      <tr>
+        <td>Signature Element</td>
+        <td>The Orb</td>
+        <td>The Flow Line</td>
+        <td>The Focal Panel</td>
+        <td>The Warmth Gradient</td>
+        <td>The Spectrum Bar</td>
+      </tr>
+      <tr>
+        <td>Navigation Model</td>
+        <td>Orbital tabs + sidebar</td>
+        <td>Spatial scroll/zoom</td>
+        <td>⌘K command palette</td>
+        <td>Gentle tab navigation</td>
+        <td>World portals</td>
+      </tr>
+      <tr>
+        <td>AI Presence</td>
+        <td>Glowing orb (avatar)</td>
+        <td>Flow dot (inline)</td>
+        <td>The panel itself</td>
+        <td>Warm companion dot</td>
+        <td>Color-tinted text</td>
+      </tr>
+      <tr>
+        <td>How You'd Describe It</td>
+        <td>"My AI has a face"</td>
+        <td>"I can see the whole journey"</td>
+        <td>"Zero distractions"</td>
+        <td>"It feels like home"</td>
+        <td>"Every project is a world"</td>
+      </tr>
+      <tr>
+        <td>Beginner Friendly</td>
+        <td>★★★★★ (orb guides)</td>
+        <td>★★★☆☆ (spatial learning)</td>
+        <td>★★★☆☆ (keyboard req'd)</td>
+        <td>★★★★★ (warm + inviting)</td>
+        <td>★★★★☆ (color intuitive)</td>
+      </tr>
+      <tr>
+        <td>Power User Appeal</td>
+        <td>★★★★☆</td>
+        <td>★★★★★ (everything connected)</td>
+        <td>★★★★★ (keyboard heaven)</td>
+        <td>★★★☆☆</td>
+        <td>★★★★☆</td>
+      </tr>
+      <tr>
+        <td>Recognizable From Screenshot</td>
+        <td>★★★★★ (the orb)</td>
+        <td>★★★★☆ (the flow line)</td>
+        <td>★★★☆☆ (too minimal)</td>
+        <td>★★★★☆ (the warmth)</td>
+        <td>★★★★★ (the spectrum)</td>
+      </tr>
+      <tr>
+        <td>Implementation Effort</td>
+        <td>Medium (orb = WebGL/CSS)</td>
+        <td>High (spatial nav)</td>
+        <td>Low (simple layout)</td>
+        <td>Medium (gradient system)</td>
+        <td>Medium (theme system)</td>
+      </tr>
+      <tr>
+        <td>Dark Mode</td>
+        <td>Default is dark</td>
+        <td>Default is dark</td>
+        <td>Default is dark</td>
+        <td>Default is dark</td>
+        <td>Default is dark</td>
+      </tr>
+      <tr>
+        <td>Light Mode Strategy</td>
+        <td>Orb → warm sun, cream bg</td>
+        <td>Flow Line stays, bg inverts</td>
+        <td>Monolith inverts (dark on light)</td>
+        <td>Warmth → golden hour tones</td>
+        <td>Spectrum brightens, bg → white</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-divider"></div>
+
+  <h2 style="font-family: 'Space Grotesk'; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.04em; margin-bottom: 0.5rem;">Recommendation</h2>
+
+  <p style="font-size: 0.85rem; line-height: 1.9; color: rgba(240,236,228,0.5); max-width: 700px; margin-bottom: 1.5rem;">
+    <strong style="color: #ff9f1c;">Lumina (01)</strong> gives CodeBuddy the strongest visual identity — the Orb is instantly iconic. Crop the logo out and people would still say "that's CodeBuddy." It also scales perfectly: the orb works at 16px in a favicon, 72px in the app, and full-screen as a loading state.
+  </p>
+
+  <p style="font-size: 0.85rem; line-height: 1.9; color: rgba(240,236,228,0.5); max-width: 700px; margin-bottom: 1.5rem;">
+    <strong style="color: #a78bfa;">Prism (05)</strong> is the strongest UX innovation — the color-world system makes context-switching visceral and fun. Combined with Lumina's orb, you'd have: <em style="color: #f0ece4;">a living orb whose colors shift per project</em> — visually unforgettable.
+  </p>
+
+  <p style="font-size: 0.85rem; line-height: 1.9; color: rgba(240,236,228,0.5); max-width: 700px; margin-bottom: 1.5rem;">
+    <strong style="color: #f0ece4;">Monolith (03)</strong> is the developer's dream — but may alienate non-technical first-time users. Best used as an optional "Focus Mode" toggle inside any other concept.
+  </p>
+
+  <p style="font-size: 0.85rem; line-height: 1.9; color: rgba(240,236,228,0.45); max-width: 700px; font-style: italic;">
+    The best CodeBuddy is probably a <strong style="color: #f0ece4;">hybrid</strong>: Lumina's Orb + Prism's color worlds + Hearthstone's warmth language + Monolith's focus mode as a toggle. That combination would be genuinely unprecedented.
+  </p>
+</div>
+
+</body>
+</html>

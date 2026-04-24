@@ -105,6 +105,7 @@ export interface RepoBranchPayload {
   repoPath: string;
   branchName: string;
   create?: boolean;
+  fromBranch?: string | null;
 }
 
 export interface RepoCommitPayload {
@@ -354,6 +355,7 @@ export interface ProjectSendTaskMessagePayload {
   model?: string;
   attachedFiles?: string[];
   replaceFromMessageId?: string;
+  approvalMode?: "auto" | "manual";
 }
 
 export interface ProjectGenerateTaskPromptPayload {
@@ -366,6 +368,13 @@ export interface ProjectGenerateTaskPromptPayload {
 export interface ProjectRestoreCheckpointPayload {
   projectId: string;
   checkpointId: string;
+}
+
+export interface ProjectCompactConversationPayload {
+  projectId: string;
+  taskId?: string;
+  threadId?: string;
+  sessionId?: string;
 }
 
 export interface ProjectSendTaskMessageResult {
@@ -432,6 +441,7 @@ export interface DesktopSettings {
     githubVisibility: "private" | "public";
     systemPromptMarkdown: string;
     copilotModel: string;
+    approvalMode: "auto" | "manual";
   };
   shell: string;
   cliTools: Record<string, string>;
@@ -665,8 +675,13 @@ export interface CommonSystemPaths {
 export interface ElectronAPI {
   system: {
     openDirectory: () => Promise<string | null>;
+    openFiles: () => Promise<string[]>;
+    readFileAsDataUrl: (filePath: string) => Promise<string | null>;
+    saveUploadedFile: (opts: { projectDir: string; fileName: string; base64Data: string }) => Promise<string | null>;
     openExternal: (url: string) => Promise<void>;
+    openTerminal: (payload?: { cwd?: string; command?: string; run?: boolean }) => Promise<{ ok: boolean; terminal?: string; error?: string }>;
     getCommonPaths: () => Promise<CommonSystemPaths>;
+    getBuildTag: () => Promise<string>;
     platform: "win32" | "darwin" | "linux";
   };
   process: {
@@ -721,15 +736,19 @@ export interface ElectronAPI {
     sendPMMessage: (payload: ProjectSendPMMessagePayload) => Promise<DesktopProject>;
     sendSoloMessage: (payload: SendSoloMessagePayload) => Promise<SendSoloMessageResult>;
     cancelActiveRequest: () => Promise<{ cancelled: boolean }>;
+    approveToolCall: (payload?: { approved?: boolean }) => Promise<{ success: boolean; error?: string }>;
     forceResetAgent: (payload?: { repoPath?: string }) => Promise<{ success: boolean }>;
     getActiveRequest: () => Promise<{ active: boolean; projectId?: string; taskId?: string; taskName?: string; threadId?: string; scope?: string; requestId?: string; output?: string; promptText?: string; sessionId?: string; sessionTitle?: string } | null>;
+    getPendingApproval: () => Promise<{ toolName: string; toolInput: Record<string, unknown>; projectId?: string; taskId?: string; scope?: string } | null>;
     launchDevServer: (payload: { projectId: string; model?: string }) => Promise<{ output: string; launchCommand: string; expectedPort?: number; previewMode?: "web" | "terminal" }>;
     restoreCheckpoint: (payload: ProjectRestoreCheckpointPayload) => Promise<DesktopProject>;
+    compactConversation: (payload: ProjectCompactConversationPayload) => Promise<DesktopProject>;
     onAgentStarted: (callback: (event: ProjectAgentEvent) => void) => () => void;
     onAgentOutput: (callback: (event: ProjectAgentEvent) => void) => () => void;
     onAgentCompleted: (callback: (event: ProjectAgentEvent) => void) => () => void;
     onAgentError: (callback: (event: ProjectAgentEvent) => void) => () => void;
     onAgentCancelled: (callback: (event: ProjectAgentEvent) => void) => () => void;
+    onAgentApprovalRequest: (callback: (event: ProjectAgentEvent & { toolName: string; toolInput: Record<string, unknown> }) => void) => () => void;
   };
   tools: {
     listStatus: () => Promise<ToolStatus[]>;
@@ -811,6 +830,7 @@ export interface ElectronAPI {
   };
   openDirectory: () => Promise<string | null>;
   openExternal: (url: string) => Promise<void>;
+  openTerminal: (payload?: { cwd?: string; command?: string; run?: boolean }) => Promise<{ ok: boolean; terminal?: string; error?: string }>;
   runCommand: (command: string, cwd: string) => Promise<TerminalResult>;
   onTerminalOutput: (callback: (data: string) => void) => () => void;
   platform: "win32" | "darwin" | "linux";
