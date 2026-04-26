@@ -585,16 +585,21 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         }
       }
 
-      // Prefill mode — pre-type the command at the prompt using PSReadLine.Insert.
-      // PSReadLine is NOT active while -Command is still executing; calling Insert
-      // there is a no-op. Defer it via a one-shot PowerShell.OnIdle engine event,
-      // which fires after PSReadLine takes over the prompt.
+      // Prefill mode — the only reliable way to get text typed into a freshly
+      // launched PowerShell prompt is via the clipboard + a synthetic Ctrl+V.
+      // [PSConsoleReadLine]::Insert and PowerShell.OnIdle both run BEFORE
+      // PSReadLine's ReadLine() takes over, so they're no-ops. SendKeys after
+      // a short delay arrives at the prompt and triggers PSReadLine's Paste.
       const escSingle = (s) => String(s).replace(/'/g, "''");
       const innerParts = [`Set-Location -LiteralPath '${escSingle(cwdResolved)}'`];
       if (command) {
-        const cmdSingle = escSingle(command);
+        // Clipboard is already populated from the main process; re-set inside
+        // the new shell as a guard against intervening clipboard activity.
         innerParts.push(
-          `Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action { [Microsoft.PowerShell.PSConsoleReadLine]::Insert('${cmdSingle}') } | Out-Null`
+          `Set-Clipboard -Value ([string]'${escSingle(command)}')`,
+          `Add-Type -AssemblyName System.Windows.Forms`,
+          `Start-Sleep -Milliseconds 350`,
+          `[System.Windows.Forms.SendKeys]::SendWait('^v')`
         );
       }
       const innerCommand = innerParts.join("; ");
