@@ -585,24 +585,14 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         }
       }
 
-      // Prefill mode — the only reliable way to get text typed into a freshly
-      // launched PowerShell prompt is via the clipboard + a synthetic Ctrl+V.
-      // [PSConsoleReadLine]::Insert and PowerShell.OnIdle both run BEFORE
-      // PSReadLine's ReadLine() takes over, so they're no-ops. SendKeys after
-      // a short delay arrives at the prompt and triggers PSReadLine's Paste.
+      // Prefill mode — pwsh runs in MTA, where System.Windows.Forms.SendKeys
+      // and Clipboard silently no-op, so we cannot SendKeys from inside the
+      // launched shell. Instead: launch a plain pwsh window in the cwd, then
+      // from a SEPARATE Windows-PowerShell -STA helper process (spawned here
+      // from Node), wait briefly for the new wt window to gain focus and
+      // SendKeys('^v') to it. Clipboard already holds the command.
       const escSingle = (s) => String(s).replace(/'/g, "''");
-      const innerParts = [`Set-Location -LiteralPath '${escSingle(cwdResolved)}'`];
-      if (command) {
-        // Clipboard is already populated from the main process; re-set inside
-        // the new shell as a guard against intervening clipboard activity.
-        innerParts.push(
-          `Set-Clipboard -Value ([string]'${escSingle(command)}')`,
-          `Add-Type -AssemblyName System.Windows.Forms`,
-          `Start-Sleep -Milliseconds 350`,
-          `[System.Windows.Forms.SendKeys]::SendWait('^v')`
-        );
-      }
-      const innerCommand = innerParts.join("; ");
+      const innerCommand = `Set-Location -LiteralPath '${escSingle(cwdResolved)}'`;
 
       // Build a single shell-string command so cmd.exe handles quoting and so
       // App Execution Aliases (wt.exe under WindowsApps) resolve correctly.
@@ -617,12 +607,33 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const wtOnPath = findOnPath("wt.exe");
         const hasWt = !!wtOnPath || (!!wtAlias && fs.existsSync(wtAlias));
 
+        // Helper that, after the new terminal window appears and grabs focus,
+        // pastes the clipboard contents (our command) into it. Runs in
+        // Windows PowerShell with -Sta so SendKeys actually works.
+        const sendKeysHelper = (delayMs) => {
+          if (!command) return;
+          const helperScript =
+            `Start-Sleep -Milliseconds ${delayMs};` +
+            `Add-Type -AssemblyName System.Windows.Forms;` +
+            `[System.Windows.Forms.SendKeys]::SendWait('^v')`;
+          const helperQuoted = `"${helperScript.replace(/"/g, '""')}"`;
+          const helperLine = `start "" /B powershell.exe -NoProfile -Sta -WindowStyle Hidden -Command ${helperQuoted}`;
+          try {
+            const helper = spawn(helperLine, [], { shell: true, detached: true, stdio: "ignore", windowsHide: true });
+            helper.on("error", (err) => { console.error("[openTerminal] sendkeys helper error:", err?.message ?? err); });
+            helper.unref();
+          } catch (err) {
+            console.error("[openTerminal] sendkeys helper spawn failed:", err?.message ?? err);
+          }
+        };
+
         if (hasWt) {
           // `start "" wt.exe -d "<cwd>" pwsh.exe -NoExit -Command "<cmd>"`
           const cmdLine = `start "" wt.exe -d ${cwdQuoted} ${pwshShellName} -NoExit -Command ${psCmdQuoted}`;
           const child = spawn(cmdLine, [], { shell: true, detached: true, stdio: "ignore", windowsHide: false });
           child.on("error", (err) => { console.error("[openTerminal] wt spawn error:", err?.message ?? err); });
           child.unref();
+          sendKeysHelper(900);
           return { ok: true, mode: "prefill", shell: pwshShellName, terminal: "wt.exe" };
         }
 
@@ -631,6 +642,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const child = spawn(cmdLine, [], { shell: true, cwd: cwdResolved, detached: true, stdio: "ignore", windowsHide: false });
         child.on("error", (err) => { console.error("[openTerminal] ps spawn error:", err?.message ?? err); });
         child.unref();
+        sendKeysHelper(700);
         return { ok: true, mode: "prefill", shell: pwshShellName };
       } catch (err) {
         console.error("[openTerminal] prefill failed:", err?.message ?? err);
