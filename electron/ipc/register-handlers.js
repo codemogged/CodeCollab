@@ -586,10 +586,16 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       }
 
       // Prefill mode — pre-type the command at the prompt using PSReadLine.Insert.
+      // PSReadLine is NOT active while -Command is still executing; calling Insert
+      // there is a no-op. Defer it via a one-shot PowerShell.OnIdle engine event,
+      // which fires after PSReadLine takes over the prompt.
       const escSingle = (s) => String(s).replace(/'/g, "''");
       const innerParts = [`Set-Location -LiteralPath '${escSingle(cwdResolved)}'`];
       if (command) {
-        innerParts.push(`[Microsoft.PowerShell.PSConsoleReadLine]::Insert('${escSingle(command)}')`);
+        const cmdSingle = escSingle(command);
+        innerParts.push(
+          `Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action { [Microsoft.PowerShell.PSConsoleReadLine]::Insert('${cmdSingle}') } | Out-Null`
+        );
       }
       const innerCommand = innerParts.join("; ");
 
