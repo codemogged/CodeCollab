@@ -37,7 +37,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     enqueue: (_repo, _label, fn) => Promise.resolve().then(fn),
     getDepth: () => 0,
   };
-  const BUILD_TAG = "v105-sync-fixes";
+  const BUILD_TAG = "v106-windows";
   // Guard: prevent savePlan from overwriting plan.json while syncWorkspace is importing
   let syncInProgress = false;
   console.log(`[IPC] Registering all handlers... (build: ${BUILD_TAG})`);

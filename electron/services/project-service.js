@@ -971,7 +971,7 @@ async function fileExists(targetPath) {
 }
 
 function createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService }) {
-  const BUILD_TAG = "v105-sync-fixes";
+  const BUILD_TAG = "v106-windows";
   console.log(`[project-service] loaded — build ${BUILD_TAG}`);
   let eventSender = null;
 
