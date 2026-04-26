@@ -548,28 +548,39 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     const cwdResolved = path.resolve(cwd);
 
     if (process.platform === "win32") {
-      // Locate pwsh.exe (preferred) or fall back to powershell.exe
+      // Locate pwsh.exe (preferred) or fall back to powershell.exe.
+      // Note: many of these executables are App Execution Aliases (zero-byte
+      // reparse points under WindowsApps) which CreateProcess cannot launch
+      // directly — we must invoke them via the shell so cmd.exe resolves the alias.
       const findOnPath = (exe) => {
         const pathDirs = (process.env.PATH || "").split(path.delimiter);
         for (const dir of pathDirs) {
           if (!dir) continue;
           const candidate = path.join(dir, exe);
-          try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
+          try {
+            const st = fs.statSync(candidate);
+            // Skip zero-byte execution-alias stubs; they exist but spawn() can't run them.
+            if (st && st.size > 0) return candidate;
+          } catch { /* ignore */ }
         }
         return null;
       };
-      const pwshExe = findOnPath("pwsh.exe") || "powershell.exe";
-
-      const wtPath = path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WindowsApps", "wt.exe");
-      const hasWt = (() => { try { return !!process.env.LOCALAPPDATA && fs.existsSync(wtPath); } catch { return false; } })();
+      const pwshResolved = findOnPath("pwsh.exe");
+      // For shell-launched fallbacks, use the bare name so cmd.exe resolves aliases.
+      const pwshShellName = pwshResolved ? "pwsh.exe" : "powershell.exe";
+      console.log(`[openTerminal] win32 cwd=${cwdResolved} cmdLen=${command.length} run=${run} pwsh=${pwshShellName}`);
 
       if (run && command) {
-        // Execute immediately. cmd /K is the simplest reliable runner that keeps the window open.
+        // Execute immediately. cmd /K keeps the window open after the command exits.
+        // Using `start "" cmd.exe /K ...` detaches a new console window.
         const args = ["/D", "/C", "start", "", "cmd.exe", "/K", `cd /d "${cwdResolved}" && ${command}`];
         try {
-          spawn("cmd.exe", args, { detached: true, stdio: "ignore", windowsHide: false }).unref();
+          const child = spawn("cmd.exe", args, { detached: true, stdio: "ignore", windowsHide: false });
+          child.on("error", (err) => { console.error("[openTerminal] cmd run spawn error:", err?.message ?? err); });
+          child.unref();
           return { ok: true, mode: "run", shell: "cmd.exe" };
         } catch (err) {
+          console.error("[openTerminal] cmd run failed:", err?.message ?? err);
           return { ok: false, error: err && err.message ? err.message : String(err) };
         }
       }
@@ -582,26 +593,36 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       }
       const innerCommand = innerParts.join("; ");
 
+      // Build a single shell-string command so cmd.exe handles quoting and so
+      // App Execution Aliases (wt.exe under WindowsApps) resolve correctly.
+      // The PowerShell -Command argument is wrapped in double quotes with any
+      // embedded double quotes escaped as "".
+      const psCmdQuoted = `"${innerCommand.replace(/"/g, '""')}"`;
+      const cwdQuoted = `"${cwdResolved.replace(/"/g, '""')}"`;
+
       try {
+        const localApp = process.env.LOCALAPPDATA || "";
+        const wtAlias = localApp ? path.join(localApp, "Microsoft", "WindowsApps", "wt.exe") : "";
+        const wtOnPath = findOnPath("wt.exe");
+        const hasWt = !!wtOnPath || (!!wtAlias && fs.existsSync(wtAlias));
+
         if (hasWt) {
-          const wtArgs = [
-            "-d", cwdResolved,
-            pwshExe,
-            "-NoExit",
-            "-Command", innerCommand,
-          ];
-          spawn(wtPath, wtArgs, { detached: true, stdio: "ignore", windowsHide: false }).unref();
-          return { ok: true, mode: "prefill", shell: pwshExe, terminal: "wt.exe" };
+          // `start "" wt.exe -d "<cwd>" pwsh.exe -NoExit -Command "<cmd>"`
+          const cmdLine = `start "" wt.exe -d ${cwdQuoted} ${pwshShellName} -NoExit -Command ${psCmdQuoted}`;
+          const child = spawn(cmdLine, [], { shell: true, detached: true, stdio: "ignore", windowsHide: false });
+          child.on("error", (err) => { console.error("[openTerminal] wt spawn error:", err?.message ?? err); });
+          child.unref();
+          return { ok: true, mode: "prefill", shell: pwshShellName, terminal: "wt.exe" };
         }
-        // Fallback: spawn pwsh/powershell directly with -NoExit -Command.
-        spawn(pwshExe, ["-NoExit", "-Command", innerCommand], {
-          cwd: cwdResolved,
-          detached: true,
-          stdio: "ignore",
-          windowsHide: false,
-        }).unref();
-        return { ok: true, mode: "prefill", shell: pwshExe };
+
+        // Fallback: open a plain PowerShell console.
+        const cmdLine = `start "" ${pwshShellName} -NoExit -Command ${psCmdQuoted}`;
+        const child = spawn(cmdLine, [], { shell: true, cwd: cwdResolved, detached: true, stdio: "ignore", windowsHide: false });
+        child.on("error", (err) => { console.error("[openTerminal] ps spawn error:", err?.message ?? err); });
+        child.unref();
+        return { ok: true, mode: "prefill", shell: pwshShellName };
       } catch (err) {
+        console.error("[openTerminal] prefill failed:", err?.message ?? err);
         return { ok: false, error: err && err.message ? err.message : String(err) };
       }
     }
