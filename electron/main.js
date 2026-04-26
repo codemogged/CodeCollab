@@ -211,7 +211,7 @@ function writeLog(level, args) {
 // to the interactive debug console. Use `CODEBUDDY_LOG_ALLOW` (comma list)
 // to whitelist tags (e.g. "startup,file-watcher,p2p"). Untagged messages
 // are only shown when `CODEBUDDY_LOG_LEVEL=debug`.
-const LOG_ALLOWLIST = (process.env.CODEBUDDY_LOG_ALLOW || "startup,sync,p2p,file-watcher,shared-context,deploy,launcher,shutdown,repo")
+const LOG_ALLOWLIST = (process.env.CODEBUDDY_LOG_ALLOW || "startup,sync,p2p,file-watcher,shared-context,deploy,launcher,shutdown,repo,openterminal")
   .split(",")
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);

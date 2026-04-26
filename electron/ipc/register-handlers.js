@@ -607,42 +607,74 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const wtOnPath = findOnPath("wt.exe");
         const hasWt = !!wtOnPath || (!!wtAlias && fs.existsSync(wtAlias));
 
-        // Helper that, after the new terminal window appears and grabs focus,
-        // pastes the clipboard contents (our command) into it. Runs in
-        // Windows PowerShell with -Sta so SendKeys actually works.
-        const sendKeysHelper = (delayMs) => {
+        // Helper that, after the new terminal window appears, activates it
+        // (by window-title match) and pastes the clipboard via SendKeys.
+        // We use cscript+VBScript because WScript.Shell.SendKeys is the most
+        // reliable Windows scripting API for synthetic input — it's STA by
+        // default and AppActivate guarantees the right window is focused.
+        const sendKeysHelper = (windowTitleNeedle, delayMs) => {
           if (!command) return;
-          const helperScript =
-            `Start-Sleep -Milliseconds ${delayMs};` +
-            `Add-Type -AssemblyName System.Windows.Forms;` +
-            `[System.Windows.Forms.SendKeys]::SendWait('^v')`;
-          const helperQuoted = `"${helperScript.replace(/"/g, '""')}"`;
-          const helperLine = `start "" /B powershell.exe -NoProfile -Sta -WindowStyle Hidden -Command ${helperQuoted}`;
+          const os = require("os");
+          const vbsPath = path.join(os.tmpdir(), `cb-prefill-${process.pid}-${Date.now()}.vbs`);
+          // Note: VBScript string literals use "" to escape ".
+          const titleEsc = String(windowTitleNeedle).replace(/"/g, '""');
+          const vbs = [
+            `Option Explicit`,
+            `Dim sh, attempts, ok`,
+            `Set sh = CreateObject("WScript.Shell")`,
+            `WScript.Sleep ${delayMs}`,
+            `attempts = 0`,
+            `ok = False`,
+            `Do While attempts < 20 And Not ok`,
+            `  ok = sh.AppActivate("${titleEsc}")`,
+            `  If Not ok Then`,
+            `    WScript.Sleep 250`,
+            `    attempts = attempts + 1`,
+            `  End If`,
+            `Loop`,
+            `WScript.Sleep 200`,
+            `sh.SendKeys "^v"`,
+            ``
+          ].join("\r\n");
           try {
-            const helper = spawn(helperLine, [], { shell: true, detached: true, stdio: "ignore", windowsHide: true });
-            helper.on("error", (err) => { console.error("[openTerminal] sendkeys helper error:", err?.message ?? err); });
+            fs.writeFileSync(vbsPath, vbs, "utf8");
+            console.log(`[openTerminal] sendkeys helper wrote ${vbsPath} title="${windowTitleNeedle}" delay=${delayMs}`);
+            const helper = spawn("cscript.exe", ["//Nologo", "//B", vbsPath], {
+              detached: true, stdio: "ignore", windowsHide: true,
+            });
+            helper.on("error", (err) => { console.error("[openTerminal] sendkeys helper spawn error:", err?.message ?? err); });
+            helper.on("exit", (code) => {
+              console.log(`[openTerminal] sendkeys helper exit code=${code}`);
+              try { fs.unlinkSync(vbsPath); } catch { /* ignore */ }
+            });
             helper.unref();
           } catch (err) {
-            console.error("[openTerminal] sendkeys helper spawn failed:", err?.message ?? err);
+            console.error("[openTerminal] sendkeys helper failed:", err?.message ?? err);
           }
         };
 
         if (hasWt) {
-          // `start "" wt.exe -d "<cwd>" pwsh.exe -NoExit -Command "<cmd>"`
+          // wt.exe sets its window title to the running profile name (e.g.
+          // "PowerShell" or "Windows PowerShell"). Match on a stable token.
           const cmdLine = `start "" wt.exe -d ${cwdQuoted} ${pwshShellName} -NoExit -Command ${psCmdQuoted}`;
+          console.log(`[openTerminal] launching wt: ${cmdLine}`);
           const child = spawn(cmdLine, [], { shell: true, detached: true, stdio: "ignore", windowsHide: false });
           child.on("error", (err) => { console.error("[openTerminal] wt spawn error:", err?.message ?? err); });
           child.unref();
-          sendKeysHelper(900);
+          // wt's window title is "PowerShell" for pwsh / "Windows PowerShell" for powershell.
+          const titleNeedle = pwshShellName === "pwsh.exe" ? "PowerShell" : "Windows PowerShell";
+          sendKeysHelper(titleNeedle, 1200);
           return { ok: true, mode: "prefill", shell: pwshShellName, terminal: "wt.exe" };
         }
 
         // Fallback: open a plain PowerShell console.
         const cmdLine = `start "" ${pwshShellName} -NoExit -Command ${psCmdQuoted}`;
+        console.log(`[openTerminal] launching ps console: ${cmdLine}`);
         const child = spawn(cmdLine, [], { shell: true, cwd: cwdResolved, detached: true, stdio: "ignore", windowsHide: false });
         child.on("error", (err) => { console.error("[openTerminal] ps spawn error:", err?.message ?? err); });
         child.unref();
-        sendKeysHelper(700);
+        const titleNeedle = pwshShellName === "pwsh.exe" ? "PowerShell" : "Windows PowerShell";
+        sendKeysHelper(titleNeedle, 900);
         return { ok: true, mode: "prefill", shell: pwshShellName };
       } catch (err) {
         console.error("[openTerminal] prefill failed:", err?.message ?? err);
