@@ -1,7 +1,164 @@
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, session, Menu, MenuItem, clipboard, shell } = require("electron");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+
+// ── Native right-click context menu (cross-platform) ──
+function attachContextMenu(webContents) {
+  if (!webContents || webContents.__cbContextMenuAttached) return;
+  webContents.__cbContextMenuAttached = true;
+
+  webContents.on("context-menu", (_event, params) => {
+    const menu = new Menu();
+    const editFlags = params.editFlags || {};
+    const hasSelection = !!(params.selectionText && params.selectionText.length > 0);
+
+    if (params.isEditable && params.misspelledWord) {
+      const suggestions = Array.isArray(params.dictionarySuggestions) ? params.dictionarySuggestions : [];
+      if (suggestions.length > 0) {
+        suggestions.slice(0, 5).forEach((suggestion) => {
+          menu.append(new MenuItem({
+            label: suggestion,
+            click: () => webContents.replaceMisspelling(suggestion),
+          }));
+        });
+        menu.append(new MenuItem({
+          label: "Add to Dictionary",
+          click: () => {
+            try { webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord); } catch { /* ignore */ }
+          },
+        }));
+        menu.append(new MenuItem({ type: "separator" }));
+      } else {
+        menu.append(new MenuItem({ label: "No spelling suggestions", enabled: false }));
+        menu.append(new MenuItem({ type: "separator" }));
+      }
+    }
+
+    if (params.linkURL) {
+      menu.append(new MenuItem({
+        label: "Open Link in Browser",
+        click: () => { try { shell.openExternal(params.linkURL); } catch { /* ignore */ } },
+      }));
+      menu.append(new MenuItem({
+        label: "Copy Link Address",
+        click: () => { try { clipboard.writeText(params.linkURL); } catch { /* ignore */ } },
+      }));
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+
+    menu.append(new MenuItem({ role: "undo", accelerator: "CmdOrCtrl+Z", enabled: !!editFlags.canUndo }));
+    menu.append(new MenuItem({ role: "redo", accelerator: "CmdOrCtrl+Shift+Z", enabled: !!editFlags.canRedo }));
+    menu.append(new MenuItem({ type: "separator" }));
+    menu.append(new MenuItem({ role: "cut", accelerator: "CmdOrCtrl+X", enabled: !!editFlags.canCut }));
+    menu.append(new MenuItem({ role: "copy", accelerator: "CmdOrCtrl+C", enabled: !!(editFlags.canCopy || hasSelection) }));
+    menu.append(new MenuItem({ role: "paste", accelerator: "CmdOrCtrl+V", enabled: !!editFlags.canPaste }));
+    menu.append(new MenuItem({ role: "pasteAndMatchStyle", accelerator: "CmdOrCtrl+Shift+V", enabled: !!editFlags.canPaste }));
+    menu.append(new MenuItem({ type: "separator" }));
+    menu.append(new MenuItem({ role: "selectAll", accelerator: "CmdOrCtrl+A", enabled: editFlags.canSelectAll !== false }));
+
+    if (!app.isPackaged) {
+      menu.append(new MenuItem({ type: "separator" }));
+      menu.append(new MenuItem({
+        label: "Inspect Element",
+        click: () => { try { webContents.inspectElement(params.x, params.y); } catch { /* ignore */ } },
+      }));
+    }
+
+    try {
+      menu.popup({ window: BrowserWindow.fromWebContents(webContents) || undefined });
+    } catch { /* ignore */ }
+  });
+}
+
+// ── Application menu (cross-platform; ensures Edit shortcuts always work) ──
+function buildApplicationMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [];
+
+  if (isMac) {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    });
+  }
+
+  template.push({
+    label: "File",
+    submenu: [
+      isMac ? { role: "close" } : { role: "quit" },
+    ],
+  });
+
+  template.push({
+    label: "Edit",
+    submenu: [
+      { role: "undo" },
+      { role: "redo" },
+      { type: "separator" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "delete" },
+      { type: "separator" },
+      { role: "selectAll" },
+    ],
+  });
+
+  template.push({
+    label: "View",
+    submenu: [
+      { role: "reload" },
+      { role: "forceReload" },
+      { role: "toggleDevTools" },
+      { type: "separator" },
+      { role: "resetZoom" },
+      { role: "zoomIn" },
+      { role: "zoomOut" },
+      { type: "separator" },
+      { role: "togglefullscreen" },
+    ],
+  });
+
+  template.push({
+    label: "Window",
+    submenu: isMac
+      ? [
+        { role: "minimize" },
+        { role: "zoom" },
+        { type: "separator" },
+        { role: "front" },
+        { type: "separator" },
+        { role: "window" },
+      ]
+      : [
+        { role: "minimize" },
+        { role: "close" },
+      ],
+  });
+
+  template.push({
+    label: "Help",
+    submenu: [
+      {
+        label: "Learn More",
+        click: () => { try { shell.openExternal("https://github.com/wuddup-02120/CodeBuddy"); } catch { /* ignore */ } },
+      },
+    ],
+  });
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // ── Auto-disable GPU in VMs / environments without hardware acceleration ──
 if (process.argv.includes("--disable-gpu")) {
@@ -211,13 +368,14 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "CodeBuddy [v104]",
+    title: "CodeBuddy [build v106-windows]",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
       nodeIntegration: false,   // security: no require() in renderer
       sandbox: false,           // preload needs Node to bridge IPC
       webviewTag: true,         // allow <webview> tags for preview iframe
+      spellcheck: true,         // enable native spellchecker (used by context menu)
     },
   });
 
@@ -259,6 +417,20 @@ async function createWindow() {
     return allowed.has(permission);
   });
 
+  // Configure spellchecker languages from the OS locale, with en-US fallback.
+  try {
+    const sess = mainWindow.webContents.session;
+    const available = sess.availableSpellCheckerLanguages || [];
+    const localeRaw = (app.getLocale() || "en-US").replace(/_/g, "-");
+    const desired = [];
+    if (available.includes(localeRaw)) desired.push(localeRaw);
+    if (!desired.includes("en-US") && available.includes("en-US")) desired.push("en-US");
+    if (desired.length > 0) sess.setSpellCheckerLanguages(desired);
+    sess.setSpellCheckerEnabled(true);
+  } catch (err) {
+    console.warn("[spellcheck] failed to configure:", err?.message ?? err);
+  }
+
   // Keep preview guests sandboxed and block any attempt to open external windows.
   mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
     webPreferences.nodeIntegration = false;
@@ -268,6 +440,7 @@ async function createWindow() {
 
   mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
     webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    attachContextMenu(webContents);
   });
 
   // Strip X-Frame-Options and CSP frame-ancestors from localhost responses
@@ -310,6 +483,9 @@ async function createWindow() {
     await mainWindow.loadURL(appUrl);
   }
 
+  // Attach native right-click context menu to the main webContents.
+  attachContextMenu(mainWindow.webContents);
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -346,6 +522,7 @@ async function bootstrapDesktopServices() {
 // ── App lifecycle ──────────────────────────────────────────────
 app.whenReady().then(async () => {
   await bootstrapDesktopServices();
+  buildApplicationMenu();
   await createWindow();
 });
 

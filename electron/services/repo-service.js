@@ -252,6 +252,118 @@ async function createRepoService({ settingsService } = {}) {
     };
   }
 
+  function buildDocFilename(mode, timestamp) {
+    const ts = timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now());
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp = `${ts.getFullYear()}-${pad(ts.getMonth() + 1)}-${pad(ts.getDate())}_${pad(ts.getHours())}-${pad(ts.getMinutes())}-${pad(ts.getSeconds())}`;
+    const safeMode = (mode === "technical" || mode === "overview") ? mode : "doc";
+    return `${safeMode}_${stamp}.md`;
+  }
+
+  async function saveGeneratedDoc(repoPath, mode, content, options = {}) {
+    if (!repoPath || typeof repoPath !== "string") {
+      throw new Error("repoPath is required.");
+    }
+    if (typeof content !== "string") {
+      throw new Error("content must be a string.");
+    }
+
+    const resolvedRepo = path.resolve(repoPath);
+    const repoStats = await fs.stat(resolvedRepo);
+    if (!repoStats.isDirectory()) {
+      throw new Error("repoPath is not a directory.");
+    }
+
+    const docsDir = path.join(resolvedRepo, "docs");
+    await fs.mkdir(docsDir, { recursive: true });
+
+    const ts = options && options.timestamp ? new Date(options.timestamp) : new Date();
+    const filename = buildDocFilename(mode, ts);
+    const filePath = path.join(docsDir, filename);
+    await fs.writeFile(filePath, content, "utf8");
+    const stats = await fs.stat(filePath);
+
+    return {
+      path: filePath,
+      filename,
+      mode: (mode === "technical" || mode === "overview") ? mode : "doc",
+      timestamp: ts.toISOString(),
+      bytes: stats.size,
+    };
+  }
+
+  async function listGeneratedDocs(repoPath) {
+    if (!repoPath || typeof repoPath !== "string") {
+      throw new Error("repoPath is required.");
+    }
+    const resolvedRepo = path.resolve(repoPath);
+    const docsDir = path.join(resolvedRepo, "docs");
+
+    let entries;
+    try {
+      entries = await fs.readdir(docsDir);
+    } catch (err) {
+      if (err && err.code === "ENOENT") return [];
+      throw err;
+    }
+
+    const pattern = /^(technical|overview|doc)_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.md$/;
+    const results = [];
+    for (const filename of entries) {
+      if (!filename.toLowerCase().endsWith(".md")) continue;
+      const fullPath = path.join(docsDir, filename);
+      let stats;
+      try {
+        stats = await fs.stat(fullPath);
+      } catch { continue; }
+      if (!stats.isFile()) continue;
+
+      let mode = "doc";
+      let timestamp = stats.mtime.toISOString();
+      const match = pattern.exec(filename);
+      if (match) {
+        mode = match[1];
+        const [, , y, mo, d, h, mi, s] = match;
+        const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+        if (!Number.isNaN(dt.getTime())) timestamp = dt.toISOString();
+      }
+
+      results.push({
+        path: fullPath,
+        filename,
+        mode,
+        timestamp,
+        bytes: stats.size,
+      });
+    }
+
+    results.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
+    return results;
+  }
+
+  async function deleteGeneratedDoc(repoPath, filename) {
+    if (!repoPath || typeof repoPath !== "string") {
+      throw new Error("repoPath is required.");
+    }
+    if (!filename || typeof filename !== "string") {
+      throw new Error("filename is required.");
+    }
+    if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+      throw new Error("Invalid filename.");
+    }
+
+    const resolvedRepo = path.resolve(repoPath);
+    const docsDir = path.join(resolvedRepo, "docs");
+    const target = path.resolve(docsDir, filename);
+    const docsDirResolved = path.resolve(docsDir);
+    if (!target.startsWith(docsDirResolved + path.sep) && target !== docsDirResolved) {
+      throw new Error("Resolved path escapes docs directory.");
+    }
+
+    await fs.unlink(target);
+    return { ok: true, filename };
+  }
+
   async function getFileDiff(repoPath, targetPath, staged = false) {
     const resolvedRepoPath = await ensureRepository(repoPath);
     const gitCommand = await getGitCommand();
@@ -518,6 +630,9 @@ async function createRepoService({ settingsService } = {}) {
     pushToRemote,
     pullFromRemote,
     syncSharedState,
+    saveGeneratedDoc,
+    listGeneratedDocs,
+    deleteGeneratedDoc,
   };
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 
@@ -45,6 +45,98 @@ interface GeneratedDoc {
   content: string;
 }
 
+interface SavedDoc {
+  path: string;
+  filename: string;
+  mode: "technical" | "overview" | "doc";
+  timestamp: string;
+  bytes: number;
+}
+
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+const MODE_BADGE: Record<SavedDoc["mode"], { label: string; className: string }> = {
+  technical: { label: "Technical", className: "bg-violet-500/15 text-violet-600 dark:text-violet-300" },
+  overview:  { label: "Overview",  className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" },
+  doc:       { label: "Doc",       className: "bg-slate-500/15 text-slate-600 dark:text-slate-300" },
+};
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  const kb = bytes / 1024;
+  if (kb < 10) return `${kb.toFixed(1)} KB`;
+  return `${Math.round(kb)} KB`;
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+interface SavedDocsPanelProps {
+  savedDocs: SavedDoc[];
+  showHint: boolean;
+  onOpen: (doc: SavedDoc) => void;
+  onDelete: (doc: SavedDoc) => void;
+}
+
+function SavedDocsPanel({ savedDocs, showHint, onOpen, onDelete }: SavedDocsPanelProps) {
+  if (savedDocs.length === 0) {
+    if (!showHint) return null;
+    return (
+      <div className="mt-6 rounded-2xl border border-black/[0.06] bg-white/40 px-5 py-4 text-[12px] theme-muted dark:border-white/[0.06] dark:bg-white/[0.02]">
+        Saved docs will appear here once you generate documentation. Files are written to <code className="rounded bg-black/[0.05] px-1 py-0.5 text-[11px] dark:bg-white/[0.06]">docs/</code> in your project.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-8">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[12px] font-semibold uppercase tracking-[0.14em] theme-muted">Saved Docs</h3>
+        <span className="text-[11px] theme-muted">{savedDocs.length} file{savedDocs.length === 1 ? "" : "s"}</span>
+      </div>
+      <ul className="space-y-2">
+        {savedDocs.map((doc) => {
+          const badge = MODE_BADGE[doc.mode] || MODE_BADGE.doc;
+          return (
+            <li
+              key={doc.path}
+              className="flex items-center gap-3 rounded-xl bg-white/60 px-4 py-3 ring-1 ring-black/[0.04] dark:bg-white/[0.03] dark:ring-white/[0.06]"
+            >
+              <span className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${badge.className}`}>
+                {badge.label}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium theme-fg">{doc.filename}</p>
+                <p className="text-[11px] theme-muted">{formatTimestamp(doc.timestamp)} · {formatBytes(doc.bytes)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpen(doc)}
+                className="rounded-md px-2 py-1 text-[11px] font-medium theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:hover:bg-white/[0.06]"
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(doc)}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-red-500 transition hover:bg-red-500/10"
+              >
+                Delete
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 const TECHNICAL_PROMPT = "You are a senior technical writer. Scan this project codebase. Return ONLY a JSON array of 6 doc sections with keys id, title, emoji, content. Sections: (1) id:overview title:Architecture Overview emoji:BUILD (2) id:stack title:Tech Stack emoji:PKG (3) id:structure title:Directory Structure emoji:DIR (4) id:api title:API/IPC Reference emoji:BOLT (5) id:flows title:Key Data Flows emoji:FLOW (6) id:dev title:Development and Build emoji:TOOLS. Each 300-600 words. Use markdown code fences where useful. CRITICAL: Return ONLY the raw JSON array.";
 
 const OVERVIEW_PROMPT = "You are writing a friendly, non-technical product overview. Return ONLY a JSON array of 5 doc sections with keys id, title, emoji, content. Sections: (1) id:what title:What Is This emoji:SPARK (2) id:why title:Why It Matters emoji:BULB (3) id:how title:How It Works emoji:TARGET (4) id:features title:What You Can Do emoji:ROCKET (5) id:next title:Getting Started emoji:SEED. Plain English. Avoid jargon. Short sentences. Each 200-400 words. CRITICAL: Return ONLY the raw JSON array.";
@@ -53,15 +145,78 @@ export default function DocumentationPage() {
   const { activeProject } = useActiveDesktopProject();
   const projectName = activeProject?.name ?? "Your Project";
   const projectId = activeProject?.id;
+  const repoPath = activeProject?.repoPath ?? "";
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [mode, setMode] = useState<DocMode | null>(null);
   const [docs, setDocs] = useState<GeneratedDoc[]>([]);
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  const [savedDocs, setSavedDocs] = useState<SavedDoc[]>([]);
+  const [openSavedDoc, setOpenSavedDoc] = useState<{ doc: SavedDoc; content: string } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const streamRef = useRef("");
 
   const hasGenerated = docs.length > 0;
+
+  const refreshSavedDocs = useCallback(async () => {
+    if (!repoPath) { setSavedDocs([]); return; }
+    try {
+      const list = await window.electronAPI?.repo?.listDocs?.({ repoPath });
+      if (Array.isArray(list)) setSavedDocs(list as SavedDoc[]);
+    } catch {
+      /* ignore */
+    }
+  }, [repoPath]);
+
+  useEffect(() => { void refreshSavedDocs(); }, [refreshSavedDocs]);
+
+  const persistGeneratedDocs = useCallback(async (docMode: DocMode, parsed: GeneratedDoc[]) => {
+    if (!repoPath) return;
+    setSaveStatus("saving");
+    try {
+      const ts = new Date();
+      const heading = docMode === "technical" ? "# Technical Documentation" : "# Project Overview";
+      const whenLabel = ts.toLocaleString();
+      const meta = `<!-- mode: ${docMode} | generated: ${ts.toISOString()} | project: ${projectName} -->`;
+      const sections = parsed.map((d) => `## ${d.emoji} ${d.title}\n\n${d.content}`).join("\n\n---\n\n");
+      const content = `${meta}\n\n${heading}\n\n_Generated ${whenLabel}_\n\n${sections}\n`;
+      await window.electronAPI?.repo?.saveDoc?.({
+        repoPath,
+        mode: docMode,
+        content,
+        timestamp: ts.toISOString(),
+      });
+      setSaveStatus("saved");
+      void refreshSavedDocs();
+      setTimeout(() => setSaveStatus((s) => (s === "saved" ? "idle" : s)), 2400);
+    } catch {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus((s) => (s === "error" ? "idle" : s)), 3500);
+    }
+  }, [repoPath, projectName, refreshSavedDocs]);
+
+  const handleOpenSavedDoc = useCallback(async (doc: SavedDoc) => {
+    try {
+      const file = await window.electronAPI?.repo?.readFileContent?.(doc.path);
+      const content = (file && typeof file.content === "string") ? file.content : "";
+      setOpenSavedDoc({ doc, content });
+    } catch {
+      setOpenSavedDoc({ doc, content: "_Failed to read file._" });
+    }
+  }, []);
+
+  const handleDeleteSavedDoc = useCallback(async (doc: SavedDoc) => {
+    if (typeof window === "undefined") return;
+    const ok = window.confirm(`Delete ${doc.filename}? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      await window.electronAPI?.repo?.deleteDoc?.({ repoPath, filename: doc.filename });
+      void refreshSavedDocs();
+    } catch {
+      /* ignore */
+    }
+  }, [repoPath, refreshSavedDocs]);
 
   const runGenerate = async (selectedMode: DocMode) => {
     if (!projectId || !window.electronAPI?.project?.sendSoloMessage) {
@@ -121,6 +276,7 @@ export default function DocumentationPage() {
     setExpandedDoc(parsed[0]?.id ?? null);
     setIsGenerating(false);
     setProgress("");
+    void persistGeneratedDocs(selectedMode, parsed);
   };
 
   const handleReset = () => { setDocs([]); setExpandedDoc(null); setMode(null); };
@@ -253,6 +409,12 @@ export default function DocumentationPage() {
                   Generate Plain-English Overview
                 </button>
               </div>
+              <SavedDocsPanel
+                savedDocs={savedDocs}
+                showHint
+                onOpen={handleOpenSavedDoc}
+                onDelete={handleDeleteSavedDoc}
+              />
             </>
           ) : isGenerating ? (
             <div className="flex flex-col items-center rounded-3xl border border-violet-500/20 bg-violet-500/[0.04] px-8 py-16 text-center">
@@ -271,7 +433,12 @@ export default function DocumentationPage() {
                 <div className="flex items-center gap-2.5">
                   <CheckCircleIcon className={"h-5 w-5 " + (mode === "technical" ? "text-violet-500" : "text-emerald-500")} />
                   <div>
-                    <p className={"text-[13px] font-semibold " + (mode === "technical" ? "text-violet-600 dark:text-violet-400" : "text-emerald-600 dark:text-emerald-400")}>{docs.length} {docs.length === 1 ? "section" : "sections"} generated</p>
+                    <p className={"text-[13px] font-semibold " + (mode === "technical" ? "text-violet-600 dark:text-violet-400" : "text-emerald-600 dark:text-emerald-400")}>
+                      {docs.length} {docs.length === 1 ? "section" : "sections"} generated
+                      {saveStatus === "saving" ? <span className="theme-muted"> · Saving to docs/...</span> : null}
+                      {saveStatus === "saved" ? <span className="theme-muted"> · Saved to docs/</span> : null}
+                      {saveStatus === "error" ? <span className="text-red-500"> · Save failed</span> : null}
+                    </p>
                     <p className="text-[11px] theme-muted">{mode === "technical" ? "Technical documentation" : "Plain-English overview"}</p>
                   </div>
                 </div>
@@ -303,10 +470,51 @@ export default function DocumentationPage() {
                   );
                 })}
               </div>
+              <SavedDocsPanel
+                savedDocs={savedDocs}
+                showHint={false}
+                onOpen={handleOpenSavedDoc}
+                onDelete={handleDeleteSavedDoc}
+              />
             </>
           )}
         </div>
       </div>
+
+      {openSavedDoc ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8" onClick={() => setOpenSavedDoc(null)}>
+          <div
+            className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-[#0d1117]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-black/[0.06] px-5 py-3 dark:border-white/[0.06]">
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-semibold theme-fg">{openSavedDoc.doc.filename}</p>
+                <p className="text-[11px] theme-muted">{formatTimestamp(openSavedDoc.doc.timestamp)} · {formatBytes(openSavedDoc.doc.bytes)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { try { navigator.clipboard.writeText(openSavedDoc.content); } catch { /* ignore */ } }}
+                  className="rounded-md px-3 py-1.5 text-[12px] font-medium theme-muted transition hover:bg-black/[0.04] hover:theme-fg dark:hover:bg-white/[0.06]"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenSavedDoc(null)}
+                  className="rounded-md bg-black/[0.05] px-3 py-1.5 text-[12px] font-medium theme-fg transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto px-5 py-5">
+              {renderContent(openSavedDoc.content)}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

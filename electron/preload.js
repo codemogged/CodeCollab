@@ -49,6 +49,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     push: (payload) => ipcRenderer.invoke("repo:push", payload),
     pull: (payload) => ipcRenderer.invoke("repo:pull", payload),
     syncSharedState: (payload) => ipcRenderer.invoke("repo:syncSharedState", payload),
+    saveDoc:   (payload) => ipcRenderer.invoke("repo:saveDoc",   payload),
+    listDocs:  (payload) => ipcRenderer.invoke("repo:listDocs",  payload),
+    deleteDoc: (payload) => ipcRenderer.invoke("repo:deleteDoc", payload),
   },
 
   settings: {

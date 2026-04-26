@@ -1,4 +1,4 @@
-﻿const { dialog, shell, ipcMain } = require("electron");
+﻿const { dialog, shell, ipcMain, clipboard } = require("electron");
 
 // Promisified child_process.execFile. Using execFile (not exec) avoids a shell
 // and is safe to call in async handlers — unlike execSync, it does NOT block
@@ -532,105 +532,118 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // or run: true (VS Code-style "Run in Terminal" — executes immediately, keeps
   // the window open so the user can see output).
   safeHandle("system:openTerminal", async (_event, payload) => {
+    const opts = (payload && typeof payload === "object") ? payload : {};
+    const cwd = typeof opts.cwd === "string" && opts.cwd ? opts.cwd : process.cwd();
+    const command = typeof opts.command === "string" ? opts.command : "";
+    const run = !!opts.run;
     const fs = require("fs");
     const path = require("path");
     const { spawn } = require("child_process");
-    const opts = (payload && typeof payload === "object") ? payload : {};
-    let cwd = typeof opts.cwd === "string" && opts.cwd ? opts.cwd : null;
-    const rawCommand = typeof opts.command === "string" ? opts.command : "";
-    const run = opts.run === true;
-    // Strip any embedded newlines; only a single-line command is supported.
-    const command = rawCommand.replace(/[\r\n]+/g, " ").trim();
-    // Validate cwd — must exist and be a directory. Fall back to home if not.
-    if (cwd) {
+
+    // Always copy to clipboard as a safety net when there is a command.
+    if (command) {
+      try { clipboard.writeText(command); } catch { /* ignore */ }
+    }
+
+    const cwdResolved = path.resolve(cwd);
+
+    if (process.platform === "win32") {
+      // Locate pwsh.exe (preferred) or fall back to powershell.exe
+      const findOnPath = (exe) => {
+        const pathDirs = (process.env.PATH || "").split(path.delimiter);
+        for (const dir of pathDirs) {
+          if (!dir) continue;
+          const candidate = path.join(dir, exe);
+          try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
+        }
+        return null;
+      };
+      const pwshExe = findOnPath("pwsh.exe") || "powershell.exe";
+
+      const wtPath = path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WindowsApps", "wt.exe");
+      const hasWt = (() => { try { return !!process.env.LOCALAPPDATA && fs.existsSync(wtPath); } catch { return false; } })();
+
+      if (run && command) {
+        // Execute immediately. cmd /K is the simplest reliable runner that keeps the window open.
+        const args = ["/D", "/C", "start", "", "cmd.exe", "/K", `cd /d "${cwdResolved}" && ${command}`];
+        try {
+          spawn("cmd.exe", args, { detached: true, stdio: "ignore", windowsHide: false }).unref();
+          return { ok: true, mode: "run", shell: "cmd.exe" };
+        } catch (err) {
+          return { ok: false, error: err && err.message ? err.message : String(err) };
+        }
+      }
+
+      // Prefill mode — pre-type the command at the prompt using PSReadLine.Insert.
+      const escSingle = (s) => String(s).replace(/'/g, "''");
+      const innerParts = [`Set-Location -LiteralPath '${escSingle(cwdResolved)}'`];
+      if (command) {
+        innerParts.push(`[Microsoft.PowerShell.PSConsoleReadLine]::Insert('${escSingle(command)}')`);
+      }
+      const innerCommand = innerParts.join("; ");
+
       try {
-        const stat = fs.statSync(cwd);
-        if (!stat.isDirectory()) cwd = null;
-      } catch { cwd = null; }
+        if (hasWt) {
+          const wtArgs = [
+            "-d", cwdResolved,
+            pwshExe,
+            "-NoExit",
+            "-Command", innerCommand,
+          ];
+          spawn(wtPath, wtArgs, { detached: true, stdio: "ignore", windowsHide: false }).unref();
+          return { ok: true, mode: "prefill", shell: pwshExe, terminal: "wt.exe" };
+        }
+        // Fallback: spawn pwsh/powershell directly with -NoExit -Command.
+        spawn(pwshExe, ["-NoExit", "-Command", innerCommand], {
+          cwd: cwdResolved,
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false,
+        }).unref();
+        return { ok: true, mode: "prefill", shell: pwshExe };
+      } catch (err) {
+        return { ok: false, error: err && err.message ? err.message : String(err) };
+      }
     }
-    if (!cwd) cwd = require("os").homedir();
 
-    const spawnOpts = { cwd, detached: true, stdio: "ignore", windowsHide: false };
-    try {
-      if (process.platform === "win32") {
-        // Try Windows Terminal first (wt.exe) — better UX. Fall back to cmd.exe.
-        let wtAvailable = false;
-        try {
-          const localApp = process.env.LOCALAPPDATA;
-          if (localApp) {
-            const wtPath = path.join(localApp, "Microsoft", "WindowsApps", "wt.exe");
-            if (fs.existsSync(wtPath)) wtAvailable = true;
-          }
-        } catch { /* ignore */ }
-
-        if (wtAvailable) {
-          // `wt -d <cwd> cmd /K <command>` to run, or just `wt -d <cwd>` for empty.
-          const args = ["-d", cwd];
-          if (command && run) {
-            args.push("cmd", "/K", command);
-          } else if (command) {
-            // Prefill: copy to clipboard and echo hint in the shell.
-            try { require("electron").clipboard.writeText(command); } catch { /* */ }
-            args.push("cmd", "/K", `echo [CodeBuddy] Command copied to clipboard — press Ctrl+V then Enter to run:&& echo   ${command.replace(/[&<>|^]/g, "^$&")}`);
-          }
-          const child = spawn("wt.exe", args, spawnOpts);
-          child.unref();
-          return { ok: true, terminal: "wt" };
-        }
-
-        // Fallback: cmd.exe via `start` so the new console is detached.
-        // `start "" cmd /K <command>` opens a new cmd window.
-        let startCmd;
-        if (command && run) {
-          startCmd = `start "CodeBuddy" cmd /K "${command.replace(/"/g, '\\"')}"`;
-        } else if (command) {
-          try { require("electron").clipboard.writeText(command); } catch { /* */ }
-          const safe = command.replace(/[&<>|^]/g, "^$&").replace(/"/g, '\\"');
-          startCmd = `start "CodeBuddy" cmd /K "echo [CodeBuddy] Command copied to clipboard -- press Ctrl+V then Enter to run:&& echo   ${safe}"`;
-        } else {
-          startCmd = `start "CodeBuddy" cmd /K`;
-        }
-        const child = spawn("cmd.exe", ["/c", startCmd], { ...spawnOpts, shell: false });
-        child.unref();
-        return { ok: true, terminal: "cmd" };
+    if (process.platform === "darwin") {
+      const escDouble = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+      const cdLine = `cd "${escDouble(cwdResolved)}"`;
+      const inner = run && command
+        ? `${cdLine}; ${command}`
+        : (command ? `${cdLine}; print -z "${escDouble(command)}"` : cdLine);
+      const osa = `tell application "Terminal" to activate\n` +
+        `tell application "Terminal" to do script "${escDouble(inner)}"`;
+      try {
+        spawn("osascript", ["-e", osa], { detached: true, stdio: "ignore" }).unref();
+        return { ok: true, mode: run ? "run" : "prefill", shell: "zsh" };
+      } catch (err) {
+        return { ok: false, error: err && err.message ? err.message : String(err) };
       }
-
-      if (process.platform === "darwin") {
-        // Use osascript to open Terminal.app in the target cwd.
-        let script;
-        if (command && run) {
-          const esc = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && ${esc}"\ntell application "Terminal" to activate`;
-        } else if (command) {
-          try { require("electron").clipboard.writeText(command); } catch { /* */ }
-          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && echo '[CodeBuddy] Command copied to clipboard — press Cmd+V then Enter to run:' && echo '  ${command.replace(/'/g, "'\\''")}'"\ntell application "Terminal" to activate`;
-        } else {
-          script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')}"\ntell application "Terminal" to activate`;
-        }
-        const child = spawn("osascript", ["-e", script], spawnOpts);
-        child.unref();
-        return { ok: true, terminal: "Terminal.app" };
-      }
-
-      // Linux — try a reasonable list of terminals.
-      const candidates = ["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"];
-      const envCmd = command && run ? ["bash", "-c", `${command}; exec bash`]
-        : command ? ["bash", "-c", `echo '[CodeBuddy] Command copied to clipboard — paste then Enter:'; echo '  ${command.replace(/'/g, "'\\''")}'; exec bash`]
-        : null;
-      if (command && !run) { try { require("electron").clipboard.writeText(command); } catch { /* */ } }
-      for (const term of candidates) {
-        try {
-          const args = envCmd ? (term === "gnome-terminal" ? ["--", ...envCmd] : ["-e", envCmd.join(" ")]) : [];
-          const child = spawn(term, args, spawnOpts);
-          child.unref();
-          return { ok: true, terminal: term };
-        } catch { /* try next */ }
-      }
-      throw new Error("No terminal emulator found.");
-    } catch (err) {
-      console.error("[IPC] openTerminal error:", err?.message ?? err);
-      return { ok: false, error: String(err?.message ?? err) };
     }
+
+    // Linux: try common terminals.
+    const candidates = [
+      ["x-terminal-emulator", ["--working-directory=" + cwdResolved]],
+      ["gnome-terminal", ["--working-directory=" + cwdResolved]],
+      ["konsole", ["--workdir", cwdResolved]],
+      ["xterm", []],
+    ];
+    for (const [bin, baseArgs] of candidates) {
+      try {
+        const args = [...baseArgs];
+        if (run && command) {
+          args.push("--", "bash", "-c", `cd "${cwdResolved}"; ${command}; exec bash`);
+        } else if (command) {
+          args.push("--", "bash", "-c", `cd "${cwdResolved}"; echo "# Command ready (also on clipboard): ${command.replace(/"/g, '\\"')}"; exec bash`);
+        } else {
+          args.push("--", "bash");
+        }
+        spawn(bin, args, { detached: true, stdio: "ignore" }).unref();
+        return { ok: true, mode: run ? "run" : "prefill", shell: "bash", terminal: bin };
+      } catch { /* try next */ }
+    }
+    return { ok: false, error: "No supported terminal emulator found." };
   });
 
   safeHandle("system:getCommonPaths", async () => {
@@ -672,6 +685,27 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
   safeHandle("repo:readFileContent", async (_event, targetPath) => {
     return repoService.readFileContent(targetPath);
+  });
+
+  safeHandle("repo:saveDoc", async (_event, payload) => {
+    const opts = (payload && typeof payload === "object") ? payload : {};
+    const saved = await repoService.saveGeneratedDoc(opts.repoPath, opts.mode, opts.content, { timestamp: opts.timestamp });
+    logActivity({
+      type: "status",
+      title: "Documentation saved",
+      description: `Saved ${saved.filename} to docs/.`,
+      actor: "CodeBuddy",
+      actorInitials: "CB",
+    });
+    return saved;
+  });
+
+  safeHandle("repo:listDocs", async (_event, payload) => {
+    return repoService.listGeneratedDocs(payload?.repoPath);
+  });
+
+  safeHandle("repo:deleteDoc", async (_event, payload) => {
+    return repoService.deleteGeneratedDoc(payload?.repoPath, payload?.filename);
   });
 
   safeHandle("repo:writeFileContent", async (_event, payload) => {

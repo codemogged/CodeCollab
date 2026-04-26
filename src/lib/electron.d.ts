@@ -90,6 +90,14 @@ export interface RepoWriteFilePayload {
   content: string;
 }
 
+export interface RepoSavedDoc {
+  path: string;
+  filename: string;
+  mode: "technical" | "overview" | "doc";
+  timestamp: string;
+  bytes: number;
+}
+
 export interface RepoFileDiff {
   path: string;
   diff: string;
@@ -710,6 +718,9 @@ export interface ElectronAPI {
     push: (payload: { repoPath: string; remote?: string; branch?: string }) => Promise<RepoInspection>;
     pull: (payload: { repoPath: string; remote?: string; branch?: string }) => Promise<RepoInspection>;
     syncSharedState: (payload: { repoPath: string; commitMessage?: string }) => Promise<RepoInspection>;
+    saveDoc:   (payload: { repoPath: string; mode: "technical" | "overview"; content: string; timestamp?: string | number }) => Promise<RepoSavedDoc>;
+    listDocs:  (payload: { repoPath: string }) => Promise<RepoSavedDoc[]>;
+    deleteDoc: (payload: { repoPath: string; filename: string }) => Promise<{ ok: boolean; filename: string }>;
   };
   settings: {
     get: () => Promise<DesktopSettings>;
