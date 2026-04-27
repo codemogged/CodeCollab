@@ -57,3 +57,7 @@ codebuddy-debug.log
 
 # legacy per-agent worktrees
 /.claude
+
+# npm audit dumps
+audit-*.json
+*audit*.json
