@@ -142,15 +142,15 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-black/[0.06] dark:border-white/[0.08]">
       <div
-        className="flex cursor-pointer items-center justify-between bg-black/[0.03] px-3 py-1.5 dark:bg-white/[0.04]"
+        className="flex cursor-pointer items-center justify-between bg-[#0d1117] px-3 py-1.5 border-b border-white/[0.08]"
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5 theme-muted">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5 text-white/70">
             <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v5.5A2.25 2.25 0 0 1 11.75 12h-1.312c.1.128.21.248.328.36a.75.75 0 0 1 .302.635 7.01 7.01 0 0 1-3.044.74h-.048a7.01 7.01 0 0 1-3.044-.74.75.75 0 0 1 .302-.635c.118-.112.228-.232.328-.36H4.25A2.25 2.25 0 0 1 2 9.75v-5.5Zm2.25-.75a.75.75 0 0 0-.75.75v5.5c0 .414.336.75.75.75h7.5a.75.75 0 0 0 .75-.75v-5.5a.75.75 0 0 0-.75-.75h-7.5Z" clipRule="evenodd" />
           </svg>
-          <span className="text-[10px] font-semibold uppercase tracking-wider theme-muted">{displayLang}</span>
-          <span className="text-[10px] theme-muted">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/85">{displayLang}</span>
+          <span className="text-[10px] font-medium text-white/55">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
         </div>
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           <RunInTerminalButton code={code} lang={lang} />
@@ -160,7 +160,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
               e.stopPropagation();
               try { navigator.clipboard.writeText(code); } catch { /* */ }
             }}
-            className="text-[10px] font-medium theme-muted hover:theme-fg transition"
+            className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-white/85 hover:text-white transition"
           >
             Copy
           </button>

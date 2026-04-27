@@ -306,19 +306,19 @@ function CommandBlock({ code, lang }: { code: string; lang?: string }) {
   return (
     <div className="group/cmd rounded-lg overflow-hidden bg-[#1a1d23] dark:bg-[#141619] ring-1 ring-white/[0.06]">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.03]">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.06] border-b border-white/[0.08]">
         <div className="flex items-center gap-1.5">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-white/25">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-white/70">
             <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h7.5A2.25 2.25 0 0 1 14 4.25v7.5A2.25 2.25 0 0 1 11.75 14h-7.5A2.25 2.25 0 0 1 2 11.75v-7.5ZM4.75 4a.75.75 0 0 0-.53 1.28l2.22 2.22-2.22 2.22a.75.75 0 1 0 1.06 1.06l2.75-2.75a.75.75 0 0 0 0-1.06L5.28 4.22A.75.75 0 0 0 4.75 4ZM8.5 10.25a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
           </svg>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] theme-muted">{displayLang}</span>
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/85">{displayLang}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <RunInTerminalButton code={code} lang={displayLang} variant="muted" />
           <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-white/30 transition hover:text-white/60 hover:bg-white/[0.06]"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-white/85 transition hover:text-white hover:bg-white/[0.06]"
         >
           {copied ? (
             <>
