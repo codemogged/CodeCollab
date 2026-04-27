@@ -193,6 +193,10 @@ const REDACTION_PATTERNS = [
   [/\b[Bb]earer\s+[A-Za-z0-9._\-]+/g, "Bearer [REDACTED]"],
   [/eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}/g, "[REDACTED_JWT]"],
   [/x-oauth-basic[^\s]{0,200}/g, "[REDACTED_OAUTH]"],
+  // CodeBuddy P2P shared secrets and invite codes (base64url, ≥20 chars).
+  // Match when a token is preceded by a key like "secret"/"p2pSecret"/"invite"/"code"/"s":
+  // so we don't accidentally redact arbitrary IDs.
+  [/("?(?:p2pSecret|secret|inviteCode|code|invite|s)"?\s*[:=]\s*"?)([A-Za-z0-9_\-]{20,})("?)/gi, '$1[REDACTED_P2P]$3'],
 ];
 function redactSecrets(str) {
   let out = str;

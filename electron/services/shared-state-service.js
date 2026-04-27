@@ -78,8 +78,39 @@ function createSharedStateService() {
     }
   }
 
+  /**
+   * Resolve a path that should live inside `<repoPath>/<SHARED_DIR>/` and
+   * refuse anything that escapes the directory (e.g. via `..`, absolute
+   * paths, or symlink-style tricks). This is critical because some callers
+   * accept peer-supplied IDs (snapshot IDs, conversation IDs) and use them
+   * to derive filenames; without this guard a malicious peer could write
+   * outside the shared directory.
+   */
+  function resolveSharedPath(repoPath, relativePath) {
+    if (typeof relativePath !== "string" || relativePath.length === 0) {
+      throw new Error("Shared path must be a non-empty string.");
+    }
+    if (relativePath.length > 512) {
+      throw new Error("Shared path is too long.");
+    }
+    // Reject NUL bytes (which can break path checks on some filesystems).
+    if (relativePath.includes("\0")) {
+      throw new Error("Shared path contains NUL byte.");
+    }
+    const baseDir = path.resolve(repoPath, SHARED_DIR);
+    const candidate = path.resolve(baseDir, relativePath);
+    // Containment check — must be the base dir or a descendant of it.
+    const rel = path.relative(baseDir, candidate);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new Error("Shared path escapes the .codebuddy directory.");
+    }
+    return candidate;
+  }
+
   async function readSharedFile(repoPath, relativePath) {
-    const filePath = path.join(repoPath, SHARED_DIR, relativePath);
+    let filePath;
+    try { filePath = resolveSharedPath(repoPath, relativePath); }
+    catch { return { exists: false, content: null }; }
     try {
       const content = await fs.readFile(filePath, "utf-8");
       return { exists: true, content };
@@ -89,7 +120,7 @@ function createSharedStateService() {
   }
 
   async function writeSharedFile(repoPath, relativePath, content) {
-    const filePath = path.join(repoPath, SHARED_DIR, relativePath);
+    const filePath = resolveSharedPath(repoPath, relativePath);
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(filePath, content, "utf-8");
@@ -97,7 +128,9 @@ function createSharedStateService() {
   }
 
   async function listSharedDir(repoPath, relativePath) {
-    const dirPath = path.join(repoPath, SHARED_DIR, relativePath);
+    let dirPath;
+    try { dirPath = resolveSharedPath(repoPath, relativePath); }
+    catch { return []; }
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true });
       return entries

@@ -809,9 +809,10 @@ export interface ElectronAPI {
     broadcastChatMessage: (payload: { projectId: string; conversationId: string; message: Record<string, unknown>; scope?: string }) => Promise<{ sent: boolean }>;
     broadcastStateChange: (payload: { projectId: string; category: string; id: string; data: Record<string, unknown> }) => Promise<{ sent: boolean }>;
     getActivePeerStreams: (payload?: { projectId?: string }) => Promise<Record<string, { peerName: string; conversationId: string; scope: string; tokens: string; updatedAt: number; taskId?: string | null; taskName?: string | null; sessionId?: string | null; sessionTitle?: string | null }>>;
-    generateInvite: (payload: { remoteUrl: string; projectName: string }) => Promise<{ code: string }>;
-    decodeInvite: (payload: { code: string }) => Promise<{ remoteUrl: string; projectName: string }>;
+    generateInvite: (payload: { remoteUrl: string; projectName: string; ttlMs?: number | null }) => Promise<{ code: string }>;
+    decodeInvite: (payload: { code: string }) => Promise<{ remoteUrl: string; projectName: string; expiresAt?: number | null }>;
     acceptInvite: (payload: { code: string; memberName?: string; targetDirectory?: string }) => Promise<{ project: DesktopProject; p2p: { projectId: string; topic: string; joined: boolean } }>;
+    rotateSecret: (payload: { projectId: string }) => Promise<{ rotated: boolean; projectId: string }>;
     onJoined: (callback: (event: { projectId: string; topic: string; repoPath: string; remoteUrl: string }) => void) => () => void;
     onLeft: (callback: (event: { projectId: string; topic: string }) => void) => () => void;
     onPeerJoined: (callback: (event: P2PPeerEvent) => void) => () => void;

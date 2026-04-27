@@ -408,20 +408,30 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         const settings = await settingsService.readSettings();
         const activeProject = settings.projects?.find(p => p.id === settings.activeProjectId);
         if (activeProject?.repoPath && sharedStateService) {
+          // Sanitize the peer-supplied snapshotId before using it as a filename.
+          // Without this a malicious peer could write outside .codebuddy/ via
+          // a crafted ID like "../../etc/passwd". Allow alnum + dash + underscore + dot only.
+          const rawId = String(data.snapshotId);
+          const safeSnapshotId = rawId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128);
+          if (!safeSnapshotId || safeSnapshotId === "." || safeSnapshotId === "..") {
+            console.warn(`[P2P-apply] Refusing agent-context with unsafe snapshotId from ${peerName}`);
+            return;
+          }
           // Fetch the full snapshot from the peer's shared state (it was committed + pushed via auto-sync)
           // For immediate availability before git sync, store the signal metadata as a lightweight marker
           const markerData = {
             ...data,
+            snapshotId: safeSnapshotId,
             receivedAt: new Date().toISOString(),
             fromPeer: peerName,
           };
           await sharedStateService.writeSharedFile(
             activeProject.repoPath,
-            `agents/context/${data.snapshotId}.signal.json`,
+            `agents/context/${safeSnapshotId}.signal.json`,
             JSON.stringify(markerData, null, 2)
           );
-          console.log(`[P2P-apply] agent-context signal ${data.snapshotId.slice(-8)} from ${peerName} (${data.messageCount || 0} msgs)`);
-          sendEvent("agentContext:peerUpdated", { peerName, snapshotId: data.snapshotId, scope: data.scope, taskTitle: data.taskTitle });
+          console.log(`[P2P-apply] agent-context signal ${safeSnapshotId.slice(-8)} from ${peerName} (${data.messageCount || 0} msgs)`);
+          sendEvent("agentContext:peerUpdated", { peerName, snapshotId: safeSnapshotId, scope: data.scope, taskTitle: data.taskTitle });
         }
       } catch (err) {
         console.warn("[P2P-apply] Agent context signal error:", err?.message);
@@ -1810,7 +1820,12 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       console.warn("[generateInvite] Could not persist project secret:", err?.message);
     }
 
-    const code = p2pService.generateInviteCode(payload.remoteUrl, payload.projectName, secret);
+    const code = p2pService.generateInviteCode(
+      payload.remoteUrl,
+      payload.projectName,
+      secret,
+      { ttlMs: typeof payload.ttlMs === "number" ? payload.ttlMs : undefined }
+    );
 
     // v3: every session is authenticated by construction (p2p:join auto-creates
     // and persists a secret if one is missing). The owner is therefore already
@@ -1866,6 +1881,36 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     return p2pService.decodeInviteCode(payload.code);
   });
 
+  // Rotate a project's P2P shared secret. Use this when removing a teammate:
+  // disconnects all current peers and rejoins under a fresh secret. Existing
+  // outstanding invites become invalid — the owner must regenerate and
+  // re-share invites with remaining trusted collaborators.
+  safeHandle("p2p:rotateSecret", async (_event, payload) => {
+    if (!payload?.projectId) throw new Error("projectId is required.");
+    if (typeof p2pService.rotateProjectSecret !== "function") {
+      throw new Error("rotateProjectSecret unavailable.");
+    }
+    const { rotated, secret: newSecret } = await p2pService.rotateProjectSecret(payload.projectId);
+    // Persist the new secret so subsequent joins/invites use it.
+    try {
+      await settingsService.atomicUpdate((s) => {
+        const idx = s.projects?.findIndex(p => p.id === payload.projectId);
+        if (idx >= 0) s.projects[idx].p2pSecret = newSecret;
+        return s;
+      });
+    } catch (err) {
+      console.warn("[p2p:rotateSecret] Could not persist new secret:", err?.message);
+    }
+    logActivity({
+      type: "security",
+      title: "Rotated P2P key",
+      description: "All peers were disconnected. Existing invite codes are now invalid.",
+      actor: "CodeBuddy",
+      actorInitials: "CB",
+    });
+    return { rotated, projectId: payload.projectId };
+  });
+
   safeHandle("p2p:acceptInvite", async (_event, payload) => {
     console.log(`[acceptInvite] START member=${payload.memberName || "(anonymous)"}`);
 
@@ -1890,11 +1935,19 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
     if (!fs.existsSync(targetPath)) {
       console.log(`[acceptInvite] cloning "${projectName}" → ${targetPath}`);
-      // Clone the remote repo — use runProgram to avoid shell interpretation of
-      // the remote URL (which originates from an untrusted invite code).
-      const result = await (processService.runProgram
-        ? processService.runProgram("git", ["clone", remoteUrl, targetPath], rootDir, { timeoutMs: 120000 })
-        : processService.run(`git clone "${remoteUrl}" "${targetPath}"`, rootDir, { timeoutMs: 120000 }));
+      // Clone the remote repo. ALWAYS use runProgram (argv array) to avoid
+      // any shell interpretation of the remote URL (which originates from an
+      // untrusted invite code). decodeInviteCode also rejects URLs containing
+      // shell metacharacters, but we treat that as defense-in-depth.
+      if (typeof processService.runProgram !== "function") {
+        throw new Error("processService.runProgram is required for safe git clone (refusing to fall back to shell).");
+      }
+      const result = await processService.runProgram(
+        "git",
+        ["clone", remoteUrl, targetPath],
+        rootDir,
+        { timeoutMs: 120000 }
+      );
       if (result.exitCode !== 0) {
         console.error(`[acceptInvite] clone failed (exit=${result.exitCode}):`, result.stderr?.slice(0, 300));
         throw new Error(`Clone failed: ${result.stderr || "Unknown error"}`);
