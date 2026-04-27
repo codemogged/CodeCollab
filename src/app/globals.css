@@ -82,10 +82,10 @@
     --rail-code-header: rgba(255, 255, 255, 0.04);
 
     /* -- IDE Rail: text (light) -- */
-    --rail-text: rgba(2, 2, 2, 0.78);
-    --rail-text-secondary: rgba(2, 2, 2, 0.50);
-    --rail-text-tertiary: rgba(2, 2, 2, 0.30);
-    --rail-text-ghost: rgba(2, 2, 2, 0.16);
+    --rail-text: rgba(2, 2, 2, 0.92);
+    --rail-text-secondary: rgba(2, 2, 2, 0.78);
+    --rail-text-tertiary: rgba(2, 2, 2, 0.62);
+    --rail-text-ghost: rgba(2, 2, 2, 0.42);
 
     /* -- IDE Rail: accents (light) -- */
     --rail-accent: rgba(124, 92, 252, 0.50);
@@ -152,10 +152,10 @@
     --rail-code-header: rgba(255, 255, 255, 0.03);
 
     /* -- IDE Rail: text -- */
-    --rail-text: rgba(240, 236, 228, 0.86);
-    --rail-text-secondary: rgba(240, 236, 228, 0.55);
-    --rail-text-tertiary: rgba(240, 236, 228, 0.32);
-    --rail-text-ghost: rgba(240, 236, 228, 0.18);
+    --rail-text: rgba(240, 236, 228, 0.96);
+    --rail-text-secondary: rgba(240, 236, 228, 0.80);
+    --rail-text-tertiary: rgba(240, 236, 228, 0.62);
+    --rail-text-ghost: rgba(240, 236, 228, 0.42);
 
     /* -- IDE Rail: accents -- */
     --rail-accent: rgba(124, 92, 252, 0.55);

@@ -547,14 +547,14 @@ function CollapsibleCode({ lang, code, lineCount }: { lang: string; code: string
   return (
     <div className="my-1.5 overflow-hidden rounded-md border border-black/[0.08] dark:border-white/[0.06]">
       <div
-        className="flex cursor-pointer items-center justify-between bg-[#161b22] px-2.5 py-1 dark:bg-[#10141b]"
+        className="flex cursor-pointer items-center justify-between bg-[#0d1117] px-3 py-1.5 border-b border-white/[0.08]"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-white/85">{displayLang}</span>
-          <span className="text-[9px] text-white/45">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white">{displayLang}</span>
+          <span className="text-[10px] font-medium text-white/55">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
         </div>
-        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           <RunInTerminalButton code={code} lang={lang} variant="muted" />
           <button
             type="button"
@@ -562,12 +562,12 @@ function CollapsibleCode({ lang, code, lineCount }: { lang: string; code: string
               e.stopPropagation();
               try { navigator.clipboard.writeText(code); } catch { /* */ }
             }}
-            className="text-[9px] font-semibold text-white/55 hover:text-white transition"
+            className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-white/85 hover:text-white transition"
           >
             Copy
           </button>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"
-            className={`h-2.5 w-2.5 text-white/55 transition ${collapsed ? "" : "rotate-180"}`}>
+            className={`h-3 w-3 text-white/75 transition ${collapsed ? "" : "rotate-180"}`}>
             <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
           </svg>
         </div>
