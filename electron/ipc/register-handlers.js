@@ -550,6 +550,24 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     const path = require("path");
     const { spawn } = require("child_process");
 
+    // Defence-in-depth: even though this handler runs commands the user
+    // explicitly asked to run, the `command` and `cwd` strings flow through
+    // shell concatenation on every platform (cmd /K, AppleScript do script,
+    // bash -c). Reject inputs that contain control characters, embedded
+    // newlines, NULs, or are absurdly long — these are the building blocks
+    // of an injection attack if any upstream caller (AI suggestion, peer
+    // shared state, drag-and-drop file content) ever pipes attacker-
+    // controlled text into either field.
+    const CTRL_RE = /[\x00-\x09\x0b-\x1f\x7f]/; // allow \n (0x0a) is intentionally excluded; reject others
+    const hasBadChars = (s) => /[\x00-\x1f\x7f]/.test(s); // reject ALL ctrl chars including \r\n
+    if (command && (command.length > 4096 || hasBadChars(command))) {
+      throw new Error("Terminal command rejected: too long or contains control characters.");
+    }
+    if (cwd.length > 4096 || hasBadChars(cwd)) {
+      throw new Error("Terminal cwd rejected: too long or contains control characters.");
+    }
+    void CTRL_RE; // reserved for future use
+
     // Always copy to clipboard as a safety net when there is a command.
     if (command) {
       try { clipboard.writeText(command); } catch { /* ignore */ }

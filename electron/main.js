@@ -377,7 +377,7 @@ async function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
       nodeIntegration: false,   // security: no require() in renderer
-      sandbox: false,           // preload needs Node to bridge IPC
+      sandbox: true,            // security: preload runs sandboxed; only ipcRenderer + process.platform are used
       webviewTag: true,         // allow <webview> tags for preview iframe
       spellcheck: true,         // enable native spellchecker (used by context menu)
     },
