@@ -551,7 +551,7 @@ function CollapsibleCode({ lang, code, lineCount }: { lang: string; code: string
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-2">
-          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white">{displayLang}</span>
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/85">{displayLang}</span>
           <span className="text-[10px] font-medium text-white/55">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
         </div>
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>

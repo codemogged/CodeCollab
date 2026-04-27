@@ -287,7 +287,7 @@ function CollapsibleCode({ lang, code, lineCount }: { lang: string; code: string
     <div className="my-1.5 overflow-hidden rounded-md border border-black/[0.08] dark:border-white/[0.06]">
       <div className="flex cursor-pointer items-center justify-between bg-[#0d1117] px-3 py-1.5 border-b border-white/[0.08]" onClick={() => setCollapsed(!collapsed)}>
         <div className="flex items-center gap-2">
-          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white">{displayLang}</span>
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/85">{displayLang}</span>
           <span className="text-[10px] font-medium text-white/55">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
         </div>
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
