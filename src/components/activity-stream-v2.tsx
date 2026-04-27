@@ -284,22 +284,22 @@ function CollapsibleCode({ lang, code, lineCount }: { lang: string; code: string
   const displayLang = lang || "text";
 
   return (
-    <div className="my-1.5 overflow-hidden rounded-md border border-black/[0.05] dark:border-white/[0.06]">
-      <div className="flex cursor-pointer items-center justify-between bg-black/[0.02] px-2.5 py-1 dark:bg-white/[0.03]" onClick={() => setCollapsed(!collapsed)}>
+    <div className="my-1.5 overflow-hidden rounded-md border border-black/[0.08] dark:border-white/[0.06]">
+      <div className="flex cursor-pointer items-center justify-between bg-[#161b22] px-2.5 py-1 dark:bg-[#10141b]" onClick={() => setCollapsed(!collapsed)}>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9.5px] font-semibold uppercase tracking-[0.06em] theme-muted">{displayLang}</span>
-          <span className="text-[9.5px] font-medium theme-muted">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
+          <span className="text-[9.5px] font-bold uppercase tracking-[0.08em] text-white/85">{displayLang}</span>
+          <span className="text-[9.5px] font-medium text-white/45">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
         </div>
         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <RunInTerminalButton code={code} lang={lang} variant="muted" />
-          <button type="button" onClick={(e) => { e.stopPropagation(); try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[9.5px] font-medium theme-muted hover:theme-fg transition">Copy</button>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-2.5 w-2.5 theme-muted transition ${collapsed ? "" : "rotate-180"}`}>
+          <button type="button" onClick={(e) => { e.stopPropagation(); try { navigator.clipboard.writeText(code); } catch { /* */ } }} className="text-[9.5px] font-semibold text-white/55 hover:text-white transition">Copy</button>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-2.5 w-2.5 text-white/55 transition ${collapsed ? "" : "rotate-180"}`}>
             <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
           </svg>
         </div>
       </div>
       {!collapsed && (
-        <pre className="overflow-x-auto bg-[#0d1117] px-3 py-2 font-code text-[11px] leading-[1.6] text-green-300/90 dark:bg-[#0a0e14]">
+        <pre className="overflow-x-auto bg-[#0d1117] px-3 py-2 font-code text-[11px] leading-[1.6] text-white/95 dark:bg-[#0a0e14]">
           <code>{code}</code>
         </pre>
       )}
