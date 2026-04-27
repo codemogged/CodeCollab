@@ -5241,7 +5241,17 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
                 <div className="app-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.8rem] shadow-[0_20px_52px_rgba(20,16,10,0.08)] dark:shadow-[0_24px_60px_rgba(0,0,0,0.26)]">
             <div className="flex items-center gap-3 border-b border-black/[0.06] px-4 py-4 dark:border-white/[0.08]">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : rightPaneMode === "task-details" ? "Task details" : "Response details"}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : rightPaneMode === "task-details" ? "Task details" : "Response details"}</p>
+                  {rightPaneMode === "preview" && (
+                    <span
+                      className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500"
+                      title="Preview is in beta — expect rough edges while we refine it"
+                    >
+                      Beta
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 truncate text-[14px] font-semibold theme-fg">{taskContext ? taskContext.task.title : activeProject.name}</p>
               </div>
               <div className="app-control-rail ml-auto flex gap-1 rounded-full p-1">
