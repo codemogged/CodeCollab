@@ -1693,31 +1693,48 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // ---------- P2P Collaboration ----------
 
   safeHandle("p2p:join", async (_event, payload) => {
-    // Look up the per-project secret (authenticated P2P) so anyone who learns
-    // only the public GitHub URL cannot discover this room or forge messages.
+    // Look up the per-project shared secret (required in v3). If the project
+    // doesn't have one yet (e.g. a solo owner who hasn't generated an invite),
+    // auto-generate and persist one now so the session can join authenticated.
+    // The owner's secret is then bundled into any invite they later issue,
+    // so collaborators automatically derive the same Hyperswarm topic and
+    // share the same HMAC key.
     //
-    // IMPORTANT: Do NOT auto-generate a secret here. If we did, two machines
-    // that joined the same GitHub repo independently (without using the same
-    // invite code) would each generate a different secret, derive different
-    // Hyperswarm topics, and never discover each other (symptom: both show
-    // "Live" but "Waiting for teammates"). A secret is only installed via
-    // an explicit invite generation (owner) or invite acceptance (member).
-    // When no secret is present on either side, both fall back to the legacy
-    // v1 topic (keyed on the remoteUrl only) so peer discovery still works.
-    let secret = null;
-    try {
-      const settings = await settingsService.readSettings();
-      const project = settings.projects?.find(p => p.id === payload.projectId);
-      secret = project?.p2pSecret || null;
-    } catch { /* settings not available; fall back to unauthenticated mode */ }
-    console.log(`[p2p:join] projectId=${payload.projectId?.slice(0,8)} mode=${secret ? "v2-authenticated" : "v1-legacy"}`);
+    // Collaborators who cloned the repo manually (without using an invite
+    // code) will have a different auto-generated secret and will NOT
+    // discover the owner's room. This is intentional — manual cloning is
+    // not a supported path to P2P collaboration in v3. They must accept an
+    // invite to obtain the host's secret.
+    let secret = payload.secret || null;
+    if (!secret) {
+      try {
+        await settingsService.atomicUpdate((s) => {
+          const idx = s.projects?.findIndex(p => p.id === payload.projectId);
+          if (idx >= 0) {
+            if (!s.projects[idx].p2pSecret && typeof p2pService.generateProjectSecret === "function") {
+              s.projects[idx].p2pSecret = p2pService.generateProjectSecret();
+            }
+            secret = s.projects[idx].p2pSecret || null;
+          }
+          return s;
+        });
+      } catch (err) {
+        console.warn("[p2p:join] Could not load/persist project secret:", err?.message);
+      }
+    }
+    if (!secret) {
+      const msg = `[p2p:join] No P2P shared secret available for project ${payload.projectId?.slice(0,8)} — refusing to join.`;
+      console.warn(msg);
+      throw new Error("P2P shared secret missing. Generate or accept an invite to enable collaboration.");
+    }
+    console.log(`[p2p:join] projectId=${payload.projectId?.slice(0,8)} mode=v3-authenticated`);
 
     const result = await p2pService.joinProject(
       payload.projectId,
       payload.repoPath,
       payload.remoteUrl,
       payload.member,
-      { secret: payload.secret || secret }
+      { secret }
     );
     logActivity({
       type: "join",
@@ -1795,31 +1812,9 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
 
     const code = p2pService.generateInviteCode(payload.remoteUrl, payload.projectName, secret);
 
-    // If the host is currently connected over the legacy v1 topic (no secret
-    // at the time of join), reconnect now using the freshly-generated secret
-    // so the invitee's v2 topic actually matches. Without this, host stays
-    // stuck in v1-legacy mode and the guest never discovers them.
-    try {
-      if (secret && typeof p2pService.isProjectJoined === "function" && typeof p2pService.getProjectSession === "function") {
-        const joined = p2pService.isProjectJoined(payload.projectId);
-        const session = p2pService.getProjectSession?.(payload.projectId);
-        const needsUpgrade = joined && session && !session.secret;
-        if (needsUpgrade) {
-          console.log(`[generateInvite] Upgrading P2P session ${payload.projectId} to v2 (secret-authenticated)`);
-          const settings = await settingsService.readSettings();
-          const proj = settings.projects?.find(p => p.id === payload.projectId);
-          const memberProfile = {
-            id: settings.userId || settings.deviceId || "host",
-            name: settings.displayName || "Host",
-            role: "owner",
-          };
-          await p2pService.leaveProject(payload.projectId);
-          await p2pService.joinProject(payload.projectId, proj?.repoPath, payload.remoteUrl, memberProfile, { secret });
-        }
-      }
-    } catch (upgradeErr) {
-      console.warn("[generateInvite] v1→v2 upgrade warning:", upgradeErr?.message);
-    }
+    // v3: every session is authenticated by construction (p2p:join auto-creates
+    // and persists a secret if one is missing). The owner is therefore already
+    // on the same v3 topic the invitee will derive — no upgrade dance needed.
 
     // Export the project plan to .codebuddy/plan.json so the joining machine gets it
     try {

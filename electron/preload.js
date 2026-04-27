@@ -157,6 +157,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onChatMessage: (callback) => subscribe("p2p:chatMessage", callback),
     onStateChanged: (callback) => subscribe("p2p:stateChanged", callback),
     onReconnecting: (callback) => subscribe("p2p:reconnecting", callback),
+    onWaitingForPeers: (callback) => subscribe("p2p:waitingForPeers", callback),
   },
 
   activity: {

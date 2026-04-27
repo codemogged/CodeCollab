@@ -30,7 +30,21 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
   // Forbidden keys when merging peer-provided objects into local state.
   const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
-  const PROTOCOL_VERSION = 2;
+  // Per-peer inbound rate limiting (token bucket). A burst of cheap, valid
+  // messages from one peer cannot exceed these thresholds before we start
+  // dropping frames; sustained abuse disconnects the peer.
+  const RATE_BUCKET_CAPACITY = 200;       // burst size (frames)
+  const RATE_REFILL_PER_SEC = 50;         // sustained rate (frames/sec)
+  const RATE_DISCONNECT_OVER = 1000;      // dropped frames before kicking peer
+
+  // How long after a peer connects we wait for an authenticated `hello`
+  // before disconnecting the socket. Without this, an unauthenticated peer
+  // could hold a slot indefinitely.
+  const HELLO_TIMEOUT_MS = 10000;
+
+  // Protocol version. v3 = mandatory HMAC envelope, no legacy fallback.
+  // (v1 = unauthenticated, removed; v2 = optional HMAC, removed.)
+  const PROTOCOL_VERSION = 3;
 
   /**
    * Remove dangerous keys (prototype pollution) from an object tree that
@@ -109,15 +123,17 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
   /* --- Helpers --- */
 
   function deriveTopicKey(remoteUrl, secret) {
-    // v2 (authenticated): topic depends on secret — only invitees can discover the room
-    // v1 (legacy): topic depends only on remoteUrl — backward compatible for older invites
-    const h = crypto.createHash("sha256");
-    if (secret) {
-      h.update(`codebuddy:v2:${remoteUrl}:`);
-      h.update(secret);
-    } else {
-      h.update(`codebuddy:${remoteUrl}`);
+    // v3: topic ALWAYS depends on a per-project shared secret. Without the
+    // secret, joining is impossible — there is no legacy/unauthenticated path.
+    if (!secret || !Buffer.isBuffer(secret) || secret.length < 16) {
+      throw new Error("P2P shared secret is required (>=16 bytes).");
     }
+    if (!remoteUrl || typeof remoteUrl !== "string") {
+      throw new Error("P2P remote URL is required.");
+    }
+    const h = crypto.createHash("sha256");
+    h.update(`codebuddy:v3:${remoteUrl}:`);
+    h.update(secret);
     return h.digest();
   }
 
@@ -126,16 +142,13 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
   }
 
   function broadcastToPeers(session, messageObj) {
-    const envelope = session.secret
-      ? (() => {
-          const body = JSON.stringify(messageObj);
-          return {
-            v: PROTOCOL_VERSION,
-            sig: computeHmac(session.secret, Buffer.from(body, "utf8")),
-            body,
-          };
-        })()
-      : messageObj;
+    if (!session.secret) return; // v3: refuse to broadcast unauthenticated
+    const body = JSON.stringify(messageObj);
+    const envelope = {
+      v: PROTOCOL_VERSION,
+      sig: computeHmac(session.secret, Buffer.from(body, "utf8")),
+      body,
+    };
     const data = Buffer.from(JSON.stringify(envelope));
     if (data.length > MAX_MESSAGE_BYTES) {
       // Refuse to send oversized frames — prevents us from being used to amplify
@@ -149,6 +162,20 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
         }
       } catch { /* ignore */ }
     }
+  }
+
+  /** Send a single authenticated frame to one peer. */
+  function sendToPeer(session, peer, messageObj) {
+    if (!session.secret || !peer?.connection || peer.connection.destroyed) return;
+    const body = JSON.stringify(messageObj);
+    const envelope = {
+      v: PROTOCOL_VERSION,
+      sig: computeHmac(session.secret, Buffer.from(body, "utf8")),
+      body,
+    };
+    const data = Buffer.from(JSON.stringify(envelope));
+    if (data.length > MAX_MESSAGE_BYTES) return;
+    try { peer.connection.write(data); } catch { /* ignore */ }
   }
 
   function emitPresence(session) {
@@ -206,68 +233,98 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
     const peerId = makePeerId(connection);
     console.log(`[P2P:${session.projectId.slice(0, 8)}] Peer connected: ${peerId}`);
 
-    // Cancel the v2→v1 fallback — a peer joined, so the current topic works.
-    if (session.v1FallbackTimer) {
-      clearTimeout(session.v1FallbackTimer);
-      session.v1FallbackTimer = null;
+    // A peer arrived — cancel any pending "no peers" UI banner timer.
+    if (session.noPeerWarningTimer) {
+      try { clearTimeout(session.noPeerWarningTimer); } catch { /* ignore */ }
+      session.noPeerWarningTimer = null;
     }
 
-    session.peers.set(peerId, {
+    const peer = {
       id: peerId,
       name: "Unknown",
       initials: "??",
       role: "Member",
       lastSeen: Date.now(),
       connection,
-    });
+      authenticated: false,    // becomes true after a valid HMAC `hello`
+      // Token bucket for inbound rate limiting
+      bucket: RATE_BUCKET_CAPACITY,
+      bucketUpdatedAt: Date.now(),
+      droppedFrames: 0,
+      helloTimer: null,
+    };
+    session.peers.set(peerId, peer);
 
+    // Send our authenticated hello immediately. The peer cannot do anything
+    // useful until they reciprocate with a valid HMAC `hello` of their own.
     try {
-      const helloMsg = {
+      sendToPeer(session, peer, {
         type: "hello",
         member: session.member,
         stateVector: getStateVector(session),
-      };
-      if (session.secret) {
-        const body = JSON.stringify(helloMsg);
-        connection.write(Buffer.from(JSON.stringify({
-          v: PROTOCOL_VERSION,
-          sig: computeHmac(session.secret, Buffer.from(body, "utf8")),
-          body,
-        })));
-      } else {
-        connection.write(Buffer.from(JSON.stringify(helloMsg)));
-      }
+      });
     } catch { /* ignore */ }
 
+    // If the peer doesn't authenticate within HELLO_TIMEOUT_MS, drop them.
+    peer.helloTimer = setTimeout(() => {
+      if (!peer.authenticated) {
+        console.warn(`[P2P:${session.projectId.slice(0, 8)}] Peer ${peerId} failed to authenticate in time — disconnecting`);
+        try { connection.destroy(); } catch { /* ignore */ }
+      }
+    }, HELLO_TIMEOUT_MS);
+
     let buffer = "";
+
+    const refillBucket = () => {
+      const now = Date.now();
+      const elapsed = (now - peer.bucketUpdatedAt) / 1000;
+      if (elapsed > 0) {
+        peer.bucket = Math.min(RATE_BUCKET_CAPACITY, peer.bucket + elapsed * RATE_REFILL_PER_SEC);
+        peer.bucketUpdatedAt = now;
+      }
+    };
 
     const processFrame = (jsonStr) => {
       if (jsonStr.length > MAX_MESSAGE_BYTES) {
         console.warn(`[P2P:${session.projectId.slice(0, 8)}] Dropping oversized frame from ${peerId} (${jsonStr.length} bytes)`);
         return;
       }
+      // Rate limit: every inbound frame consumes one token.
+      refillBucket();
+      if (peer.bucket < 1) {
+        peer.droppedFrames++;
+        if (peer.droppedFrames > RATE_DISCONNECT_OVER) {
+          console.warn(`[P2P:${session.projectId.slice(0, 8)}] Peer ${peerId} exceeded rate limit — disconnecting`);
+          try { connection.destroy(); } catch { /* ignore */ }
+        }
+        return;
+      }
+      peer.bucket -= 1;
+
       let parsed;
       try { parsed = JSON.parse(jsonStr); } catch { return; }
       if (!parsed || typeof parsed !== "object") return;
 
-      // v2 authenticated envelope: { v, sig, body }
-      let inner = parsed;
-      if (session.secret) {
-        if (parsed.v !== PROTOCOL_VERSION || typeof parsed.body !== "string" || typeof parsed.sig !== "string") {
-          // This session requires authenticated messages; drop anything else.
-          return;
-        }
-        const expectedSig = computeHmac(session.secret, Buffer.from(parsed.body, "utf8"));
-        if (!timingSafeEqualStr(expectedSig, parsed.sig)) {
-          console.warn(`[P2P:${session.projectId.slice(0, 8)}] Rejecting peer message with bad HMAC from ${peerId}`);
-          return;
-        }
-        try { inner = JSON.parse(parsed.body); } catch { return; }
-        if (!inner || typeof inner !== "object") return;
-      } else if (parsed.v === PROTOCOL_VERSION && typeof parsed.body === "string") {
-        // Legacy session received an authenticated frame — unwrap without verifying
-        try { inner = JSON.parse(parsed.body); } catch { return; }
+      // v3: ALL frames must be authenticated envelopes.
+      if (parsed.v !== PROTOCOL_VERSION || typeof parsed.body !== "string" || typeof parsed.sig !== "string") {
+        return;
       }
+      const expectedSig = computeHmac(session.secret, Buffer.from(parsed.body, "utf8"));
+      if (!timingSafeEqualStr(expectedSig, parsed.sig)) {
+        console.warn(`[P2P:${session.projectId.slice(0, 8)}] Rejecting peer message with bad HMAC from ${peerId}`);
+        return;
+      }
+      let inner;
+      try { inner = JSON.parse(parsed.body); } catch { return; }
+      if (!inner || typeof inner !== "object") return;
+
+      // Auth gate: until we've processed a valid `hello`, only accept `hello`.
+      // Everything else (state-change, new-commits, yjs-*, chat-*, heartbeat)
+      // is silently dropped.
+      if (!peer.authenticated && inner.type !== "hello") {
+        return;
+      }
+
       try { handlePeerMessage(session, peerId, inner); } catch { /* ignore */ }
     };
 
@@ -297,9 +354,10 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
 
     connection.on("close", () => {
       console.log(`[P2P:${session.projectId.slice(0, 8)}] Peer disconnected: ${peerId}`);
-      const peer = session.peers.get(peerId);
+      const closing = session.peers.get(peerId);
+      if (closing?.helloTimer) { try { clearTimeout(closing.helloTimer); } catch { /* ignore */ } }
       session.peers.delete(peerId);
-      sendEvent("p2p:peerLeft", { projectId: session.projectId, peerId, name: peer?.name ?? "Unknown" });
+      sendEvent("p2p:peerLeft", { projectId: session.projectId, peerId, name: closing?.name ?? "Unknown" });
       emitPresence(session);
       if (session.isJoined && session.peers.size === 0) {
         setTimeout(() => {
@@ -312,7 +370,10 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
     });
 
     connection.on("error", (err) => {
-      console.error(`[P2P:${session.projectId.slice(0, 8)}] Peer ${peerId} error:`, err?.message);
+      // Only log error code/name — full err.message can include remote IP:port
+      // from underlying UDP/Noise socket errors. Keep diagnostics IP-free.
+      const code = err?.code || err?.name || "unknown";
+      console.error(`[P2P:${session.projectId.slice(0, 8)}] Peer ${peerId} socket error: ${code}`);
     });
 
     sendEvent("p2p:peerJoined", { projectId: session.projectId, peerId, name: "Unknown", initials: "??" });
@@ -341,6 +402,12 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
 
     switch (msg.type) {
       case "hello": {
+        // Mark the peer authenticated. From here on they may send other
+        // message types (state-change, yjs-update, chat-*, heartbeat, ...).
+        if (peer) {
+          peer.authenticated = true;
+          if (peer.helloTimer) { try { clearTimeout(peer.helloTimer); } catch { /* ignore */ } peer.helloTimer = null; }
+        }
         if (peer && msg.member && typeof msg.member === "object") {
           const m = msg.member;
           peer.name = (typeof m.name === "string" ? m.name : "Unknown").slice(0, 80);
@@ -355,21 +422,11 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
           try {
             const remoteVector = new Uint8Array(Buffer.from(msg.stateVector, "base64"));
             const update = Y.encodeStateAsUpdate(session.ydoc, remoteVector);
-            if (update.length > 0 && peer?.connection && !peer.connection.destroyed) {
-              const syncMsg = {
+            if (update.length > 0 && peer) {
+              sendToPeer(session, peer, {
                 type: "yjs-sync",
                 update: Buffer.from(update).toString("base64"),
-              };
-              if (session.secret) {
-                const body = JSON.stringify(syncMsg);
-                peer.connection.write(Buffer.from(JSON.stringify({
-                  v: PROTOCOL_VERSION,
-                  sig: computeHmac(session.secret, Buffer.from(body, "utf8")),
-                  body,
-                })));
-              } else {
-                peer.connection.write(Buffer.from(JSON.stringify(syncMsg)));
-              }
+              });
             }
           } catch { /* ignore */ }
         }
@@ -497,16 +554,24 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
       throw new Error("No Git remote URL. Push to GitHub first to enable P2P collaboration.");
     }
 
-    // Optional per-project shared secret. If present, the Hyperswarm topic is
-    // derived from (remoteUrl + secret) and every frame carries an HMAC signature.
-    // This means anyone who only knows the (possibly public) GitHub URL cannot
-    // discover the P2P room or forge messages.
+    // v3: per-project shared secret is REQUIRED. The Hyperswarm topic is derived
+    // from (remoteUrl + secret) and every frame carries an HMAC signature, so:
+    //   1. Anyone who only knows the public GitHub URL cannot discover the room.
+    //   2. Anyone in the room cannot inject forged messages (state-change,
+    //      new-commits, etc.) without knowing the secret.
+    // The legacy v1 (URL-only, unauthenticated) and v2 (optional-HMAC, with
+    // 45s downgrade) paths have been removed entirely.
     let secret = null;
     if (typeof options.secret === "string" && options.secret.length > 0) {
       try {
         secret = Buffer.from(options.secret, "base64url");
         if (secret.length < 16) secret = null; // require ≥128 bits of entropy
       } catch { secret = null; }
+    } else if (Buffer.isBuffer(options.secret) && options.secret.length >= 16) {
+      secret = options.secret;
+    }
+    if (!secret) {
+      throw new Error("P2P shared secret is required. Generate or accept an invite to obtain one.");
     }
 
     const session = {
@@ -525,6 +590,7 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
       reconnectAttempts: 0,
       isJoined: false,
       lastPeerSeenAt: Date.now(),
+      noPeerWarningTimer: null,
     };
 
     sessions.set(projectId, session);
@@ -554,36 +620,25 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
     session.isJoined = true;
     // Log "Joined room" only on the initial join. Silent reconnects happen every ~60s while idle and would spam.
     if (!session.hasEverJoined) {
-      console.log(`[P2P:${session.projectId.slice(0, 8)}] Joined room: ${session.topic.toString("hex").slice(0, 16)}... mode=${session.secret ? "v2" : "v1"}`);
+      console.log(`[P2P:${session.projectId.slice(0, 8)}] Joined room: ${session.topic.toString("hex").slice(0, 16)}... mode=v3`);
       session.hasEverJoined = true;
     }
 
-    // Auto-fallback from v2 (authenticated) to v1 (legacy) if no peer appears
-    // within 45s. This recovers installs where two machines self-generated
-    // different per-project secrets (and thus derived different topics) so
-    // they can still discover each other. A real invite-based pairing would
-    // connect well within 45s since both sides share the same secret.
-    if (session.secret && !session.v1FallbackArmed) {
-      session.v1FallbackArmed = true;
-      session.v1FallbackTimer = setTimeout(async () => {
-        if (!session.isJoined) return;
-        if (session.peers.size > 0) return;
-        console.log(`[P2P:${session.projectId.slice(0, 8)}] No peers after 45s in v2 mode — falling back to v1 (legacy) topic.`);
-        try {
-          if (session.topic) { try { await session.swarm.leave(session.topic); } catch {} }
-          try { await session.swarm.destroy(); } catch {}
-        } catch {}
-        session.swarm = null;
-        if (session.heartbeatInterval) { clearInterval(session.heartbeatInterval); session.heartbeatInterval = null; }
-        session.secret = null;
-        session.topic = deriveTopicKey(session.remoteUrl, null);
-        session.isJoined = false;
-        session.hasEverJoined = false; // re-log the joined-room line for the new topic
-        try { await connectSwarm(session); } catch (err) {
-          console.error(`[P2P:${session.projectId.slice(0, 8)}] v1 fallback failed:`, err?.message);
-        }
-      }, 45000);
+    // After 30 seconds with no peers, surface a UI banner so the user knows
+    // their invite hasn't been accepted (or the other side isn't online).
+    // Replaces the old v2→v1 silent downgrade — we never weaken the topic now.
+    if (session.noPeerWarningTimer) {
+      try { clearTimeout(session.noPeerWarningTimer); } catch { /* ignore */ }
+      session.noPeerWarningTimer = null;
     }
+    session.noPeerWarningTimer = setTimeout(() => {
+      if (session.isJoined && session.peers.size === 0) {
+        sendEvent("p2p:waitingForPeers", {
+          projectId: session.projectId,
+          message: "No peers found. Make sure your collaborator has accepted your invite.",
+        });
+      }
+    }, 30000);
 
     session.heartbeatInterval = setInterval(() => {
       broadcastToPeers(session, {
@@ -734,9 +789,9 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
       clearTimeout(session.reconnectTimer);
       session.reconnectTimer = null;
     }
-    if (session.v1FallbackTimer) {
-      clearTimeout(session.v1FallbackTimer);
-      session.v1FallbackTimer = null;
+    if (session.noPeerWarningTimer) {
+      try { clearTimeout(session.noPeerWarningTimer); } catch { /* ignore */ }
+      session.noPeerWarningTimer = null;
     }
     session.reconnectAttempts = MAX_RECONNECT_ATTEMPTS;
 
@@ -902,8 +957,13 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
 
   function generateInviteCode(remoteUrl, projectName, secret) {
     if (!remoteUrl) throw new Error("Project must be pushed to GitHub to generate an invite code.");
-    const payload = { v: 2, r: remoteUrl, n: projectName || "Project" };
-    if (typeof secret === "string" && secret.length > 0) payload.s = secret;
+    if (typeof secret !== "string" || secret.length === 0) {
+      throw new Error("Cannot generate invite without a project shared secret.");
+    }
+    // Invite envelope version 3: always includes the shared secret. Older v2
+    // envelopes that included `s` are still accepted by decodeInviteCode for
+    // back-compat, but invites generated by this build are always v3.
+    const payload = { v: 3, r: remoteUrl, n: projectName || "Project", s: secret };
     return Buffer.from(JSON.stringify(payload)).toString("base64url");
   }
 
@@ -917,10 +977,15 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
       // Only accept http(s) / ssh git URLs — prevent file:// or data: masquerading
       const urlOk = /^(https?:\/\/|git@|ssh:\/\/)/.test(payload.r);
       if (!urlOk) throw new Error("Invalid invite code - unsupported remote URL scheme.");
+      // Secret is now mandatory — invites without one cannot drive v3 P2P.
+      const secret = typeof payload.s === "string" ? payload.s.slice(0, 256) : null;
+      if (!secret) {
+        throw new Error("Invalid invite code - missing shared secret. Ask the host to regenerate the invite.");
+      }
       return {
         remoteUrl: payload.r,
         projectName: typeof payload.n === "string" ? payload.n.slice(0, 120) : "Project",
-        secret: typeof payload.s === "string" ? payload.s.slice(0, 256) : null,
+        secret,
       };
     } catch (err) {
       if (err.message?.includes("Invalid invite")) throw err;
@@ -964,7 +1029,8 @@ function createP2PService({ sharedStateService, sendEvent: initialSendEvent }) {
     return {
       isJoined: !!session.isJoined,
       hasSecret: !!session.secret,
-      // Expose as `secret` so callers can treat absence as "v1-legacy".
+      // Expose as `secret` so callers can detect a session was joined.
+      // (v3 always has a secret — sessions without one are refused.)
       secret: session.secret || null,
       remoteUrl: session.remoteUrl || null,
       repoPath: session.repoPath || null,

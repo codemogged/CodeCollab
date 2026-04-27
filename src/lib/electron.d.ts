@@ -821,6 +821,7 @@ export interface ElectronAPI {
     onChatMessage: (callback: (event: P2PChatMessageEvent) => void) => () => void;
     onStateChanged: (callback: (event: P2PStateChangeEvent) => void) => () => void;
     onReconnecting: (callback: (event: P2PReconnectingEvent) => void) => () => void;
+    onWaitingForPeers: (callback: (event: { projectId: string; message: string }) => void) => () => void;
   };
   activity: {
     list: () => Promise<DesktopActivityEvent[]>;
