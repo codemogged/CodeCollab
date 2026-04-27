@@ -1885,10 +1885,31 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // disconnects all current peers and rejoins under a fresh secret. Existing
   // outstanding invites become invalid — the owner must regenerate and
   // re-share invites with remaining trusted collaborators.
+  //
+  // OWNER-ONLY: This action is restricted to the project owner — the install
+  // that originally created the project. Invitees (whose project record is
+  // tagged with `joinedViaInvite: true` by p2p:acceptInvite) cannot rotate
+  // the key from their machine. The check is local — it prevents accidental
+  // and casual misuse, not a determined attacker who can edit settings.json.
+  // Combined with the HMAC-authenticated wire protocol, this is sufficient:
+  // even if an invitee bypassed the local guard, the owner's session would
+  // ignore their rotate (it's a local IPC, not a peer message).
   safeHandle("p2p:rotateSecret", async (_event, payload) => {
     if (!payload?.projectId) throw new Error("projectId is required.");
     if (typeof p2pService.rotateProjectSecret !== "function") {
       throw new Error("rotateProjectSecret unavailable.");
+    }
+    // Owner check
+    try {
+      const settings = await settingsService.readSettings();
+      const proj = settings.projects?.find(p => p.id === payload.projectId);
+      if (!proj) throw new Error("Project not found.");
+      if (proj.joinedViaInvite) {
+        throw new Error("Only the project owner can rotate the P2P key. Ask the project owner to rotate it for you.");
+      }
+    } catch (err) {
+      // Re-throw so the renderer surfaces it as a normal error (not a silent no-op).
+      throw err;
     }
     const { rotated, secret: newSecret } = await p2pService.rotateProjectSecret(payload.projectId);
     // Persist the new secret so subsequent joins/invites use it.
@@ -1909,6 +1930,21 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       actorInitials: "CB",
     });
     return { rotated, projectId: payload.projectId };
+  });
+
+  // Lightweight helper so the renderer can hide owner-only UI (e.g. the
+  // "Rotate P2P key" button in Settings → Danger zone) without having to
+  // read settings directly. Returns `{ isOwner: boolean }`.
+  safeHandle("p2p:isOwner", async (_event, payload) => {
+    if (!payload?.projectId) return { isOwner: false };
+    try {
+      const settings = await settingsService.readSettings();
+      const proj = settings.projects?.find(p => p.id === payload.projectId);
+      if (!proj) return { isOwner: false };
+      return { isOwner: !proj.joinedViaInvite };
+    } catch {
+      return { isOwner: false };
+    }
   });
 
   safeHandle("p2p:acceptInvite", async (_event, payload) => {
@@ -2057,17 +2093,23 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       role: "Member",
     };
     // Persist the invite's shared secret on the new project so every subsequent
-    // session (and every regenerated invite) stays authenticated.
-    if (inviteSecret) {
-      try {
-        await settingsService.atomicUpdate((s) => {
-          const idx = s.projects?.findIndex(p => p.id === project.id);
-          if (idx >= 0) s.projects[idx].p2pSecret = inviteSecret;
-          return s;
-        });
-      } catch (err) {
-        console.warn("[acceptInvite] Could not persist invite secret:", err?.message);
-      }
+    // session (and every regenerated invite) stays authenticated. Also flag
+    // this project record as `joinedViaInvite` so destructive actions like
+    // rotating the P2P secret are restricted to the project owner — the
+    // owner is the install that created the project (no flag), not the
+    // invitees who cloned via invite code.
+    try {
+      await settingsService.atomicUpdate((s) => {
+        const idx = s.projects?.findIndex(p => p.id === project.id);
+        if (idx >= 0) {
+          if (inviteSecret) s.projects[idx].p2pSecret = inviteSecret;
+          s.projects[idx].joinedViaInvite = true;
+          s.projects[idx].invitedFromUrl = remoteUrl;
+        }
+        return s;
+      });
+    } catch (err) {
+      console.warn("[acceptInvite] Could not persist invite metadata:", err?.message);
     }
 
     const p2pResult = await p2pService.joinProject(project.id, targetPath, remoteUrl, member, { secret: inviteSecret });

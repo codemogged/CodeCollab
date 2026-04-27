@@ -813,6 +813,7 @@ export interface ElectronAPI {
     decodeInvite: (payload: { code: string }) => Promise<{ remoteUrl: string; projectName: string; expiresAt?: number | null }>;
     acceptInvite: (payload: { code: string; memberName?: string; targetDirectory?: string }) => Promise<{ project: DesktopProject; p2p: { projectId: string; topic: string; joined: boolean } }>;
     rotateSecret: (payload: { projectId: string }) => Promise<{ rotated: boolean; projectId: string }>;
+    isOwner: (payload: { projectId: string }) => Promise<{ isOwner: boolean }>;
     onJoined: (callback: (event: { projectId: string; topic: string; repoPath: string; remoteUrl: string }) => void) => () => void;
     onLeft: (callback: (event: { projectId: string; topic: string }) => void) => () => void;
     onPeerJoined: (callback: (event: P2PPeerEvent) => void) => () => void;

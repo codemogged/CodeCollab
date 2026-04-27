@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     decodeInvite: (payload) => ipcRenderer.invoke("p2p:decodeInvite", payload),
     acceptInvite: (payload) => ipcRenderer.invoke("p2p:acceptInvite", payload),
     rotateSecret: (payload) => ipcRenderer.invoke("p2p:rotateSecret", payload),
+    isOwner: (payload) => ipcRenderer.invoke("p2p:isOwner", payload),
     onJoined: (callback) => subscribe("p2p:joined", callback),
     onLeft: (callback) => subscribe("p2p:left", callback),
     onPeerJoined: (callback) => subscribe("p2p:peerJoined", callback),
