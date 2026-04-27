@@ -84,9 +84,12 @@ export default function ChatBubble({
                   <button
                     type="button"
                     onClick={() => onOpenBuild(artifact.id, "preview")}
-                    className="rounded-full bg-black/[0.05] px-3 py-1.5 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.08] dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.05] px-3 py-1.5 text-[11px] font-semibold theme-fg transition hover:bg-black/[0.08] dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
                   >
                     Preview
+                    <span className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500">
+                      Beta
+                    </span>
                   </button>
                 </div>
               </div>

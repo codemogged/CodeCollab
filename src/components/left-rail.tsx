@@ -244,7 +244,16 @@ function RailContent() {
                 className={`rail-item ${isActive(item) ? "active" : ""}`}
               >
                 <span className="flex-shrink-0">{item.icon}</span>
-                {expanded && <span className="text-[13px]">{item.label}</span>}
+                {expanded && (
+                  <span className="flex items-center gap-1.5 text-[13px]">
+                    {item.label}
+                    {item.label === "Preview" && (
+                      <span className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500">
+                        Beta
+                      </span>
+                    )}
+                  </span>
+                )}
               </Link>
             ))}
           </div>

@@ -33,6 +33,10 @@ export function RunInTerminalButton({
   variant?: "default" | "muted";
 }) {
   const { activeProject } = useActiveDesktopProject();
+  // Windows: hidden for now — no reliable way to pre-fill the launched
+  // terminal's prompt across pwsh MTA / wt focus quirks. Users on Windows can
+  // copy the code block and paste into their own terminal.
+  if (typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)) return null;
   if (!isShellLikeCode(lang, code)) return null;
   const trimmed = code.trim();
   if (!trimmed) return null;
