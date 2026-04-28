@@ -51,7 +51,7 @@ set "ELECTRON_ENABLE_LOGGING="
 :: (meaning we're running from the source repo, not the install folder).
 if exist "%~dp0scripts\deploy-install.ps1" (
     if exist "%~dp0dist-electron\win-unpacked\CodeBuddy.exe" (
-        echo [deploy] Build v108-p2p-v3-secure found -- deploying to Desktop\CodeBuddy Install...
+        echo [deploy] Build v109-repo-secret found -- deploying to Desktop\CodeBuddy Install...
         powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\deploy-install.ps1"
         if "%ERRORLEVEL%" NEQ "0" (
             echo [deploy] Deploy script failed with exit code %ERRORLEVEL%. Continuing.
@@ -60,7 +60,7 @@ if exist "%~dp0scripts\deploy-install.ps1" (
         )
     )
 )
-echo [build] Version: v108-p2p-v3-secure
+echo [build] Version: v109-repo-secret
 
 if exist "%~dp0CodeBuddy.exe" (
     echo [launcher] Starting from: %~dp0CodeBuddy.exe

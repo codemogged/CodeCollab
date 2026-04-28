@@ -37,10 +37,91 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     enqueue: (_repo, _label, fn) => Promise.resolve().then(fn),
     getDepth: () => 0,
   };
-  const BUILD_TAG = "v108-p2p-v3-secure";
+  const BUILD_TAG = "v109-repo-secret";
   // Guard: prevent savePlan from overwriting plan.json while syncWorkspace is importing
   let syncInProgress = false;
   console.log(`[IPC] Registering all handlers... (build: ${BUILD_TAG})`);
+
+  // ---------- Repo-resident P2P secret ----------
+  // Source of truth for a project's P2P shared secret is the codebuddy-build
+  // branch of the repo, at .codebuddy/p2p-secret. Every collaborator with git
+  // access reads the same value, so they automatically derive the same
+  // Hyperswarm topic. Settings cache the value for fast lookup.
+  //
+  // Trust scope: P2P access == git read access to the codebuddy-build branch.
+  // For private repos this is exactly the desired boundary. For public repos
+  // the secret is world-readable, which is acceptable because the file
+  // contents being synced (plan.json, conversations, agent context) are
+  // already in the public branch — anyone who can read them can read the
+  // wire payloads too.
+  //
+  // The HMAC envelope on every wire message still gates *write* access:
+  // a bystander who reads the secret can connect and observe, but cannot
+  // forge messages without the secret, and we already trust everyone with
+  // the secret to participate.
+  const SECRET_FILE_REL = "p2p-secret";
+  async function readRepoSecret(repoPath) {
+    if (!repoPath) return null;
+    try {
+      const result = await sharedStateService.readSharedFile(repoPath, SECRET_FILE_REL);
+      if (!result?.exists || typeof result.content !== "string") return null;
+      const trimmed = result.content.trim();
+      // Defensive: only accept a base64url-shaped token of reasonable length.
+      if (!/^[A-Za-z0-9_\-]{20,512}$/.test(trimmed)) return null;
+      return trimmed;
+    } catch { return null; }
+  }
+  async function writeRepoSecret(repoPath, secret) {
+    if (!repoPath || !secret) return false;
+    await sharedStateService.ensureSharedDir(repoPath);
+    await sharedStateService.writeSharedFile(repoPath, SECRET_FILE_REL, `${secret}\n`);
+    return true;
+  }
+  // Commit + push the .codebuddy/p2p-secret file to codebuddy-build. Best-effort:
+  // any git failure is logged but not thrown, so a temporarily offline owner
+  // can still join the swarm with the freshly-generated secret. The next
+  // online sync will publish it.
+  async function commitAndPushSecret(repoPath) {
+    if (!repoPath) return false;
+    try {
+      const { execSync } = require("child_process");
+      const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+      const opts = { cwd: repoPath, encoding: "utf8", env, stdio: "pipe", timeout: 30000 };
+      execSync("git add .codebuddy/p2p-secret", opts);
+      // Only commit if there's something to commit (avoids empty-commit error).
+      let dirty = "";
+      try { dirty = execSync("git status --porcelain .codebuddy/p2p-secret", opts).toString(); } catch { /* ignore */ }
+      if (dirty.trim().length > 0) {
+        execSync('git -c user.name=CodeBuddy -c user.email=codebuddy@local.invalid commit -m "chore: publish P2P secret"', opts);
+      }
+      try {
+        execSync("git push origin codebuddy-build", opts);
+      } catch {
+        // First push may need -u
+        try { execSync("git push -u origin codebuddy-build", opts); } catch (err) {
+          console.warn(`[p2p-secret] push failed (will retry on next auto-sync): ${err?.message?.slice(0, 200)}`);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.warn(`[p2p-secret] commit failed: ${err?.message?.slice(0, 200)}`);
+      return false;
+    }
+  }
+  // Pull the latest codebuddy-build before reading, so a freshly-cloned or
+  // out-of-date checkout picks up a newly-rotated secret. Best-effort.
+  async function pullCodebuddyBranch(repoPath) {
+    if (!repoPath) return;
+    try {
+      const { execSync } = require("child_process");
+      const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+      const opts = { cwd: repoPath, encoding: "utf8", env, stdio: "pipe", timeout: 20000 };
+      execSync("git fetch origin codebuddy-build", opts);
+      // Fast-forward only — don't clobber local work.
+      try { execSync("git merge --ff-only origin/codebuddy-build", opts); } catch { /* divergent is fine */ }
+    } catch { /* offline/unauth — fall through */ }
+  }
+
   const sendEvent = (channel, payload) => {
     const window = mainWindow();
 
@@ -1721,41 +1802,99 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   // ---------- P2P Collaboration ----------
 
   safeHandle("p2p:join", async (_event, payload) => {
-    // Look up the per-project shared secret (required in v3). If the project
-    // doesn't have one yet (e.g. a solo owner who hasn't generated an invite),
-    // auto-generate and persist one now so the session can join authenticated.
-    // The owner's secret is then bundled into any invite they later issue,
-    // so collaborators automatically derive the same Hyperswarm topic and
-    // share the same HMAC key.
+    // Resolve the per-project shared secret. v3 protocol requires it; without
+    // it we cannot derive a topic or HMAC-authenticate peers.
     //
-    // Collaborators who cloned the repo manually (without using an invite
-    // code) will have a different auto-generated secret and will NOT
-    // discover the owner's room. This is intentional — manual cloning is
-    // not a supported path to P2P collaboration in v3. They must accept an
-    // invite to obtain the host's secret.
-    let secret = payload.secret || null;
-    if (!secret) {
-      try {
-        await settingsService.atomicUpdate((s) => {
-          const idx = s.projects?.findIndex(p => p.id === payload.projectId);
-          if (idx >= 0) {
-            if (!s.projects[idx].p2pSecret && typeof p2pService.generateProjectSecret === "function") {
-              s.projects[idx].p2pSecret = p2pService.generateProjectSecret();
-            }
-            secret = s.projects[idx].p2pSecret || null;
-          }
-          return s;
-        });
-      } catch (err) {
-        console.warn("[p2p:join] Could not load/persist project secret:", err?.message);
+    // Resolution order:
+    //   1. payload.secret (caller passed one explicitly — rarely used)
+    //   2. .codebuddy/p2p-secret in the repo's codebuddy-build branch
+    //      (single source of truth — every collaborator who can read the
+    //      branch derives the same Hyperswarm topic)
+    //   3. settings cache (fast path / offline fallback)
+    //   4. generate a fresh one and publish it (first owner to join)
+    //
+    // The repo-file approach replaces the v107-era model where each install
+    // generated its own secret and shared it via invite codes. Invite codes
+    // are still supported as a bootstrap convenience (they include the
+    // secret so an invitee can join *before* completing their first pull),
+    // but the repo file is authoritative on every subsequent join.
+
+    let secret = (typeof payload?.secret === "string" && payload.secret) || null;
+    let secretSource = secret ? "payload" : null;
+
+    // Try to refresh codebuddy-build so we get the latest secret if it was
+    // rotated by another collaborator while this install was offline.
+    if (!secret && payload?.repoPath) {
+      await pullCodebuddyBranch(payload.repoPath);
+      const repoSecret = await readRepoSecret(payload.repoPath);
+      if (repoSecret) {
+        secret = repoSecret;
+        secretSource = "repo";
       }
     }
+
+    // Fall back to settings cache (offline / brand-new project just imported).
     if (!secret) {
-      const msg = `[p2p:join] No P2P shared secret available for project ${payload.projectId?.slice(0,8)} — refusing to join.`;
-      console.warn(msg);
-      throw new Error("P2P shared secret missing. Generate or accept an invite to enable collaboration.");
+      try {
+        const settings = await settingsService.readSettings();
+        const proj = settings.projects?.find(p => p.id === payload.projectId);
+        if (proj?.p2pSecret) {
+          secret = proj.p2pSecret;
+          secretSource = "settings";
+        }
+      } catch (err) {
+        console.warn("[p2p:join] settings read failed:", err?.message);
+      }
     }
-    console.log(`[p2p:join] projectId=${payload.projectId?.slice(0,8)} mode=v3-authenticated`);
+
+    // Last resort: this install is the first to join. Generate, persist to
+    // the repo, and publish. Any future joiner (invitee or manual cloner)
+    // will read the same value from .codebuddy/p2p-secret.
+    let generatedNew = false;
+    if (!secret) {
+      if (typeof p2pService.generateProjectSecret !== "function") {
+        throw new Error("P2P shared secret missing and generator unavailable.");
+      }
+      secret = p2pService.generateProjectSecret();
+      secretSource = "generated";
+      generatedNew = true;
+    }
+
+    // Persist to settings cache regardless of source.
+    try {
+      await settingsService.atomicUpdate((s) => {
+        const idx = s.projects?.findIndex(p => p.id === payload.projectId);
+        if (idx >= 0) s.projects[idx].p2pSecret = secret;
+        return s;
+      });
+    } catch (err) {
+      console.warn("[p2p:join] Could not persist secret to settings:", err?.message);
+    }
+
+    // If we just generated a new one, write it into the repo and push so
+    // the next collaborator finds it. Best-effort — failure here doesn't
+    // block the join.
+    if (generatedNew && payload?.repoPath) {
+      try {
+        await writeRepoSecret(payload.repoPath, secret);
+        await commitAndPushSecret(payload.repoPath);
+      } catch (err) {
+        console.warn("[p2p:join] Could not publish secret to repo:", err?.message);
+      }
+    } else if (secretSource === "settings" && payload?.repoPath) {
+      // We had a cached secret but the repo file may not exist yet (legacy
+      // project from before this build). Publish it so the next manual
+      // cloner can find us.
+      try {
+        const existing = await readRepoSecret(payload.repoPath);
+        if (!existing) {
+          await writeRepoSecret(payload.repoPath, secret);
+          await commitAndPushSecret(payload.repoPath);
+        }
+      } catch { /* best-effort */ }
+    }
+
+    console.log(`[p2p:join] projectId=${payload.projectId?.slice(0,8)} mode=v3-authenticated source=${secretSource}${generatedNew ? " (published)" : ""}`);
 
     const result = await p2pService.joinProject(
       payload.projectId,
@@ -1930,7 +2069,9 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       throw err;
     }
     const { rotated, secret: newSecret } = await p2pService.rotateProjectSecret(payload.projectId);
-    // Persist the new secret so subsequent joins/invites use it.
+    // Persist the new secret to settings AND publish it to the repo's
+    // codebuddy-build branch so other collaborators pick it up on their
+    // next pull.
     try {
       await settingsService.atomicUpdate((s) => {
         const idx = s.projects?.findIndex(p => p.id === payload.projectId);
@@ -1939,6 +2080,16 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       });
     } catch (err) {
       console.warn("[p2p:rotateSecret] Could not persist new secret:", err?.message);
+    }
+    try {
+      const settings = await settingsService.readSettings();
+      const proj = settings.projects?.find(p => p.id === payload.projectId);
+      if (proj?.repoPath) {
+        await writeRepoSecret(proj.repoPath, newSecret);
+        await commitAndPushSecret(proj.repoPath);
+      }
+    } catch (err) {
+      console.warn("[p2p:rotateSecret] Could not publish new secret to repo:", err?.message);
     }
     logActivity({
       type: "security",
@@ -2004,7 +2155,18 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       );
       if (result.exitCode !== 0) {
         console.error(`[acceptInvite] clone failed (exit=${result.exitCode}):`, result.stderr?.slice(0, 300));
-        throw new Error(`Clone failed: ${result.stderr || "Unknown error"}`);
+        const stderr = (result.stderr || "").toString();
+        // GitHub returns 404 ("Repository not found") for unauthorized access
+        // to a private repo. If the user has no `gh` auth on this machine,
+        // surface a friendlier message so they don't think the repo is gone.
+        if (/Repository not found/i.test(stderr) || /authentication failed/i.test(stderr) || /could not read Username/i.test(stderr)) {
+          throw new Error(
+            `Could not clone ${remoteUrl}. This usually means GitHub authentication is not set up on this machine. ` +
+            `Run \`gh auth login\` (or sign in to GitHub Desktop) and try the invite again. ` +
+            `If the repo is genuinely missing, ask the project owner to confirm the URL.`
+          );
+        }
+        throw new Error(`Clone failed: ${stderr || "Unknown error"}`);
       }
 
       // Configure credential helper so git push/pull can authenticate
@@ -2110,17 +2272,39 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       initials: (payload.memberName || "FR").slice(0, 2).toUpperCase(),
       role: "Member",
     };
-    // Persist the invite's shared secret on the new project so every subsequent
-    // session (and every regenerated invite) stays authenticated. Also flag
-    // this project record as `joinedViaInvite` so destructive actions like
-    // rotating the P2P secret are restricted to the project owner — the
-    // owner is the install that created the project (no flag), not the
-    // invitees who cloned via invite code.
+    // Resolve the effective P2P secret: the codebuddy-build branch's
+    // .codebuddy/p2p-secret file is the source of truth (in case the owner
+    // rotated since this invite was minted). Fall back to the invite's
+    // secret if the repo doesn't have one yet (legacy projects, or the very
+    // first invitee joining before the owner has published the file).
+    let effectiveSecret = inviteSecret;
+    let secretSource = "invite";
+    try {
+      const repoSecret = await readRepoSecret(targetPath);
+      if (repoSecret) {
+        effectiveSecret = repoSecret;
+        secretSource = "repo";
+      } else if (inviteSecret) {
+        // Publish the invite's secret to the repo so future joiners can find it.
+        try {
+          await writeRepoSecret(targetPath, inviteSecret);
+          await commitAndPushSecret(targetPath);
+          secretSource = "invite (published to repo)";
+        } catch (err) {
+          console.warn("[acceptInvite] Could not publish invite secret to repo:", err?.message);
+        }
+      }
+    } catch { /* fall through with inviteSecret */ }
+    console.log(`[acceptInvite] secret source=${secretSource}`);
+
+    // Persist the effective secret on the new project record. Also flag
+    // this project as `joinedViaInvite` so destructive actions like
+    // rotating the P2P secret are restricted to the project owner.
     try {
       await settingsService.atomicUpdate((s) => {
         const idx = s.projects?.findIndex(p => p.id === project.id);
         if (idx >= 0) {
-          if (inviteSecret) s.projects[idx].p2pSecret = inviteSecret;
+          if (effectiveSecret) s.projects[idx].p2pSecret = effectiveSecret;
           s.projects[idx].joinedViaInvite = true;
           s.projects[idx].invitedFromUrl = remoteUrl;
         }
@@ -2130,7 +2314,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       console.warn("[acceptInvite] Could not persist invite metadata:", err?.message);
     }
 
-    const p2pResult = await p2pService.joinProject(project.id, targetPath, remoteUrl, member, { secret: inviteSecret });
+    const p2pResult = await p2pService.joinProject(project.id, targetPath, remoteUrl, member, { secret: effectiveSecret });
 
     sendEvent("settings:changed", await settingsService.readSettings());
     logActivity({

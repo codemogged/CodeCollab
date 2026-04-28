@@ -372,7 +372,7 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "CodeBuddy [build v108-p2p-v3-secure]",
+    title: "CodeBuddy [build v109-repo-secret]",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
