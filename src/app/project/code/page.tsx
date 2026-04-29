@@ -285,15 +285,15 @@ export default function SoloChatPage() {
   // ── Default model catalogs (fallback when IPC is unavailable) ──
   const DEFAULT_copilotModels: ModelCatalogEntry[] = useMemo(() => [
     { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
-    { id: "claude-sonnet-4.7-medium", label: "Claude Sonnet 4.7 (Reasoning: Medium)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
-    { id: "claude-opus-4.7-medium", label: "Claude Opus 4.7 (Reasoning: Medium)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
-    { id: "gpt-5.5-medium", label: "GPT-5.5 (Reasoning: Medium)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
-    { id: "gpt-5.5-codex-medium", label: "GPT-5.5 Codex (Reasoning: Medium)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+    { id: "gpt-5.4", label: "GPT-5.4", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "0.33x", group: "featured" },
+    { id: "gpt-5.5", label: "GPT-5.5", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+    { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
   ], []);
   const DEFAULT_claudeModels: ModelCatalogEntry[] = useMemo(() => [
-    { id: "sonnet", label: "Claude Sonnet 4.7 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
-    { id: "opus", label: "Claude Opus 4.7 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
-    { id: "haiku", label: "Claude Haiku 4.6 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+    { id: "sonnet", label: "Claude Sonnet 4.5 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+    { id: "opus", label: "Claude Opus 4.5 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+    { id: "haiku", label: "Claude Haiku 4.5 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
   ], []);
   const DEFAULT_codexModels: ModelCatalogEntry[] = useMemo(() => [
     { id: "default", label: "GPT-5.5 Codex (Latest)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "", group: "featured" },

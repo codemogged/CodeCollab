@@ -1322,7 +1322,16 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     // Use JSONL output for structured tool-call events and streaming deltas
     args.push("--output-format", "json");
     if (selectedModel && selectedModel !== "auto") {
-      args.push("--model", selectedModel);
+      // Composite encoding "base|effort" lets the picker carry an optional
+      // reasoning effort alongside the base model id without a separate IPC
+      // surface. The Copilot CLI takes effort as a separate --effort flag with
+      // values low|medium|high|xhigh; the model id itself never includes the
+      // effort suffix.
+      const [baseModel, effort] = String(selectedModel).split("|");
+      args.push("--model", baseModel);
+      if (effort && /^(low|medium|high|xhigh)$/.test(effort)) {
+        args.push("--effort", effort);
+      }
     }
     if (copilotUseStdin) {
       return { cli: commands.copilotCli, args, stdinData: prompt, copilotJson: true };

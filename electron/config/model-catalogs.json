@@ -1,72 +1,33 @@
 {
-  "_version": 4,
+  "_version": 5,
   "_updated": "2026-04-29",
-  "_note": "Reasoning-effort variants share a baseId/baseLabel. The model picker collapses them under a single row that drills down to a Low/Medium/High submenu when clicked. The settings page (native <select>) keeps the variants flat.",
+  "_note": "Bare model ids only. Copilot CLI's --model flag does NOT accept reasoning-effort suffixes (those caused 'selected model is not available' errors). Reasoning effort is a separate --effort flag (low|medium|high|xhigh) and is plumbed via composite ids of the form 'base|effort' if needed; this catalog does not pre-enumerate effort variants because the supported set differs per model.",
   "copilot": [
     { "id": "auto", "label": "Auto", "provider": "Best available", "contextWindow": "Auto", "maxTokens": 200000, "usage": "10% discount", "group": "featured" },
 
-    { "id": "claude-sonnet-4.7-low",    "label": "Claude Sonnet 4.7 (Reasoning: Low)",    "baseId": "claude-sonnet-4.7", "baseLabel": "Claude Sonnet 4.7", "reasoningEffort": "low",    "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "featured" },
-    { "id": "claude-sonnet-4.7-medium", "label": "Claude Sonnet 4.7 (Reasoning: Medium)", "baseId": "claude-sonnet-4.7", "baseLabel": "Claude Sonnet 4.7", "reasoningEffort": "medium", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "featured" },
-    { "id": "claude-sonnet-4.7-high",   "label": "Claude Sonnet 4.7 (Reasoning: High)",   "baseId": "claude-sonnet-4.7", "baseLabel": "Claude Sonnet 4.7", "reasoningEffort": "high",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "featured" },
+    { "id": "gpt-5.4", "label": "GPT-5.4", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
+    { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.33x", "group": "featured" },
+    { "id": "gpt-5.5", "label": "GPT-5.5", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
+    { "id": "gpt-5.5-codex", "label": "GPT-5.5 Codex", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
 
-    { "id": "claude-opus-4.7-low",    "label": "Claude Opus 4.7 (Reasoning: Low)",    "baseId": "claude-opus-4.7", "baseLabel": "Claude Opus 4.7", "reasoningEffort": "low",    "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "featured" },
-    { "id": "claude-opus-4.7-medium", "label": "Claude Opus 4.7 (Reasoning: Medium)", "baseId": "claude-opus-4.7", "baseLabel": "Claude Opus 4.7", "reasoningEffort": "medium", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "featured" },
-    { "id": "claude-opus-4.7-high",   "label": "Claude Opus 4.7 (Reasoning: High)",   "baseId": "claude-opus-4.7", "baseLabel": "Claude Opus 4.7", "reasoningEffort": "high",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "featured" },
+    { "id": "claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "featured" },
+    { "id": "claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "featured" },
+    { "id": "claude-opus-4.5", "label": "Claude Opus 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "featured" },
 
-    { "id": "gpt-5.5-low",    "label": "GPT-5.5 (Reasoning: Low)",    "baseId": "gpt-5.5", "baseLabel": "GPT-5.5", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
-    { "id": "gpt-5.5-medium", "label": "GPT-5.5 (Reasoning: Medium)", "baseId": "gpt-5.5", "baseLabel": "GPT-5.5", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
-    { "id": "gpt-5.5-high",   "label": "GPT-5.5 (Reasoning: High)",   "baseId": "gpt-5.5", "baseLabel": "GPT-5.5", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
+    { "id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other" },
+    { "id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "0.33x", "group": "other" },
 
-    { "id": "gpt-5.5-codex-low",    "label": "GPT-5.5 Codex (Reasoning: Low)",    "baseId": "gpt-5.5-codex", "baseLabel": "GPT-5.5 Codex", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
-    { "id": "gpt-5.5-codex-medium", "label": "GPT-5.5 Codex (Reasoning: Medium)", "baseId": "gpt-5.5-codex", "baseLabel": "GPT-5.5 Codex", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
-    { "id": "gpt-5.5-codex-high",   "label": "GPT-5.5 Codex (Reasoning: High)",   "baseId": "gpt-5.5-codex", "baseLabel": "GPT-5.5 Codex", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "featured" },
+    { "id": "o3", "label": "o3", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
+    { "id": "o4-mini", "label": "o4-mini", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
 
-    { "id": "claude-haiku-4.6", "label": "Claude Haiku 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
-
-    { "id": "claude-sonnet-4.6-low",    "label": "Claude Sonnet 4.6 (Reasoning: Low)",    "baseId": "claude-sonnet-4.6", "baseLabel": "Claude Sonnet 4.6", "reasoningEffort": "low",    "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "claude-sonnet-4.6-medium", "label": "Claude Sonnet 4.6 (Reasoning: Medium)", "baseId": "claude-sonnet-4.6", "baseLabel": "Claude Sonnet 4.6", "reasoningEffort": "medium", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "claude-sonnet-4.6-high",   "label": "Claude Sonnet 4.6 (Reasoning: High)",   "baseId": "claude-sonnet-4.6", "baseLabel": "Claude Sonnet 4.6", "reasoningEffort": "high",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-
-    { "id": "claude-opus-4.6-low",    "label": "Claude Opus 4.6 (Reasoning: Low)",    "baseId": "claude-opus-4.6", "baseLabel": "Claude Opus 4.6", "reasoningEffort": "low",    "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "other" },
-    { "id": "claude-opus-4.6-medium", "label": "Claude Opus 4.6 (Reasoning: Medium)", "baseId": "claude-opus-4.6", "baseLabel": "Claude Opus 4.6", "reasoningEffort": "medium", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "other" },
-    { "id": "claude-opus-4.6-high",   "label": "Claude Opus 4.6 (Reasoning: High)",   "baseId": "claude-opus-4.6", "baseLabel": "Claude Opus 4.6", "reasoningEffort": "high",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "3x", "group": "other" },
-
-    { "id": "claude-sonnet-4.5-low",    "label": "Claude Sonnet 4.5 (Reasoning: Low)",    "baseId": "claude-sonnet-4.5", "baseLabel": "Claude Sonnet 4.5", "reasoningEffort": "low",    "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "claude-sonnet-4.5-medium", "label": "Claude Sonnet 4.5 (Reasoning: Medium)", "baseId": "claude-sonnet-4.5", "baseLabel": "Claude Sonnet 4.5", "reasoningEffort": "medium", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "claude-sonnet-4.5-high",   "label": "Claude Sonnet 4.5 (Reasoning: High)",   "baseId": "claude-sonnet-4.5", "baseLabel": "Claude Sonnet 4.5", "reasoningEffort": "high",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-
-    { "id": "claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
-
-    { "id": "gpt-5.4-low",    "label": "GPT-5.4 (Reasoning: Low)",    "baseId": "gpt-5.4", "baseLabel": "GPT-5.4", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "other" },
-    { "id": "gpt-5.4-medium", "label": "GPT-5.4 (Reasoning: Medium)", "baseId": "gpt-5.4", "baseLabel": "GPT-5.4", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "other" },
-    { "id": "gpt-5.4-high",   "label": "GPT-5.4 (Reasoning: High)",   "baseId": "gpt-5.4", "baseLabel": "GPT-5.4", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "1x", "group": "other" },
-
-    { "id": "gpt-5.4-mini-low",    "label": "GPT-5.4 Mini (Reasoning: Low)",    "baseId": "gpt-5.4-mini", "baseLabel": "GPT-5.4 Mini", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.33x", "group": "other" },
-    { "id": "gpt-5.4-mini-medium", "label": "GPT-5.4 Mini (Reasoning: Medium)", "baseId": "gpt-5.4-mini", "baseLabel": "GPT-5.4 Mini", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.33x", "group": "other" },
-    { "id": "gpt-5.4-mini-high",   "label": "GPT-5.4 Mini (Reasoning: High)",   "baseId": "gpt-5.4-mini", "baseLabel": "GPT-5.4 Mini", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.33x", "group": "other" },
-
-    { "id": "o4-low",    "label": "o4 (Reasoning: Low)",    "baseId": "o4", "baseLabel": "o4", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "o4-medium", "label": "o4 (Reasoning: Medium)", "baseId": "o4", "baseLabel": "o4", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-    { "id": "o4-high",   "label": "o4 (Reasoning: High)",   "baseId": "o4", "baseLabel": "o4", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "1x", "group": "other" },
-
-    { "id": "o4-mini-low",    "label": "o4-mini (Reasoning: Low)",    "baseId": "o4-mini", "baseLabel": "o4-mini", "reasoningEffort": "low",    "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
-    { "id": "o4-mini-medium", "label": "o4-mini (Reasoning: Medium)", "baseId": "o4-mini", "baseLabel": "o4-mini", "reasoningEffort": "medium", "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
-    { "id": "o4-mini-high",   "label": "o4-mini (Reasoning: High)",   "baseId": "o4-mini", "baseLabel": "o4-mini", "reasoningEffort": "high",   "provider": "OpenAI", "contextWindow": "200K", "maxTokens": 200000, "usage": "0.33x", "group": "other" },
-
-    { "id": "gemini-3.5-pro", "label": "Gemini 3.5 Pro", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other" },
-    { "id": "gemini-3-pro",   "label": "Gemini 3 Pro",   "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "1x", "group": "other" },
-    { "id": "gemini-3-flash", "label": "Gemini 3 Flash", "provider": "Google", "contextWindow": "1M", "maxTokens": 1000000, "usage": "0.33x", "group": "other" },
-    { "id": "grok-code-fast-2", "label": "Grok Code Fast 2", "provider": "xAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.5x", "group": "other" }
+    { "id": "grok-code-fast-1", "label": "Grok Code Fast 1", "provider": "xAI", "contextWindow": "256K", "maxTokens": 256000, "usage": "0.5x", "group": "other" }
   ],
   "claude": [
-    { "id": "sonnet", "label": "Claude Sonnet 4.7 (Latest)", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
-    { "id": "opus",   "label": "Claude Opus 4.7 (Latest)",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
-    { "id": "haiku",  "label": "Claude Haiku 4.6 (Latest)",  "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
-    { "id": "claude-sonnet-4-7", "label": "Claude Sonnet 4.7", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
-    { "id": "claude-opus-4-7",   "label": "Claude Opus 4.7",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
-    { "id": "claude-haiku-4-6",  "label": "Claude Haiku 4.6",  "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
-    { "id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
-    { "id": "claude-opus-4-6",   "label": "Claude Opus 4.6",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
+    { "id": "sonnet", "label": "Claude Sonnet 4.5 (Latest)", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
+    { "id": "opus",   "label": "Claude Opus 4.5 (Latest)",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
+    { "id": "haiku",  "label": "Claude Haiku 4.5 (Latest)",  "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "featured" },
+    { "id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5", "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
+    { "id": "claude-opus-4-5",   "label": "Claude Opus 4.5",   "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" },
     { "id": "claude-haiku-4-5",  "label": "Claude Haiku 4.5",  "provider": "Anthropic", "contextWindow": "200K", "maxTokens": 200000, "usage": "", "group": "other" }
   ],
   "codex": [
