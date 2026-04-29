@@ -995,6 +995,27 @@ export function buildRunSummary(text: string): RunSummary {
   const fullText = text || "";
   const trimmed = fullText.trim();
 
+  // Always honor a model-authored ## Summary block, even on short responses.
+  // Without this, short answers fall through to the raw renderer and the
+  // "## Summary" heading shows up verbatim in the chat bubble.
+  const earlyModelSummary = extractModelSummary(trimmed);
+  if (earlyModelSummary) {
+    return {
+      status: "info",
+      statusLabel: "Response",
+      intent: "explanation",
+      mode: "conversational",
+      confidence: 0.8,
+      outcome: "",
+      summaryText: earlyModelSummary.summaryBlock,
+      sections: [],
+      proseText: earlyModelSummary.rawWithoutSummary,
+      fullText,
+      hasSummary: true,
+      hasModelSummary: true,
+    };
+  }
+
   // Very short responses don't need summarization
   if (trimmed.length < 200 || trimmed.split("\n").length < 5) {
     return {
