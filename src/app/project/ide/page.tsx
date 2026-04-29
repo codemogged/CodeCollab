@@ -118,10 +118,10 @@ type CatalogSources = { copilot: ModelCatalogEntry[]; claude: ModelCatalogEntry[
 
 const DEFAULT_copilotModels: ModelCatalogEntry[] = [
   { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
-  { id: "gpt-5.4", label: "GPT-5.4", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "0.33x", group: "featured" },
-  { id: "gpt-5.5", label: "GPT-5.5", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
-  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
+  { id: "gpt-5.5|medium", label: "GPT-5.5 (Reasoning: Medium)", baseId: "gpt-5.5", baseLabel: "GPT-5.5", reasoningEffort: "medium", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+  { id: "gpt-5.5-codex|medium", label: "GPT-5.5 Codex (Reasoning: Medium)", baseId: "gpt-5.5-codex", baseLabel: "GPT-5.5 Codex", reasoningEffort: "medium", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+  { id: "claude-sonnet-4.5|medium", label: "Claude Sonnet 4.5 (Reasoning: Medium)", baseId: "claude-sonnet-4.5", baseLabel: "Claude Sonnet 4.5", reasoningEffort: "medium", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
+  { id: "claude-opus-4.5|medium", label: "Claude Opus 4.5 (Reasoning: Medium)", baseId: "claude-opus-4.5", baseLabel: "Claude Opus 4.5", reasoningEffort: "medium", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
 ];
 const DEFAULT_claudeModels: ModelCatalogEntry[] = [
   { id: "sonnet", label: "Claude Sonnet 4.5 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
