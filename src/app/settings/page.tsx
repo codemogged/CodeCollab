@@ -15,17 +15,35 @@ const defaultToolState: AiToolSetupState = { checking: false, installing: false,
 
 const copilotModelOptions = [
   { id: "auto", label: "Auto", usage: "10% discount", provider: "Best available" },
-  { id: "claude-sonnet-4.7", label: "Claude Sonnet 4.7", usage: "1x", provider: "Anthropic" },
-  { id: "claude-opus-4.7", label: "Claude Opus 4.7", usage: "3x", provider: "Anthropic" },
-  { id: "gpt-5.5", label: "GPT-5.5", usage: "1x", provider: "OpenAI" },
+  { id: "claude-sonnet-4.7-low", label: "Claude Sonnet 4.7 (Reasoning: Low)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.7-medium", label: "Claude Sonnet 4.7 (Reasoning: Medium)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.7-high", label: "Claude Sonnet 4.7 (Reasoning: High)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-opus-4.7-low", label: "Claude Opus 4.7 (Reasoning: Low)", usage: "3x", provider: "Anthropic" },
+  { id: "claude-opus-4.7-medium", label: "Claude Opus 4.7 (Reasoning: Medium)", usage: "3x", provider: "Anthropic" },
+  { id: "claude-opus-4.7-high", label: "Claude Opus 4.7 (Reasoning: High)", usage: "3x", provider: "Anthropic" },
+  { id: "gpt-5.5-low", label: "GPT-5.5 (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.5-medium", label: "GPT-5.5 (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.5-high", label: "GPT-5.5 (Reasoning: High)", usage: "1x", provider: "OpenAI" },
   { id: "gpt-5.5-codex-low", label: "GPT-5.5 Codex (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
   { id: "gpt-5.5-codex-medium", label: "GPT-5.5 Codex (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
   { id: "gpt-5.5-codex-high", label: "GPT-5.5 Codex (Reasoning: High)", usage: "1x", provider: "OpenAI" },
   { id: "claude-haiku-4.6", label: "Claude Haiku 4.6", usage: "0.33x", provider: "Anthropic" },
-  { id: "claude-sonnet-4.6", label: "Claude Sonnet 4.6", usage: "1x", provider: "Anthropic" },
-  { id: "claude-opus-4.6", label: "Claude Opus 4.6", usage: "3x", provider: "Anthropic" },
-  { id: "gpt-5.4", label: "GPT-5.4", usage: "1x", provider: "OpenAI" },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", usage: "0.33x", provider: "OpenAI" },
+  { id: "claude-sonnet-4.6-low", label: "Claude Sonnet 4.6 (Reasoning: Low)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.6-medium", label: "Claude Sonnet 4.6 (Reasoning: Medium)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.6-high", label: "Claude Sonnet 4.6 (Reasoning: High)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-opus-4.6-low", label: "Claude Opus 4.6 (Reasoning: Low)", usage: "3x", provider: "Anthropic" },
+  { id: "claude-opus-4.6-medium", label: "Claude Opus 4.6 (Reasoning: Medium)", usage: "3x", provider: "Anthropic" },
+  { id: "claude-opus-4.6-high", label: "Claude Opus 4.6 (Reasoning: High)", usage: "3x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.5-low", label: "Claude Sonnet 4.5 (Reasoning: Low)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.5-medium", label: "Claude Sonnet 4.5 (Reasoning: Medium)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.5-high", label: "Claude Sonnet 4.5 (Reasoning: High)", usage: "1x", provider: "Anthropic" },
+  { id: "claude-haiku-4.5", label: "Claude Haiku 4.5", usage: "0.33x", provider: "Anthropic" },
+  { id: "gpt-5.4-low", label: "GPT-5.4 (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.4-medium", label: "GPT-5.4 (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.4-high", label: "GPT-5.4 (Reasoning: High)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.4-mini-low", label: "GPT-5.4 Mini (Reasoning: Low)", usage: "0.33x", provider: "OpenAI" },
+  { id: "gpt-5.4-mini-medium", label: "GPT-5.4 Mini (Reasoning: Medium)", usage: "0.33x", provider: "OpenAI" },
+  { id: "gpt-5.4-mini-high", label: "GPT-5.4 Mini (Reasoning: High)", usage: "0.33x", provider: "OpenAI" },
   { id: "o4-low", label: "o4 (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
   { id: "o4-medium", label: "o4 (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
   { id: "o4-high", label: "o4 (Reasoning: High)", usage: "1x", provider: "OpenAI" },
@@ -39,9 +57,9 @@ const copilotModelOptions = [
 ];
 
 const claudeCodeModelOptions = [
-  { id: "sonnet", label: "Claude Sonnet (Latest)", usage: "", provider: "Claude Code" },
-  { id: "opus", label: "Claude Opus (Latest)", usage: "", provider: "Claude Code" },
-  { id: "haiku", label: "Claude Haiku (Latest)", usage: "", provider: "Claude Code" },
+  { id: "sonnet", label: "Claude Sonnet 4.7 (Latest)", usage: "", provider: "Claude Code" },
+  { id: "opus", label: "Claude Opus 4.7 (Latest)", usage: "", provider: "Claude Code" },
+  { id: "haiku", label: "Claude Haiku 4.6 (Latest)", usage: "", provider: "Claude Code" },
   { id: "claude-sonnet-4-7", label: "Claude Sonnet 4.7", usage: "", provider: "Claude Code" },
   { id: "claude-opus-4-7", label: "Claude Opus 4.7", usage: "", provider: "Claude Code" },
   { id: "claude-haiku-4-6", label: "Claude Haiku 4.6", usage: "", provider: "Claude Code" },
@@ -99,7 +117,7 @@ export default function SettingsPage() {
   const [projectRoot, setProjectRoot] = useState("");
   const [createGithubRepoByDefault, setCreateGithubRepoByDefault] = useState(true);
   const [projectGithubVisibility, setProjectGithubVisibility] = useState<"private" | "public">("private");
-  const [copilotModel, setCopilotModel] = useState("gpt-5.5");
+  const [copilotModel, setCopilotModel] = useState("gpt-5.5-medium");
 
   /* AI Tools setup state */
   const [claudeCodeSetup, setClaudeCodeSetup] = useState<AiToolSetupState>(defaultToolState);
@@ -190,7 +208,7 @@ export default function SettingsPage() {
     setProjectRoot(s.projectDefaults?.rootDirectory ?? "");
     setCreateGithubRepoByDefault(s.projectDefaults?.createGithubRepo ?? true);
     setProjectGithubVisibility(s.projectDefaults?.githubVisibility ?? "private");
-    setCopilotModel(s.projectDefaults?.copilotModel ?? "gpt-5.5");
+    setCopilotModel(s.projectDefaults?.copilotModel ?? "gpt-5.5-medium");
   };
 
   const loadDesktopIntegrations = async () => {
@@ -347,7 +365,7 @@ export default function SettingsPage() {
           rootDirectory: projectRoot.trim(),
           createGithubRepo: createGithubRepoByDefault,
           githubVisibility: projectGithubVisibility,
-          copilotModel: copilotModel.trim() || "gpt-5.5",
+          copilotModel: copilotModel.trim() || "gpt-5.5-medium",
         },
       });
       applyDesktopSettings(nextSettings);

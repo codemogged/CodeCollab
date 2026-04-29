@@ -410,15 +410,15 @@ const chatActionButtonClass = "app-control-rail rounded-full px-3 py-1 text-[10p
 // ── Default model catalogs (fallback when IPC is unavailable) ──
 const DEFAULT_copilotModels: ModelCatalogEntry[] = [
   { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
-  { id: "claude-sonnet-4.7", label: "Claude Sonnet 4.7", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
-  { id: "claude-opus-4.7", label: "Claude Opus 4.7", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
-  { id: "gpt-5.5", label: "GPT-5.5", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+  { id: "claude-sonnet-4.7-medium", label: "Claude Sonnet 4.7 (Reasoning: Medium)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
+  { id: "claude-opus-4.7-medium", label: "Claude Opus 4.7 (Reasoning: Medium)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
+  { id: "gpt-5.5-medium", label: "GPT-5.5 (Reasoning: Medium)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
   { id: "gpt-5.5-codex-medium", label: "GPT-5.5 Codex (Reasoning: Medium)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
 ];
 const DEFAULT_claudeModels: ModelCatalogEntry[] = [
-  { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
-  { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
-  { id: "haiku", label: "Claude Haiku (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+  { id: "sonnet", label: "Claude Sonnet 4.7 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+  { id: "opus", label: "Claude Opus 4.7 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+  { id: "haiku", label: "Claude Haiku 4.6 (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
 ];
 const DEFAULT_codexModels: ModelCatalogEntry[] = [
   { id: "default", label: "GPT-5.5 Codex (Latest)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "", group: "featured" },
@@ -445,7 +445,7 @@ function getDefaultModelId(featureFlags: FeatureFlags): string {
   const hasCodex = !!featureFlags?.codexCli;
   if (hasClaude && !hasCopilot && !hasCodex) return "sonnet";
   if (hasCodex && !hasClaude && !hasCopilot) return "default";
-  return "gpt-5.5";
+  return "gpt-5.5-medium";
 }
 
 function getModelRecommendation(featureFlags: FeatureFlags, isTaskChat: boolean): { modelId: string; label: string; reason: string } {
@@ -456,13 +456,13 @@ function getModelRecommendation(featureFlags: FeatureFlags, isTaskChat: boolean)
   if (isTaskChat) {
     if (hasClaude) return { modelId: "sonnet", label: "Claude Sonnet (Latest)", reason: "Best for implementation tasks" };
     if (hasCodex) return { modelId: "default", label: "Default (ChatGPT)", reason: "Best for implementation tasks" };
-    return { modelId: "gpt-5.5", label: "GPT-5.5", reason: "Best for implementation tasks" };
+    return { modelId: "gpt-5.5-medium", label: "GPT-5.5 (Reasoning: Medium)", reason: "Best for implementation tasks" };
   }
 
-  if (hasClaude && hasCopilot) return { modelId: "claude-opus-4.7", label: "Claude Opus 4.7", reason: "Best for planning & architecture" };
+  if (hasClaude && hasCopilot) return { modelId: "claude-opus-4.7-medium", label: "Claude Opus 4.7 (Reasoning: Medium)", reason: "Best for planning & architecture" };
   if (hasClaude) return { modelId: "opus", label: "Claude Opus (Latest)", reason: "Best for planning & architecture" };
   if (hasCodex) return { modelId: "default", label: "Default (ChatGPT)", reason: "Best for planning & architecture" };
-  return { modelId: "claude-opus-4.7", label: "Claude Opus 4.7", reason: "Best for planning & architecture" };
+  return { modelId: "claude-opus-4.7-medium", label: "Claude Opus 4.7 (Reasoning: Medium)", reason: "Best for planning & architecture" };
 }
 
 function getModelCatalogEntry(modelId: string, catalog: ModelCatalogEntry[]) {
@@ -1372,7 +1372,7 @@ function ProjectChatPageContent() {
   const [isDesktopLayout, setIsDesktopLayout] = useState(false);
   const [hasDesktopApi, setHasDesktopApi] = useState(false);
   const [desktopRepoPath, setDesktopRepoPath] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState("gpt-5.5");
+  const [selectedModel, setSelectedModel] = useState("gpt-5.5-medium");
   const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({});
   const [catalogSources, setCatalogSources] = useState<CatalogSources>({
     copilot: DEFAULT_copilotModels,
