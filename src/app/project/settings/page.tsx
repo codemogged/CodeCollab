@@ -267,7 +267,7 @@ export default function SettingsPage() {
                 className="app-input w-full resize-y rounded-xl px-3.5 py-3 text-[13px] outline-none transition focus:border-black/[0.16] focus:ring-1 focus:ring-black/[0.08] dark:focus:border-white/[0.18] dark:focus:ring-white/[0.08]"
               />
               <p className="text-[12px] theme-muted">
-                CodeBuddy prepends this markdown to the initial build prompt before generating the real dashboard plan.
+                CodeCollab prepends this markdown to the initial build prompt before generating the real dashboard plan.
               </p>
               <button
                 type="button"

@@ -18,7 +18,7 @@ function createActivityService() {
       type: event.type,
       title: event.title,
       description: event.description,
-      actor: event.actor ?? "CodeBuddy",
+      actor: event.actor ?? "CodeCollab",
       actorInitials: event.actorInitials ?? "CB",
       time: event.time ?? formatTime(createdAt),
       relatedFile: event.relatedFile,

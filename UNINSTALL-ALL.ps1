@@ -1,5 +1,5 @@
-# CodeBuddy — Full Uninstall Script
-# Removes ALL tools that CodeBuddy installs during onboarding.
+# CodeCollab — Full Uninstall Script
+# Removes ALL tools that CodeCollab installs during onboarding.
 # Run this to reset a machine to a clean pre-onboarding state for testing.
 #
 # Usage: Right-click → Run with PowerShell  (auto-elevates to Admin)
@@ -20,12 +20,12 @@ Set-Location -Path (Split-Path -Parent $PSCommandPath) -ErrorAction SilentlyCont
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Red
-Write-Host "  CodeBuddy FULL Uninstall" -ForegroundColor Red
+Write-Host "  CodeCollab FULL Uninstall" -ForegroundColor Red
 Write-Host "========================================" -ForegroundColor Red
 Write-Host "  Running as Administrator: YES" -ForegroundColor Green
 Write-Host ""
 Write-Host "This will remove:" -ForegroundColor Yellow
-Write-Host "  1. CodeBuddy app + all settings/caches"
+Write-Host "  1. CodeCollab app + all settings/caches"
 Write-Host "  2. Codex CLI (OpenAI)"
 Write-Host "  3. Claude Code (Anthropic)"
 Write-Host "  4. GitHub Copilot CLI"
@@ -131,23 +131,23 @@ function Run-RegistryUninstallers {
 }
 
 # ──────────────────────────────────────
-# 1. Kill CodeBuddy
+# 1. Kill CodeCollab
 # ──────────────────────────────────────
-Write-Host "[1/8] Stopping CodeBuddy..." -ForegroundColor Yellow
-Stop-Process -Name "CodeBuddy" -Force -ErrorAction SilentlyContinue
+Write-Host "[1/8] Stopping CodeCollab..." -ForegroundColor Yellow
+Stop-Process -Name "CodeCollab" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 Write-Host "  Done." -ForegroundColor Green
 
 # ──────────────────────────────────────
-# 2. Remove CodeBuddy app + data
+# 2. Remove CodeCollab app + data
 # ──────────────────────────────────────
-Write-Host "[2/8] Removing CodeBuddy app + data..." -ForegroundColor Yellow
-Remove-IfExists "$env:LOCALAPPDATA\Programs\CodeBuddy"
+Write-Host "[2/8] Removing CodeCollab app + data..." -ForegroundColor Yellow
+Remove-IfExists "$env:LOCALAPPDATA\Programs\CodeCollab"
 Remove-IfExists "$env:APPDATA\codebuddy"
-Remove-IfExists "$env:APPDATA\CodeBuddy"
+Remove-IfExists "$env:APPDATA\CodeCollab"
 Remove-IfExists "$env:LOCALAPPDATA\codebuddy-updater"
 Remove-IfExists "$env:LOCALAPPDATA\codebuddy"
-Remove-IfExists "$env:LOCALAPPDATA\CodeBuddy"
+Remove-IfExists "$env:LOCALAPPDATA\CodeCollab"
 Write-Host "  Done." -ForegroundColor Green
 
 # ──────────────────────────────────────

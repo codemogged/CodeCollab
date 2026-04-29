@@ -37,7 +37,7 @@ export default function PeoplePage() {
         </p>
         <div className="mt-4 flex items-center gap-2 rounded-xl bg-stage-up p-1.5 pl-5">
           <span className="text-body-sm text-text-dim select-all truncate">
-            codebuddy.app/join/cam-x3k9
+            codecollab.app/join/cam-x3k9
           </span>
           <button className="btn-primary py-2 px-4 text-label shrink-0">Copy</button>
         </div>

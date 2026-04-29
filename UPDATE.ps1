@@ -1,19 +1,19 @@
-# CodeBuddy Update Script
+# CodeCollab Update Script
 # Updates the app binaries WITHOUT wiping settings, projects, or onboarding state.
-# Run from the "CodeBuddy Install" folder on the target machine.
+# Run from the "CodeCollab Install" folder on the target machine.
 # Usage: Right-click -> Run with PowerShell
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  CodeBuddy Update (keeps your data)" -ForegroundColor Cyan
+Write-Host "  CodeCollab Update (keeps your data)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Kill running CodeBuddy
-Write-Host "[1/4] Closing CodeBuddy..." -ForegroundColor Yellow
-Stop-Process -Name "CodeBuddy" -Force -ErrorAction SilentlyContinue
+# 1. Kill running CodeCollab
+Write-Host "[1/4] Closing CodeCollab..." -ForegroundColor Yellow
+Stop-Process -Name "CodeCollab" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 3
-$still = Get-Process -Name "CodeBuddy" -ErrorAction SilentlyContinue
+$still = Get-Process -Name "CodeCollab" -ErrorAction SilentlyContinue
 if ($still) {
     Write-Host "  Still running, force killing..." -ForegroundColor Red
     $still | Stop-Process -Force
@@ -22,8 +22,8 @@ if ($still) {
 Write-Host "  Done." -ForegroundColor Green
 
 # 2. Confirm app data is preserved
-$appData = "$env:APPDATA\CodeBuddy"
-$localData = "$env:LOCALAPPDATA\CodeBuddy"
+$appData = "$env:APPDATA\CodeCollab"
+$localData = "$env:LOCALAPPDATA\CodeCollab"
 Write-Host ""
 Write-Host "[2/4] Checking existing data..." -ForegroundColor Yellow
 if (Test-Path $appData) {
@@ -48,11 +48,11 @@ if (Test-Path $appData) {
 Write-Host ""
 Write-Host "[3/4] Updating app binaries..." -ForegroundColor Yellow
 $scriptDir = $PSScriptRoot
-$exePath = Join-Path $scriptDir "CodeBuddy.exe"
+$exePath = Join-Path $scriptDir "CodeCollab.exe"
 
 if (-not (Test-Path $exePath)) {
-    Write-Host "  ERROR: CodeBuddy.exe not found in this folder." -ForegroundColor Red
-    Write-Host "  Make sure you're running UPDATE.ps1 from the CodeBuddy Install folder." -ForegroundColor Red
+    Write-Host "  ERROR: CodeCollab.exe not found in this folder." -ForegroundColor Red
+    Write-Host "  Make sure you're running UPDATE.ps1 from the CodeCollab Install folder." -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1
 }
@@ -77,9 +77,9 @@ Write-Host "  App files updated." -ForegroundColor Green
 Write-Host ""
 Write-Host "[4/4] Verifying..." -ForegroundColor Yellow
 if (Test-Path $exePath) {
-    Write-Host "  CodeBuddy.exe: OK" -ForegroundColor Green
+    Write-Host "  CodeCollab.exe: OK" -ForegroundColor Green
 } else {
-    Write-Host "  CodeBuddy.exe: MISSING" -ForegroundColor Red
+    Write-Host "  CodeCollab.exe: MISSING" -ForegroundColor Red
 }
 $asarPath = Join-Path $scriptDir "resources\app.asar"
 if (Test-Path $asarPath) {
@@ -94,7 +94,7 @@ Write-Host "  Update complete!" -ForegroundColor Green
 Write-Host "  Your projects and settings are intact." -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Launching CodeBuddy..." -ForegroundColor Yellow
+Write-Host "Launching CodeCollab..." -ForegroundColor Yellow
 Start-Process $exePath
 Write-Host ""
 Read-Host "Press Enter to close this window"

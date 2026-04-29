@@ -1,4 +1,4 @@
-﻿const { dialog, shell, ipcMain, clipboard } = require("electron");
+const { dialog, shell, ipcMain, clipboard } = require("electron");
 
 // Promisified child_process.execFile. Using execFile (not exec) avoids a shell
 // and is safe to call in async handlers — unlike execSync, it does NOT block
@@ -37,7 +37,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     enqueue: (_repo, _label, fn) => Promise.resolve().then(fn),
     getDepth: () => 0,
   };
-  const BUILD_TAG = "v109-repo-secret";
+  const BUILD_TAG = "v110-codecollab";
   // Guard: prevent savePlan from overwriting plan.json while syncWorkspace is importing
   let syncInProgress = false;
   console.log(`[IPC] Registering all handlers... (build: ${BUILD_TAG})`);
@@ -92,7 +92,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       let dirty = "";
       try { dirty = execSync("git status --porcelain .codebuddy/p2p-secret", opts).toString(); } catch { /* ignore */ }
       if (dirty.trim().length > 0) {
-        execSync('git -c user.name=CodeBuddy -c user.email=codebuddy@local.invalid commit -m "chore: publish P2P secret"', opts);
+        execSync('git -c user.name=CodeCollab -c user.email=codecollab@local.invalid commit -m "chore: publish P2P secret"', opts);
       }
       try {
         execSync("git push origin codebuddy-build", opts);
@@ -858,7 +858,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "Repository connected",
       description: `Connected ${inspection.repoPath} on branch ${inspection.branch}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return inspection;
@@ -879,7 +879,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "Documentation saved",
       description: `Saved ${saved.filename} to docs/.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return saved;
@@ -899,7 +899,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "File updated",
       description: `Saved ${file.path}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return file;
@@ -915,7 +915,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "Files staged",
       description: `Staged ${payload.filePaths.length} file${payload.filePaths.length === 1 ? "" : "s"}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return inspection;
@@ -927,7 +927,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "Files unstaged",
       description: `Unstaged ${payload.filePaths.length} file${payload.filePaths.length === 1 ? "" : "s"}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return inspection;
@@ -939,7 +939,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "Commit created",
       description: payload.message,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return inspection;
@@ -951,7 +951,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: payload.create ? "Branch created" : "Branch switched",
       description: `${payload.create ? "Created and switched to" : "Switched to"} ${inspection.branch}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return inspection;
@@ -971,7 +971,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "deploy",
       title: "Pushed to GitHub",
       description: `Pushed ${payload.branch || "current branch"} to ${payload.remote || "origin"}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -983,7 +983,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "Pulled from remote",
       description: `Pulled latest changes from ${payload.remote || "origin"}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -995,7 +995,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "deploy",
       title: "Shared workspace synced",
       description: "Committed and pushed .codebuddy/ shared state to remote.",
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1033,7 +1033,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "Project created",
       description: `${project.name} was created at ${project.repoPath}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return project;
@@ -1050,9 +1050,9 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "status",
       title: "Project removed",
       description: deleteTargets.length > 0
-        ? `Removed a project from CodeBuddy and deleted ${deleteTargets.join(" and ")}.`
-        : "Removed a project from CodeBuddy. Local files and GitHub were left untouched.",
-      actor: "CodeBuddy",
+        ? `Removed a project from CodeCollab and deleted ${deleteTargets.join(" and ")}.`
+        : "Removed a project from CodeCollab. Local files and GitHub were left untouched.",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1411,7 +1411,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "MVP plan generated",
       description: `Created a planning dashboard for ${project.name}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
 
@@ -1455,7 +1455,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "GitHub repo connected",
       description: `${project.name} is now connected to ${project.githubRepoUrl ?? "GitHub"}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return project;
@@ -1478,7 +1478,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "Task agent updated",
       description: `Continued task session ${result.threadId}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1499,7 +1499,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: result.taskStatus === "done" ? "status" : "comment",
       title: result.taskStatus === "done" ? "Task prompt marked done" : "Task prompt generated",
       description: result.reason,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1520,7 +1520,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "Project manager responded",
       description: `PM conversation updated.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1541,7 +1541,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "Solo coding session updated",
       description: `Coding agent responded in session.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1582,7 +1582,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "build",
       title: "Dev server launched",
       description: `Agent analyzed and launched the dev server for the project.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1621,7 +1621,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "Copilot prompt started",
       description: `Running GitHub Copilot CLI in ${payload.cwd}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return toolingService.runCopilotPrompt(payload);
@@ -1632,7 +1632,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "AI prompt started",
       description: `Running AI CLI in ${payload.cwd}.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return toolingService.runGenericPrompt(payload);
@@ -1684,7 +1684,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "status",
         title: "Codex CLI connected",
         description: "Successfully authenticated with OpenAI Codex.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -1702,7 +1702,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "status",
         title: "Claude Code connected",
         description: "Successfully authenticated with Claude Code.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -1720,7 +1720,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "status",
         title: "GitHub connected",
         description: "Successfully authenticated with GitHub.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -1734,7 +1734,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "status",
         title: "GitHub disconnected",
         description: "Logged out of GitHub CLI.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -1777,7 +1777,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "comment",
       title: "Conversation synced",
       description: `Saved conversation "${payload.metadata?.title || payload.conversationId}" to shared workspace.`,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return result;
@@ -1907,7 +1907,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "join",
       title: "Joined P2P workspace",
       description: `Connected to shared workspace for real-time collaboration.`,
-      actor: payload.member?.name || "CodeBuddy",
+      actor: payload.member?.name || "CodeCollab",
       actorInitials: payload.member?.initials || "CB",
     });
     return result;
@@ -2095,7 +2095,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       type: "security",
       title: "Rotated P2P key",
       description: "All peers were disconnected. Existing invite codes are now invalid.",
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
     });
     return { rotated, projectId: payload.projectId };
@@ -2192,7 +2192,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       }
     }
 
-    // Create a CodeBuddy project pointing at the cloned repo
+    // Create a CodeCollab project pointing at the cloned repo
     const project = await projectService.createProject({
       name: projectName,
       description: `Joined via invite from ${remoteUrl}`,
@@ -2242,8 +2242,8 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
       try { hasName = !!execSync("git config user.name", opts).trim(); } catch { /* not set */ }
       try { hasEmail = !!execSync("git config user.email", opts).trim(); } catch { /* not set */ }
       if (!hasName || !hasEmail) {
-        let name = "CodeBuddy";
-        let email = "codebuddy@local.invalid";
+        let name = "CodeCollab";
+        let email = "codecollab@local.invalid";
         try {
           const login = execSync("gh api user --jq .login", opts).trim();
           if (login) { name = login; email = `${login}@users.noreply.github.com`; }
@@ -2364,7 +2364,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "deploy",
         title: "Pushed to main",
         description: "Merged codebuddy-build → main and pushed to GitHub.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -2383,7 +2383,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "build",
         title: "Process started",
         description: payload.command ? `Started ${payload.command}.` : "Started a local process.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -2393,7 +2393,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: payload.exitCode === 0 ? "status" : "review",
         title: payload.exitCode === 0 ? "Process completed" : "Process finished with errors",
         description: payload.command ? `${payload.command} exited with code ${payload.exitCode}.` : `A process exited with code ${payload.exitCode}.`,
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -2403,7 +2403,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "review",
         title: "Process error",
         description: payload.message ?? "A local process failed.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }
@@ -2413,7 +2413,7 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         type: "status",
         title: "Process cancelled",
         description: "A local process was stopped.",
-        actor: "CodeBuddy",
+        actor: "CodeCollab",
         actorInitials: "CB",
       });
     }

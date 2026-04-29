@@ -442,8 +442,8 @@ export default function OnboardingPage() {
       {/* ── Top bar: logo + step counter ── */}
       <header className="flex items-center justify-between px-8 pt-6">
         <div className="flex items-center gap-2.5">
-          <div className="pulse-orb" />
-          <span className="font-display text-sm font-semibold text-text">CodeBuddy</span>
+          <img src="/codecollab-logo.png" alt="CodeCollab" className="h-7 w-7 rounded-md" />
+          <span className="font-display text-sm font-semibold text-text">CodeCollab</span>
         </div>
         <p className="text-label text-text-dim">
           {stepIndex + 1} of {STEPS.length}
@@ -458,9 +458,9 @@ export default function OnboardingPage() {
             onClick={() => { if (i <= stepIndex) setStep(STEPS[i]); }}
             className={`h-1.5 rounded-full transition-all duration-400 ${
               i === stepIndex
-                ? "w-8 bg-sun"
+                ? "w-8 bg-violet"
                 : i < stepIndex
-                  ? "w-1.5 cursor-pointer bg-sun/40 hover:bg-sun/60"
+                  ? "w-1.5 cursor-pointer bg-violet/40 hover:bg-violet/60"
                   : "w-1.5 bg-stage-up2"
             }`}
             aria-label={STEP_LABELS[s]}
@@ -480,7 +480,7 @@ export default function OnboardingPage() {
             <FadeIn key="tools">
               <StepHeading text="Checking your tools" />
               <p className="mt-2 text-center text-sm text-text-dim">
-                CodeBuddy needs a few things installed on your machine.
+                CodeCollab needs a few things installed on your machine.
               </p>
 
               <div className="mt-8 space-y-1">
@@ -769,7 +769,7 @@ export default function OnboardingPage() {
                   disabled={finishing}
                   className="mt-8 rounded-full bg-violet px-8 py-3 text-sm font-semibold text-void transition hover:bg-violet/90 active:scale-[0.97] disabled:opacity-50"
                 >
-                  {finishing ? "Setting up…" : "Open CodeBuddy"}
+                  {finishing ? "Setting up…" : "Open CodeCollab"}
                 </button>
               </div>
             </FadeIn>
@@ -820,9 +820,11 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
   return (
     <FadeIn>
       <div className="flex flex-col items-center text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet text-xl font-bold text-void">
-          CB
-        </div>
+        <img
+          src="/codecollab-logo.png"
+          alt="CodeCollab"
+          className="h-16 w-16 rounded-2xl object-cover shadow-lg"
+        />
         <h1 className="mt-8 text-2xl font-bold text-text">
           {displayed}
           {!done && <span className="ml-0.5 inline-block w-[2px] h-[1.1em] bg-violet align-text-bottom animate-pulse" />}

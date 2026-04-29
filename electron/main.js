@@ -152,7 +152,8 @@ function buildApplicationMenu() {
     submenu: [
       {
         label: "Learn More",
-        click: () => { try { shell.openExternal("https://github.com/wuddup-02120/CodeBuddy"); } catch { /* ignore */ } },
+        // TODO(maintainer): update this URL to the public CodeCollab repository when published.
+        click: () => { try { shell.openExternal("https://github.com/codecollab-app/codecollab"); } catch { /* ignore */ } },
       },
     ],
   });
@@ -193,7 +194,7 @@ const REDACTION_PATTERNS = [
   [/\b[Bb]earer\s+[A-Za-z0-9._\-]+/g, "Bearer [REDACTED]"],
   [/eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}/g, "[REDACTED_JWT]"],
   [/x-oauth-basic[^\s]{0,200}/g, "[REDACTED_OAUTH]"],
-  // CodeBuddy P2P shared secrets and invite codes (base64url, ≥20 chars).
+  // CodeCollab P2P shared secrets and invite codes (base64url, ≥20 chars).
   // Match when a token is preceded by a key like "secret"/"p2pSecret"/"invite"/"code"/"s":
   // so we don't accidentally redact arbitrary IDs.
   [/("?(?:p2pSecret|secret|inviteCode|code|invite|s)"?\s*[:=]\s*"?)([A-Za-z0-9_\-]{20,})("?)/gi, '$1[REDACTED_P2P]$3'],
@@ -367,12 +368,23 @@ async function ensureStaticServer() {
 }
 
 async function createWindow() {
+  // Resolve icon from packaged resources (electron-builder copies build/icon.* into resources/)
+  // Falls back to the source build/ folder when running unpacked / in dev.
+  const iconCandidates = [
+    path.join(process.resourcesPath || "", "icon.ico"),
+    path.join(process.resourcesPath || "", "icon.png"),
+    path.join(__dirname, "..", "build", "icon.ico"),
+    path.join(__dirname, "..", "build", "icon.png"),
+  ];
+  const windowIcon = iconCandidates.find((p) => { try { return p && require("fs").existsSync(p); } catch { return false; } });
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "CodeBuddy [build v109-repo-secret]",
+    title: "CodeCollab",
+    icon: windowIcon,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // security: renderer can't access Node
@@ -524,6 +536,12 @@ async function bootstrapDesktopServices() {
 }
 
 // ── App lifecycle ──────────────────────────────────────────────
+// Set the AppUserModelID before any windows are created so Windows groups our
+// taskbar entries under the CodeCollab icon (and not the generic Electron one).
+if (process.platform === "win32") {
+  try { app.setAppUserModelId("com.codecollab.app"); } catch { /* ignore */ }
+}
+
 app.whenReady().then(async () => {
   await bootstrapDesktopServices();
   buildApplicationMenu();

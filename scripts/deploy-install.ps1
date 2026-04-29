@@ -1,7 +1,7 @@
-# Deploy the freshly built CodeBuddy into a local install folder.
+# Deploy the freshly built CodeCollab into a local install folder.
 #
 # Set the destination with the CODEBUDDY_INSTALL_DIR environment variable,
-# or pass -Destination. Defaults to "$env:USERPROFILE\Desktop\CodeBuddy Install"
+# or pass -Destination. Defaults to "$env:USERPROFILE\Desktop\CodeCollab Install"
 # so first-time contributors get a sensible default without any user-specific
 # paths being committed to the repo.
 [CmdletBinding()]
@@ -12,13 +12,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $Destination) {
-    $Destination = Join-Path $env:USERPROFILE "Desktop\CodeBuddy Install"
+    $Destination = Join-Path $env:USERPROFILE "Desktop\CodeCollab Install"
 }
 
 Write-Host "Deploy target: $Destination"
 
-# Stop any running CodeBuddy so we can overwrite it.
-Get-Process -Name "CodeBuddy" -ErrorAction SilentlyContinue | Stop-Process -Force
+# Stop any running CodeCollab so we can overwrite it.
+Get-Process -Name "CodeCollab" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 1
 
 if (-not (Test-Path $Destination)) {

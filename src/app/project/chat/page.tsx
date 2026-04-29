@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * PM Chat Page — Project Manager conversation, task threads, and AI agent interaction.
@@ -233,7 +233,7 @@ function toInlineBuildMessage(message: RealProjectConversationMessage | null | u
   return {
     id: message.id,
     from: message.from,
-    initials: message.isMine ? "CM" : "✦",
+    initials: message.isMine ? "YO" : "✦",
     text: message.text,
     time: message.time,
     isMine: message.isMine,
@@ -609,7 +609,7 @@ function buildTaskPreviewMarkdown(project: RealProjectChatProps["activeProject"]
     `Subproject: ${subproject.title}`,
     `Task purpose: ${thread?.purpose || task.note}`,
     `Owner: ${task.owner}`,
-    `Reviewer: ${task.reviewer || "Cameron"}`,
+    `Reviewer: ${task.reviewer || "You"}`,
     `Due date: ${task.dueDate}`,
     "",
     "## Starting Prompt",

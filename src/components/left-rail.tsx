@@ -203,15 +203,17 @@ function RailContent() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* ── CB logo mark (orb) ── */}
+      {/* ── CodeCollab logo mark ── */}
       <div className="flex justify-center px-3 pb-1">
         <Link href="/home" className="group flex items-center gap-2.5 overflow-hidden">
-          <div className="pulse-orb flex items-center justify-center flex-shrink-0">
-            <span className="font-display text-[9px] font-bold text-sun/50">cb</span>
-          </div>
+          <img
+            src="/codecollab-logo.png"
+            alt="CodeCollab"
+            className="h-8 w-8 flex-shrink-0 rounded-lg"
+          />
           {expanded && (
             <span className="font-display text-[13px] font-semibold text-text-dim whitespace-nowrap">
-              CodeBuddy
+              CodeCollab
             </span>
           )}
         </Link>

@@ -713,13 +713,14 @@ function createToolingService({ processService, settingsService }) {
 
     // ── Step 3: Try winget ──
     addLog("Step 3: Trying winget install GitHub.Copilot...");
-    const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
+    const wingetCheck = await tryExec("winget", ["--version"], process.cwd(), { timeout: 15000 });
     if (wingetCheck.ok) {
       addLog(`winget available: ${wingetCheck.stdout}`);
-      const wingetInstall = await tryExec("winget", [
+      addLog("Waiting for winget lock (other installs may be in progress)...");
+      const wingetInstall = await serializedWingetInstall(() => tryExec("winget", [
         "install", "GitHub.Copilot",
         "--accept-source-agreements", "--accept-package-agreements",
-      ], process.cwd());
+      ], process.cwd(), { timeout: 300000 }));
       addLog(`winget install stdout: ${wingetInstall.stdout}`);
       addLog(`winget install stderr: ${wingetInstall.stderr}`);
       addLog(`winget install ok: ${wingetInstall.ok}, message: ${wingetInstall.message}`);
@@ -739,13 +740,13 @@ function createToolingService({ processService, settingsService }) {
       addLog(`winget not available via direct exec: ${wingetCheck.stderr || wingetCheck.message}`);
       // Try winget via PowerShell (sometimes winget is available through PS but not direct exec)
       addLog("Trying winget via PowerShell...");
-      const psWingetCheck = await tryExec("powershell", ["-NoProfile", "-Command", "winget --version"], process.cwd());
+      const psWingetCheck = await tryExec("powershell", ["-NoProfile", "-Command", "winget --version"], process.cwd(), { timeout: 15000 });
       if (psWingetCheck.ok) {
         addLog(`winget available via PowerShell: ${psWingetCheck.stdout}`);
-        const psWingetInstall = await tryExec("powershell", [
+        const psWingetInstall = await serializedWingetInstall(() => tryExec("powershell", [
           "-NoProfile", "-Command",
           "winget install GitHub.Copilot --accept-source-agreements --accept-package-agreements"
-        ], process.cwd());
+        ], process.cwd(), { timeout: 300000 }));
         addLog(`PS winget install stdout: ${psWingetInstall.stdout}`);
         addLog(`PS winget install stderr: ${psWingetInstall.stderr}`);
         if (psWingetInstall.ok || (psWingetInstall.stdout || "").includes("Successfully installed") || (psWingetInstall.stdout || "").includes("already installed")) {
@@ -772,7 +773,7 @@ function createToolingService({ processService, settingsService }) {
     const npmCheck = await tryExec(npmCmd, ["--version"], process.cwd());
     if (npmCheck.ok) {
       addLog(`npm available: ${npmCheck.stdout}`);
-      const npmInstall = await tryExec(npmCmd, ["install", "-g", "@githubnext/github-copilot-cli"], process.cwd());
+      const npmInstall = await tryExec(npmCmd, ["install", "-g", "@githubnext/github-copilot-cli"], process.cwd(), { timeout: 180000 });
       addLog(`npm install stdout: ${npmInstall.stdout}`);
       addLog(`npm install stderr: ${npmInstall.stderr}`);
       addLog(`npm install ok: ${npmInstall.ok}, message: ${npmInstall.message}`);
@@ -798,7 +799,7 @@ function createToolingService({ processService, settingsService }) {
         const psNpmInstall = await tryExec("powershell", [
           "-NoProfile", "-Command",
           "npm install -g @githubnext/github-copilot-cli"
-        ], process.cwd());
+        ], process.cwd(), { timeout: 180000 });
         addLog(`PS npm install stdout: ${psNpmInstall.stdout}`);
         addLog(`PS npm install stderr: ${psNpmInstall.stderr}`);
         if (psNpmInstall.ok) {
@@ -825,7 +826,7 @@ function createToolingService({ processService, settingsService }) {
     const ghCheck = await tryExec(ghCmd, ["--version"], process.cwd());
     if (ghCheck.ok) {
       addLog(`gh available: ${ghCheck.stdout}`);
-      const extInstall = await tryExec(ghCmd, ["extension", "install", "github/gh-copilot"], process.cwd());
+      const extInstall = await tryExec(ghCmd, ["extension", "install", "github/gh-copilot"], process.cwd(), { timeout: 120000 });
       addLog(`gh extension install stdout: ${extInstall.stdout}`);
       addLog(`gh extension install stderr: ${extInstall.stderr}`);
       if (extInstall.ok) {
@@ -933,7 +934,7 @@ function createToolingService({ processService, settingsService }) {
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
       addLog("winget not available — cannot auto-install.");
-      return { success: false, detail: "winget not available. Install Node.js manually from nodejs.org", log };
+      return { success: false, detail: "winget not available. Install \"App Installer\" from the Microsoft Store (https://aka.ms/getwinget), or get Node.js manually from nodejs.org", log };
     }
 
     addLog("Waiting for winget lock (other installs may be in progress)...");
@@ -964,7 +965,7 @@ function createToolingService({ processService, settingsService }) {
     }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      return { success: true, detail: "Node.js installed. Restart CodeBuddy for PATH changes.", log };
+      return { success: true, detail: "Node.js installed. Restart CodeCollab for PATH changes.", log };
     }
 
     addLog("winget install failed and tool not found.");
@@ -1006,7 +1007,7 @@ function createToolingService({ processService, settingsService }) {
     addLog("Installing via winget (Python.Python.3.12)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
-      return { success: false, detail: "winget not available. Install Python manually from python.org", log };
+      return { success: false, detail: "winget not available. Install \"App Installer\" from the Microsoft Store (https://aka.ms/getwinget), or get Python manually from python.org", log };
     }
 
     addLog("Waiting for winget lock (other installs may be in progress)...");
@@ -1037,7 +1038,7 @@ function createToolingService({ processService, settingsService }) {
     }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      return { success: true, detail: "Python installed. Restart CodeBuddy for PATH changes.", log };
+      return { success: true, detail: "Python installed. Restart CodeCollab for PATH changes.", log };
     }
 
     addLog("winget install failed and tool not found.");
@@ -1219,7 +1220,7 @@ function createToolingService({ processService, settingsService }) {
     addLog("Installing via winget (Git.Git)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
-      return { success: false, detail: "winget not available. Install Git manually from git-scm.com", log };
+      return { success: false, detail: "winget not available. Install \"App Installer\" from the Microsoft Store (https://aka.ms/getwinget), or get Git manually from git-scm.com", log };
     }
 
     addLog("Waiting for winget lock (other installs may be in progress)...");
@@ -1251,7 +1252,7 @@ function createToolingService({ processService, settingsService }) {
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
       addLog("WARNING: Polling exhausted. Git may still be installing in an elevated process.");
-      return { success: true, detail: "Git installed. Restart CodeBuddy for PATH changes.", log };
+      return { success: true, detail: "Git installed. Restart CodeCollab for PATH changes.", log };
     }
 
     addLog("winget install failed and tool not found.");
@@ -1292,7 +1293,7 @@ function createToolingService({ processService, settingsService }) {
     addLog("Installing via winget (GitHub.cli)...");
     const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
     if (!wingetCheck.ok) {
-      return { success: false, detail: "winget not available. Install GitHub CLI from cli.github.com", log };
+      return { success: false, detail: "winget not available. Install \"App Installer\" from the Microsoft Store (https://aka.ms/getwinget), or get GitHub CLI from cli.github.com", log };
     }
 
     addLog("Waiting for winget lock (other installs may be in progress)...");
@@ -1322,7 +1323,7 @@ function createToolingService({ processService, settingsService }) {
     }
 
     if (install.ok || (install.stdout || "").includes("Successfully installed") || (install.stdout || "").includes("already installed")) {
-      return { success: true, detail: "GitHub CLI installed. Restart CodeBuddy for PATH changes.", log };
+      return { success: true, detail: "GitHub CLI installed. Restart CodeCollab for PATH changes.", log };
     }
 
     addLog("winget install failed and tool not found.");
@@ -1381,7 +1382,7 @@ function createToolingService({ processService, settingsService }) {
         }
       }
       addLog("Installed but not yet on PATH. May need app restart.");
-      return { success: true, detail: "Claude Code installed. Restart CodeBuddy for PATH to update.", log };
+      return { success: true, detail: "Claude Code installed. Restart CodeCollab for PATH to update.", log };
     }
 
     // Strategy 2: npm global install
@@ -1411,12 +1412,13 @@ function createToolingService({ processService, settingsService }) {
 
     // Strategy 3: winget
     addLog("Step 4: Trying winget install Anthropic.ClaudeCode...");
-    const wingetCheck = await tryExec("winget", ["--version"], process.cwd());
+    const wingetCheck = await tryExec("winget", ["--version"], process.cwd(), { timeout: 15000 });
     if (wingetCheck.ok) {
-      const wingetInstall = await tryExec("winget", [
+      addLog("Waiting for winget lock (other installs may be in progress)...");
+      const wingetInstall = await serializedWingetInstall(() => tryExec("winget", [
         "install", "Anthropic.ClaudeCode",
         "--accept-source-agreements", "--accept-package-agreements",
-      ], process.cwd(), { timeout: 120000 });
+      ], process.cwd(), { timeout: 120000 }));
       addLog(`winget stdout: ${wingetInstall.stdout}`);
       addLog(`winget stderr: ${wingetInstall.stderr}`);
       if (wingetInstall.ok || (wingetInstall.stdout || "").includes("Successfully installed") || (wingetInstall.stdout || "").includes("already installed")) {
@@ -1427,7 +1429,7 @@ function createToolingService({ processService, settingsService }) {
           addLog(`Verified: ${verify.stdout}`);
           return { success: true, detail: `Installed via winget: ${verify.stdout}`, log };
         }
-        return { success: true, detail: "Installed via winget. Restart CodeBuddy for PATH changes.", log };
+        return { success: true, detail: "Installed via winget. Restart CodeCollab for PATH changes.", log };
       }
       addLog(`winget install failed: ${wingetInstall.message}`);
     } else {

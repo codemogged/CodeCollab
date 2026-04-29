@@ -612,7 +612,7 @@ export default function SettingsPage() {
                 </button>
                 {claudeCodeSetup.status === "ready" && (
                   <div className="mt-3 flex items-center justify-between rounded-xl border border-black/[0.04] bg-black/[0.015] px-3.5 py-2.5 dark:border-white/[0.06] dark:bg-white/[0.02]">
-                    <span className="text-[12px] font-medium theme-fg">Use in CodeBuddy</span>
+                    <span className="text-[12px] font-medium theme-fg">Use in CodeCollab</span>
                     <button
                       type="button"
                       onClick={() => void handleToggleProvider("claudeCode")}
@@ -673,7 +673,7 @@ export default function SettingsPage() {
                 </button>
                 {copilotSetup.status === "ready" && (
                   <div className="mt-3 flex items-center justify-between rounded-xl border border-black/[0.04] bg-black/[0.015] px-3.5 py-2.5 dark:border-white/[0.06] dark:bg-white/[0.02]">
-                    <span className="text-[12px] font-medium theme-fg">Use in CodeBuddy</span>
+                    <span className="text-[12px] font-medium theme-fg">Use in CodeCollab</span>
                     <button
                       type="button"
                       onClick={() => void handleToggleProvider("githubCopilotCli")}
@@ -734,7 +734,7 @@ export default function SettingsPage() {
                 </button>
                 {codexSetup.status === "ready" && (
                   <div className="mt-3 flex items-center justify-between rounded-xl border border-black/[0.04] bg-black/[0.015] px-3.5 py-2.5 dark:border-white/[0.06] dark:bg-white/[0.02]">
-                    <span className="text-[12px] font-medium theme-fg">Use in CodeBuddy</span>
+                    <span className="text-[12px] font-medium theme-fg">Use in CodeCollab</span>
                     <button
                       type="button"
                       onClick={() => void handleToggleProvider("codexCli")}
@@ -854,7 +854,7 @@ export default function SettingsPage() {
                       type="text"
                       value={projectRoot}
                       onChange={(e) => setProjectRoot(e.target.value)}
-                      placeholder="Documents/CodeBuddy Projects"
+                      placeholder="Documents/CodeCollab Projects"
                       className="app-input w-full rounded-xl px-3.5 py-2.5 text-[13px] outline-none transition focus:border-black/[0.16] focus:ring-1 focus:ring-black/[0.08] dark:focus:border-white/[0.18] dark:focus:ring-white/[0.08]"
                     />
                   </div>

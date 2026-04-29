@@ -1,14 +1,14 @@
-# CodeBuddy Security Policy
+# CodeCollab Security Policy
 
 ## Reporting a Vulnerability
 
-If you believe you've found a security issue in CodeBuddy, please **do not**
+If you believe you've found a security issue in CodeCollab, please **do not**
 open a public GitHub issue. Instead, email the maintainers (address in the
 repository `README.md`) with:
 
 1. A description of the vulnerability and the affected component.
 2. Reproduction steps or a proof-of-concept.
-3. The CodeBuddy version / commit you tested against.
+3. The CodeCollab version / commit you tested against.
 
 We aim to acknowledge reports within **72 hours** and ship a fix or mitigation
 as soon as we reasonably can. Credit will be given in the release notes unless
@@ -16,7 +16,7 @@ you prefer to remain anonymous.
 
 ## Threat Model
 
-CodeBuddy is a local-first desktop Electron app with optional peer-to-peer
+CodeCollab is a local-first desktop Electron app with optional peer-to-peer
 collaboration over Hyperswarm. The threat model covers:
 
 - **Malicious peers** in a shared project room (untrusted by default).
@@ -25,11 +25,11 @@ collaboration over Hyperswarm. The threat model covers:
 - **Malicious web content** rendered inside the built-in preview iframe.
 - **Accidental disclosure** of tokens or secrets via logs / settings.
 
-CodeBuddy does **not** attempt to defend against:
+CodeCollab does **not** attempt to defend against:
 
 - A user who has local OS access to your account (they already have your files).
 - A compromised GitHub account (GitHub's own auth is the trust boundary).
-- Modifications a user makes to their own installed copy of CodeBuddy.
+- Modifications a user makes to their own installed copy of CodeCollab.
 
 ## What We Do to Protect You
 

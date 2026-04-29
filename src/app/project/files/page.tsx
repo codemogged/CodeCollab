@@ -1139,7 +1139,7 @@ export default function FilesPage() {
                         <p className="text-[16px] font-semibold text-text">No repository connected</p>
                         <p className="mt-2 text-[13px] leading-6 text-text-mid">
                           {activeProject?.repoPath
-                            ? `CodeBuddy is waiting to load ${activeProject.name}'s repository into the IDE.`
+                            ? `CodeCollab is waiting to load ${activeProject.name}'s repository into the IDE.`
                             : "Open a project or connect a local repository to use the IDE view."}
                         </p>
                       </div>

@@ -248,7 +248,7 @@ export interface DirectMessageThread {
 // ─── Friends ─────────────────────────────────────────────
 
 export const friends: Friend[] = [
-  { name: "Cameron", initials: "CM", online: true },
+  { name: "You", initials: "YO", online: true },
   { name: "Nia", initials: "NI", online: true },
   { name: "Dre", initials: "DR", online: false },
   { name: "Mia", initials: "MI", online: true },
@@ -573,7 +573,7 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             title: "Write the hero and featured drop structure",
             status: "done",
             owner: "Project Manager",
-            reviewer: "Cameron",
+            reviewer: "You",
             note: "Completed and approved. This establishes the visual tone for the whole site.",
             dueDate: "2026-03-20",
             startingPrompt: "Build a hero section for the Sneaker Swap homepage. It should feature a large headline, a subtitle about buying and selling sneakers locally, and a prominent call-to-action button. Below the hero, add a featured drops section showing 3-4 highlighted sneakers in a horizontal layout with images, names, and prices. Use a premium black and gold color palette.",
@@ -592,7 +592,7 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             id: "home-polish",
             title: "Final homepage polish pass",
             status: "review",
-            owner: "Cameron",
+            owner: "You",
             reviewer: "Nia",
             note: "Waiting on a final color and spacing check before it is marked fully locked.",
             dueDate: "2026-03-26",
@@ -621,7 +621,7 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             title: "Design the sign in and create account sheet",
             status: "done",
             owner: "Project Manager",
-            reviewer: "Cameron",
+            reviewer: "You",
             note: "The first pass is complete and ready for wording review.",
             dueDate: "2026-03-22",
             startingPrompt: "Build a sign-in and create-account sheet for Sneaker Swap. It should be a single modal-style overlay with two tabs: Sign In (email + password) and Create Account (name, email, password). Keep the design minimal and calm — no clutter. Use the project's black-and-gold palette and make sure the sheet doesn't interrupt the browsing mood.",
@@ -640,8 +640,8 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             id: "account-handoff",
             title: "Connect account entry to saved offers",
             status: "planned",
-            owner: "Cameron",
-            reviewer: "Cameron",
+            owner: "You",
+            reviewer: "You",
             note: "This should start once the recovery flow is approved.",
             dueDate: "2026-03-29",
             startingPrompt: "Connect the Sneaker Swap account system to the offers feature. After a user signs in, they should see their saved offers and any active negotiations. If a user was browsing as a guest and had started an offer, link that offer to their new account after sign-in. Show a clean 'My Offers' section accessible from the navigation.",
@@ -679,7 +679,7 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             title: "Build the offer sheet with amount, note, and confirmation",
             status: "building",
             owner: "Project Manager",
-            reviewer: "Cameron",
+            reviewer: "You",
             note: "In progress now. This is the next piece most likely to need feedback.",
             dueDate: "2026-03-25",
             startingPrompt: "Build the offer sheet that appears when a buyer clicks 'Make an Offer' on a Sneaker Swap product page. It should slide up as a bottom sheet with: an amount input (pre-filled near the listing price), an optional note field, and a 'Send Offer' confirmation button. Show the sneaker thumbnail and seller name for context. Keep it to one step — no multi-page flow.",
@@ -688,7 +688,7 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
             id: "offer-response",
             title: "Create accept, counter, and declined states for sellers",
             status: "planned",
-            owner: "Cameron",
+            owner: "You",
             reviewer: "Nick",
             note: "This opens once the offer sheet is approved.",
             dueDate: "2026-03-28",
@@ -705,8 +705,8 @@ export const projectBuildPlans: ProjectBuildPlan[] = [
 export const conversation: Message[] = [
   {
     id: "m1",
-    from: "Cameron",
-    initials: "CM",
+    from: "You",
+    initials: "YO",
     text: "I want to build an app where people can buy and sell sneakers. Something really clean and easy to use.",
     time: "8:50 AM",
     isMine: true,
@@ -767,8 +767,8 @@ export const taskConversationThreads: TaskConversationThread[] = [
     messages: [
       {
         id: "thread-home-hero-core-m1",
-        from: "Cameron",
-        initials: "CM",
+        from: "You",
+        initials: "YO",
         text: "Let's make the homepage feel premium right away. I want a hero that feels editorial, then featured drops underneath.",
         time: "8:12 AM",
         isMine: true,
@@ -796,8 +796,8 @@ export const taskConversationThreads: TaskConversationThread[] = [
     messages: [
       {
         id: "thread-home-grid-core-m1",
-        from: "Cameron",
-        initials: "CM",
+        from: "You",
+        initials: "YO",
         text: "The browse grid needs to feel fast to scan. Keep the cards simple and make the filters obvious.",
         time: "8:22 AM",
         isMine: true,
@@ -852,8 +852,8 @@ export const taskConversationThreads: TaskConversationThread[] = [
     messages: [
       {
         id: "thread-account-sheet-core-m1",
-        from: "Cameron",
-        initials: "CM",
+        from: "You",
+        initials: "YO",
         text: "The sign in flow should feel lightweight. I want one calm sheet instead of a separate auth page.",
         time: "7:58 AM",
         isMine: true,
@@ -937,8 +937,8 @@ export const taskConversationThreads: TaskConversationThread[] = [
     messages: [
       {
         id: "thread-offer-sheet-agent-m1",
-        from: "Cameron",
-        initials: "CM",
+        from: "You",
+        initials: "YO",
         text: "I want the offer flow to stay on one sheet. Amount, optional note, then send. No extra steps.",
         time: "8:49 AM",
         isMine: true,
@@ -1068,7 +1068,7 @@ export const commits: Commit[] = [
   { id: "c4", message: "Product page with gallery and offer button", author: "Project Manager", authorInitials: "✦", time: "6 min ago", files: ["src/pages/product.jsx", "src/components/PhotoGallery.jsx", "src/components/PriceTag.jsx"] },
   { id: "c3", message: "Build hero with black & gold palette", author: "Project Manager", authorInitials: "✦", time: "6 min ago", files: ["src/components/Hero.jsx", "src/components/FeaturedGrid.jsx"] },
   { id: "c2", message: "Premium black and gold palette", author: "Nia", authorInitials: "NI", time: "8 min ago", files: ["src/styles/globals.css", "src/styles/theme.js"] },
-  { id: "c1", message: "Initial project setup", author: "Cameron", authorInitials: "CM", time: "12 min ago", files: ["package.json", "next.config.js", "README.md"] },
+  { id: "c1", message: "Initial project setup", author: "You", authorInitials: "YO", time: "12 min ago", files: ["package.json", "next.config.js", "README.md"] },
 ];
 
 // ─── Activity timeline ───────────────────────────────────
@@ -1092,7 +1092,7 @@ export const activityFeed: ActivityEvent[] = [
   { id: "a5", type: "build", title: "Homepage completed", description: "Hero, featured drops, and browse grid all built and approved.", actor: "Project Manager", actorInitials: "✦", time: "10 min ago" },
   { id: "a6", type: "status", title: "Account sheet marked done", description: "Sign in and create account flow is complete and ready for review.", actor: "Project Manager", actorInitials: "✦", time: "12 min ago" },
   { id: "a7", type: "join", title: "Mia joined the project", description: "Mia was invited to collaborate on Sneaker Swap.", actor: "Mia", actorInitials: "MI", time: "15 min ago" },
-  { id: "a8", type: "build", title: "Project created", description: "Cameron started the Sneaker Swap project and described the initial vision.", actor: "Cameron", actorInitials: "CM", time: "20 min ago" },
+  { id: "a8", type: "build", title: "Project created", description: "You started the Sneaker Swap project and described the initial vision.", actor: "You", actorInitials: "YO", time: "20 min ago" },
 ];
 
 export const projectChannels: ProjectChannel[] = [
@@ -1103,7 +1103,7 @@ export const projectChannels: ProjectChannel[] = [
     memberCount: 4,
     updatedAgo: "2 min ago",
     messages: [
-      { id: "general-1", from: "Cameron", initials: "CM", text: "Let's keep the offer flow premium and very simple. No extra steps if we can avoid it.", time: "9:08 AM", isMine: true },
+      { id: "general-1", from: "You", initials: "YO", text: "Let's keep the offer flow premium and very simple. No extra steps if we can avoid it.", time: "9:08 AM", isMine: true },
       { id: "general-2", from: "Nia", initials: "NI", text: "I can review the homepage polish pass after lunch.", time: "9:10 AM" },
       { id: "general-3", from: "Mia", initials: "MI", text: "The offer button placement already feels way better on the product page.", time: "9:12 AM" },
     ],
@@ -1116,7 +1116,7 @@ export const projectChannels: ProjectChannel[] = [
     updatedAgo: "Just now",
     messages: [
       { id: "offer-1", from: "Project Manager", initials: "✦", text: "Offer sheet is in progress. Next step is tightening confirmation and seller response transitions.", time: "9:14 AM" },
-      { id: "offer-2", from: "Cameron", initials: "CM", text: "Good. Keep the sheet one step and avoid turning it into checkout.", time: "9:15 AM", isMine: true },
+      { id: "offer-2", from: "You", initials: "YO", text: "Good. Keep the sheet one step and avoid turning it into checkout.", time: "9:15 AM", isMine: true },
       { id: "offer-3", from: "Nick", initials: "NK", text: "I want to check the counter-offer language once that's ready.", time: "9:17 AM" },
     ],
   },
@@ -1128,7 +1128,7 @@ export const projectChannels: ProjectChannel[] = [
     updatedAgo: "9 min ago",
     messages: [
       { id: "launch-1", from: "Mia", initials: "MI", text: "We should do one pass on mobile spacing before sending this to friends.", time: "8:58 AM" },
-      { id: "launch-2", from: "Cameron", initials: "CM", text: "Agreed. I also want the messaging and PM flow to feel distinct before we share it.", time: "9:00 AM", isMine: true },
+      { id: "launch-2", from: "You", initials: "YO", text: "Agreed. I also want the messaging and PM flow to feel distinct before we share it.", time: "9:00 AM", isMine: true },
     ],
   },
 ];
@@ -1144,7 +1144,7 @@ export const directMessageThreads: DirectMessageThread[] = [
     preview: "I'll review the gold accents and spacing rhythm.",
     messages: [
       { id: "dm-nia-1", from: "Nia", initials: "NI", text: "The homepage is close. I want one more pass on the hover softness.", time: "9:05 AM" },
-      { id: "dm-nia-2", from: "Cameron", initials: "CM", text: "That makes sense. I want it to feel expensive without being flashy.", time: "9:07 AM", isMine: true },
+      { id: "dm-nia-2", from: "You", initials: "YO", text: "That makes sense. I want it to feel expensive without being flashy.", time: "9:07 AM", isMine: true },
     ],
   },
   {
@@ -1157,7 +1157,7 @@ export const directMessageThreads: DirectMessageThread[] = [
     preview: "The offer button feels balanced now.",
     messages: [
       { id: "dm-mia-1", from: "Mia", initials: "MI", text: "I like where the Make an Offer button landed. It feels clear but not pushy.", time: "8:56 AM" },
-      { id: "dm-mia-2", from: "Cameron", initials: "CM", text: "Perfect. That balance was exactly what I wanted.", time: "8:57 AM", isMine: true },
+      { id: "dm-mia-2", from: "You", initials: "YO", text: "Perfect. That balance was exactly what I wanted.", time: "8:57 AM", isMine: true },
     ],
   },
   {
@@ -1170,7 +1170,7 @@ export const directMessageThreads: DirectMessageThread[] = [
     preview: "Let's review the recovery copy and seller response states.",
     messages: [
       { id: "dm-nick-1", from: "Nick", initials: "NK", text: "When the seller response states are ready, send them to me. I want to sanity-check the language.", time: "8:43 AM" },
-      { id: "dm-nick-2", from: "Cameron", initials: "CM", text: "Will do. I also want your eyes on the recovery flow wording.", time: "8:45 AM", isMine: true },
+      { id: "dm-nick-2", from: "You", initials: "YO", text: "Will do. I also want your eyes on the recovery flow wording.", time: "8:45 AM", isMine: true },
     ],
   },
 ];

@@ -1,10 +1,10 @@
 @echo off
-title CodeBuddy - Full Uninstall
+title CodeCollab - Full Uninstall
 color 0C
 
 echo.
 echo ========================================
-echo   CodeBuddy FULL Uninstall
+echo   CodeCollab FULL Uninstall
 echo ========================================
 echo.
 echo Launching uninstall script...
@@ -30,7 +30,7 @@ if %ERRORLEVEL% neq 0 (
     )
     cd /d "%~dp0"
     
-    echo Type YES to remove ALL CodeBuddy-installed tools.
+    echo Type YES to remove ALL CodeCollab-installed tools.
     set /p CONFIRM="Are you sure? "
     if /I not "%CONFIRM%"=="YES" (
         echo Cancelled.
@@ -39,8 +39,8 @@ if %ERRORLEVEL% neq 0 (
     )
     
     echo.
-    echo Stopping CodeBuddy...
-    taskkill /F /IM CodeBuddy.exe >nul 2>&1
+    echo Stopping CodeCollab...
+    taskkill /F /IM CodeCollab.exe >nul 2>&1
     timeout /t 2 /nobreak >nul
     
     echo Removing npm packages...
@@ -76,7 +76,7 @@ if %ERRORLEVEL% neq 0 (
     rmdir /s /q "%USERPROFILE%\.codex" 2>nul
     rmdir /s /q "%USERPROFILE%\.local" 2>nul
     rmdir /s /q "%APPDATA%\codebuddy" 2>nul
-    rmdir /s /q "%APPDATA%\CodeBuddy" 2>nul
+    rmdir /s /q "%APPDATA%\CodeCollab" 2>nul
     
     echo Cleaning PATH...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "foreach ($s in @('Machine','User')) { $p=[Environment]::GetEnvironmentVariable('Path',$s); if($p){$c=($p -split ';'|?{$_ -and $_ -notmatch 'nodejs|\\npm|Python3|Python\\Python|Git\\cmd|Git\\usr|GitHub CLI|claude|codex|\.local\\bin|Python Launcher'})-join';'; if($c-ne$p){[Environment]::SetEnvironmentVariable('Path',$c,$s)}}}"

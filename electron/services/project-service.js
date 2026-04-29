@@ -269,8 +269,8 @@ function normalizeGeneratedPlan(project, prompt, payload) {
       id: `task-${project.folderName}-${subprojectIndex + 1}-${taskIndex + 1}`,
       title: task.title?.trim() || `Task ${taskIndex + 1}`,
       status: validStatuses.has(task.status) ? task.status : "planned",
-      owner: task.owner?.trim() || project.creatorName || "Cameron",
-      reviewer: task.reviewer?.trim() || "Cameron",
+      owner: task.owner?.trim() || project.creatorName || "You",
+      reviewer: task.reviewer?.trim() || "You",
       note: task.note?.trim() || "Initial planning task.",
       dueDate: makeDueDate(subprojectIndex * 3 + taskIndex + 1),
       startingPrompt: task.startingPrompt?.trim() || `Build ${task.title?.trim() || `task ${taskIndex + 1}`} for ${project.name}.`,
@@ -331,8 +331,8 @@ function normalizeGeneratedPlan(project, prompt, payload) {
   const conversation = [
     {
       id: `msg-user-${project.id}-${timestamp}`,
-      from: "Cameron",
-      initials: "CM",
+      from: "You",
+      initials: "YO",
       text: prompt,
       time: formatTimeShort(timestamp),
       isMine: true,
@@ -376,7 +376,7 @@ function normalizeGeneratedPlan(project, prompt, payload) {
       type: "build",
       title: activityTitle,
       description: activityDescription,
-      actor: "CodeBuddy",
+      actor: "CodeCollab",
       actorInitials: "CB",
       time: formatRelativeTime(timestamp),
     },
@@ -459,7 +459,7 @@ function parseGithubRepoSlug(remoteUrl) {
 
 function normalizeGitHubDeleteError(error, githubCli) {
   if (isMissingCommandError(error, githubCli)) {
-    return "GitHub CLI is not installed or not available to CodeBuddy, so the GitHub repo could not be deleted.";
+    return "GitHub CLI is not installed or not available to CodeCollab, so the GitHub repo could not be deleted.";
   }
 
   const stderr = error?.stderr?.trim?.() || "";
@@ -467,7 +467,7 @@ function normalizeGitHubDeleteError(error, githubCli) {
   const combined = [stderr, message].filter(Boolean).join("\n");
 
   if (combined.includes("delete_repo") || combined.includes("HTTP 403") || combined.includes("Must have admin rights to Repository")) {
-    return "The GitHub repo wasn't deleted because the CLI doesn't have delete_repo permission. Run `gh auth refresh -h github.com -s delete_repo` in a terminal to grant it. The project was still removed from CodeBuddy.";
+    return "The GitHub repo wasn't deleted because the CLI doesn't have delete_repo permission. Run `gh auth refresh -h github.com -s delete_repo` in a terminal to grant it. The project was still removed from CodeCollab.";
   }
 
   return stderr || message || "Unable to delete the GitHub repository.";
@@ -541,7 +541,7 @@ function buildProjectManagerContextMarkdown(project) {
     `# ${project.name} Project Manager Context`,
     "",
     "## Role",
-    "You are the shared project manager agent for this CodeBuddy workspace.",
+    "You are the shared project manager agent for this CodeCollab workspace.",
     "",
     "## Project",
     `- Name: ${project.name}`,
@@ -604,7 +604,7 @@ function buildTaskThreadContextMarkdown(project, thread) {
     `# ${task?.title || thread.title} Task Agent Context`,
     "",
     "## Session Role",
-    "You are the shared task agent for this one task inside CodeBuddy. Continue the existing work instead of starting over.",
+    "You are the shared task agent for this one task inside CodeCollab. Continue the existing work instead of starting over.",
     "",
     "## Project",
     `- Name: ${project.name}`,
@@ -617,7 +617,7 @@ function buildTaskThreadContextMarkdown(project, thread) {
     `- Subproject: ${subproject?.title || thread.subprojectTitle || "Unknown subproject"}`,
     `- Purpose relative to the project: ${thread.purpose || task?.note || thread.summary || "Deliver the assigned task cleanly and keep it aligned with the project plan."}`,
     `- Owner: ${task?.owner || "Project Manager"}`,
-    `- Reviewer: ${task?.reviewer || "Cameron"}`,
+    `- Reviewer: ${task?.reviewer || "You"}`,
     `- Due date: ${task?.dueDate || "Not set"}`,
     `- Starting prompt: ${task?.startingPrompt || "No starting prompt recorded."}`,
     "",
@@ -854,7 +854,7 @@ const RESPONSE_SUMMARY_INSTRUCTIONS = [
 
 function buildTaskAgentSystemPrompt(taskContext, thread) {
   return [
-    "You are a hands-on task agent inside CodeBuddy — a desktop coding workspace that keeps everything native to the platform.",
+    "You are a hands-on task agent inside CodeCollab — a desktop coding workspace that keeps everything native to the platform.",
     "Do the task work and reply like a collaborator in chat.",
     "Do not output JSON unless the user explicitly asks for JSON.",
     "Prefer short sections, bullets, and concrete next steps over schemas or machine-formatted objects.",
@@ -864,23 +864,23 @@ function buildTaskAgentSystemPrompt(taskContext, thread) {
     "Assume the user is non-technical and avoid unnecessary jargon.",
     "Use this default response structure unless the user asks for something else: ## What I did, ## Recommended next steps, ## Move to the next task when.",
     "",
-    "CRITICAL — CodeBuddy Platform Rules:",
-    "CodeBuddy is a self-contained desktop coding workspace. EVERYTHING must stay native inside CodeBuddy.",
-    "CodeBuddy RUNS ON PORT 3000. You are executing inside CodeBuddy. NEVER kill, stop, or interfere with port 3000 or any Electron process — doing so will crash the app.",
-    "- CodeBuddy has a built-in TERMINAL panel where users can run any shell commands (npm, python, cargo, etc.).",
-    "- CodeBuddy has a built-in LIVE PREVIEW panel that shows web apps running on localhost.",
-    "- CodeBuddy has a built-in file editor, Git integration, and project management dashboard.",
+    "CRITICAL — CodeCollab Platform Rules:",
+    "CodeCollab is a self-contained desktop coding workspace. EVERYTHING must stay native inside CodeCollab.",
+    "CodeCollab RUNS ON PORT 3000. You are executing inside CodeCollab. NEVER kill, stop, or interfere with port 3000 or any Electron process — doing so will crash the app.",
+    "- CodeCollab has a built-in TERMINAL panel where users can run any shell commands (npm, python, cargo, etc.).",
+    "- CodeCollab has a built-in LIVE PREVIEW panel that shows web apps running on localhost.",
+    "- CodeCollab has a built-in file editor, Git integration, and project management dashboard.",
     "- When you need the user to run a command, tell them to use the Terminal tab in the right panel.",
     "- When you need the user to view their app, tell them to use the Preview tab in the right panel.",
     "- NEVER tell the user to open VS Code, an external terminal, a browser, or any other external tool.",
     "- NEVER instruct the user to run 'code .', 'explorer', 'open', or launch any external application.",
     "- NEVER tell the user to 'open localhost in your browser' — the Preview panel handles this natively.",
-    "- NEVER suggest the user leave CodeBuddy to do anything. All coding, running, testing, and previewing happens here.",
-    "- NEVER kill processes, stop ports, or run taskkill/Stop-Process/kill/pkill — this can crash CodeBuddy.",
-    "- If port 3000 is in use, that IS CodeBuddy — use a different port (e.g. 3001) for any dev server.",
-    "- If a task requires running scripts, building, or testing — guide them to use CodeBuddy's Terminal tab.",
-    "- All file creation, editing, and management happens through CodeBuddy — never suggest creating files externally.",
-    "- Think of CodeBuddy as a complete IDE replacement — terminal, preview, editor, and project management in one.",
+    "- NEVER suggest the user leave CodeCollab to do anything. All coding, running, testing, and previewing happens here.",
+    "- NEVER kill processes, stop ports, or run taskkill/Stop-Process/kill/pkill — this can crash CodeCollab.",
+    "- If port 3000 is in use, that IS CodeCollab — use a different port (e.g. 3001) for any dev server.",
+    "- If a task requires running scripts, building, or testing — guide them to use CodeCollab's Terminal tab.",
+    "- All file creation, editing, and management happens through CodeCollab — never suggest creating files externally.",
+    "- Think of CodeCollab as a complete IDE replacement — terminal, preview, editor, and project management in one.",
     "",
     "IMPORTANT — README.md context:",
     "Before starting work, read README.md in the project root for full project context, architecture, and what has already been built.",
@@ -971,7 +971,7 @@ async function fileExists(targetPath) {
 }
 
 function createProjectService({ app, settingsService, toolingService, p2pService, sharedStateService }) {
-  const BUILD_TAG = "v106-windows";
+  const BUILD_TAG = "v110-codecollab";
   console.log(`[project-service] loaded — build ${BUILD_TAG}`);
   let eventSender = null;
 
@@ -1795,17 +1795,17 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       for (const cmd of dangerousCommands) {
         const cmdPath = path.join(jailDir, `${cmd}.cmd`);
         // Write a .cmd that does nothing and exits successfully
-        fsSync.writeFileSync(cmdPath, "@echo off\r\nrem Blocked by CodeBuddy safety rules\r\nexit /b 0\r\n");
+        fsSync.writeFileSync(cmdPath, "@echo off\r\nrem Blocked by CodeCollab safety rules\r\nexit /b 0\r\n");
         // Also create a .exe-shadowing .cmd (Windows checks .cmd before looking further in PATH)
         const batPath = path.join(jailDir, `${cmd}.bat`);
-        fsSync.writeFileSync(batPath, "@echo off\r\nrem Blocked by CodeBuddy safety rules\r\nexit /b 0\r\n");
+        fsSync.writeFileSync(batPath, "@echo off\r\nrem Blocked by CodeCollab safety rules\r\nexit /b 0\r\n");
       }
     } else {
       // Create no-op shell scripts for Unix
       const dangerousCommands = ["code", "code-insiders", "explorer", "open", "xdg-open", "vim", "nvim", "nano", "emacs", "kill", "pkill", "killall"];
       for (const cmd of dangerousCommands) {
         const scriptPath = path.join(jailDir, cmd);
-        fsSync.writeFileSync(scriptPath, "#!/bin/sh\n# Blocked by CodeBuddy safety rules\nexit 0\n");
+        fsSync.writeFileSync(scriptPath, "#!/bin/sh\n# Blocked by CodeCollab safety rules\nexit 0\n");
         fsSync.chmodSync(scriptPath, 0o755);
       }
     }
@@ -2280,8 +2280,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     }
 
     return {
-      name: "CodeBuddy",
-      email: "codebuddy@local.invalid",
+      name: "CodeCollab",
+      email: "codecollab@local.invalid",
     };
   }
 
@@ -2385,7 +2385,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       remoteUrl = await ensureGithubRemote(project, git, githubCli);
     } catch (error) {
       if (isMissingCommandError(error, githubCli)) {
-        throw new Error("GitHub CLI is not installed or not available to CodeBuddy. The project was created locally, but GitHub connection needs the `gh` CLI.");
+        throw new Error("GitHub CLI is not installed or not available to CodeCollab. The project was created locally, but GitHub connection needs the `gh` CLI.");
       }
 
       throw error;
@@ -2421,7 +2421,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
   }
 
   function getFallbackProjectRoot() {
-    return path.join(app.getPath("documents"), "CodeBuddy Projects");
+    return path.join(app.getPath("documents"), "CodeCollab Projects");
   }
 
   async function listProjects() {
@@ -2597,7 +2597,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     const scriptPath = path.join(tmpDir, "codebuddy-gh-auth.ps1");
 
     const scriptContent = [
-      `Write-Host '=== CodeBuddy: GitHub Permission Setup ===' -ForegroundColor Cyan`,
+      `Write-Host '=== CodeCollab: GitHub Permission Setup ===' -ForegroundColor Cyan`,
       `Write-Host ''`,
       `Write-Host 'This will open your browser to grant repo-delete permission.' -ForegroundColor Yellow`,
       `Write-Host 'Complete the sign-in in your browser, then come back here.' -ForegroundColor Yellow`,
@@ -2764,11 +2764,11 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     const readmeLines = [
       `# ${trimmedName}`,
       "",
-      description || "Created with CodeBuddy.",
+      description || "Created with CodeCollab.",
       "",
       "## Getting started",
       "",
-      "This project was created from CodeBuddy.",
+      "This project was created from CodeCollab.",
     ];
 
     await Promise.all([
@@ -2943,7 +2943,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : (project.dashboard?.systemPromptMarkdown || settings.projectDefaults?.systemPromptMarkdown || DEFAULT_SYSTEM_PROMPT_MARKDOWN);
     const fullPrompt = [
       systemPromptMarkdown,
-      "Every task must include a strong startingPrompt. The startingPrompt should be ready to paste into a fresh task chat and must tell the task agent exactly what to do first, what files or surfaces to inspect, and what outcome to produce. The startingPrompt must reference CodeBuddy's built-in Terminal tab and Preview tab instead of external tools — never reference VS Code, external terminals, or browsers.",
+      "Every task must include a strong startingPrompt. The startingPrompt should be ready to paste into a fresh task chat and must tell the task agent exactly what to do first, what files or surfaces to inspect, and what outcome to produce. The startingPrompt must reference CodeCollab's built-in Terminal tab and Preview tab instead of external tools — never reference VS Code, external terminals, or browsers.",
       "Return JSON matching this schema:",
       JSON.stringify({
         summary: "string",
@@ -3069,11 +3069,11 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     const sections = [
       `# ${project.name}`,
       "",
-      project.description ? `${project.description}` : "Created with CodeBuddy.",
+      project.description ? `${project.description}` : "Created with CodeCollab.",
       "",
       "## Project Overview",
       "",
-      plan.summary || "MVP project managed by CodeBuddy.",
+      plan.summary || "MVP project managed by CodeCollab.",
       "",
     ];
 
@@ -3112,11 +3112,11 @@ function createProjectService({ app, settingsService, toolingService, p2pService
     sections.push(
       "## Development",
       "",
-      "This project is managed by CodeBuddy. Each task agent reads this README for context before starting work and updates it after completing their task.",
+      "This project is managed by CodeCollab. Each task agent reads this README for context before starting work and updates it after completing their task.",
       "",
       "---",
       "",
-      `*Last updated by CodeBuddy on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}*`,
+      `*Last updated by CodeCollab on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}*`,
       "",
     );
 
@@ -3175,11 +3175,11 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     const fullPrompt = [
       systemPromptMarkdown,
-      "You are the Project Manager for this CodeBuddy project.",
+      "You are the Project Manager for this CodeCollab project.",
       "The project plan has already been created. Do NOT regenerate or modify the plan. Only answer the user's question or discuss the project. If the user explicitly asks you to change something, then explain what you would change but do not output JSON.",
       "Keep responses brief, plain-language, and non-technical by default.",
       "When helpful, structure the answer as: What happened, Recommended next step, Move to the next task when.",
-      "IMPORTANT: CodeBuddy is a self-contained workspace. Never reference VS Code, external terminals, browsers, or any tool outside CodeBuddy. All running, testing, and previewing uses CodeBuddy's built-in Terminal tab and Preview tab.",
+      "IMPORTANT: CodeCollab is a self-contained workspace. Never reference VS Code, external terminals, browsers, or any tool outside CodeCollab. All running, testing, and previewing uses CodeCollab's built-in Terminal tab and Preview tab.",
       "",
       "IMPORTANT — User Input Required:",
       "If your response requires the user to provide anything (API keys, credentials, tokens, environment variables, configuration values, account sign-ups, or any other manual input), you MUST end your response with a clearly separated section:",
@@ -3212,8 +3212,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     const userMessage = {
       id: `pm-user-${timestamp}`,
-      from: project.creatorName || "Cameron",
-      initials: "CM",
+      from: project.creatorName || "You",
+      initials: "YO",
       text: prompt.trim(),
       time: formatTimeShort(timestamp),
       isMine: true,
@@ -3348,7 +3348,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       soloPeerContext,
       "",
       "=== CRITICAL SAFETY RULES ===",
-      "You are running INSIDE the CodeBuddy desktop application (port 3000).",
+      "You are running INSIDE the CodeCollab desktop application (port 3000).",
       "NEVER kill processes, open VS Code, open browsers, or run commands that open external GUIs.",
       "NEVER start long-running dev servers (they block forever). Only run commands that complete and exit.",
       "If a port is in use, suggest a different port — do NOT kill processes.",
@@ -3394,8 +3394,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     const userMessage = {
       id: `solo-user-${timestamp}`,
-      from: project.creatorName || "Cameron",
-      initials: "CM",
+      from: project.creatorName || "You",
+      initials: "YO",
       text: prompt.trim(),
       time: formatTimeShort(timestamp),
       isMine: true,
@@ -3580,13 +3580,13 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     const fullPrompt = [
       taskSystemPrompt,
-      "Continue this shared CodeBuddy task session.",
+      "Continue this shared CodeCollab task session.",
       peerContext,
       "",
       "=== CRITICAL SAFETY RULES — VIOLATION WILL CRASH THE APP ===",
       "",
-      "You are running INSIDE the CodeBuddy desktop application.",
-      "CodeBuddy itself runs on port 3000 (Next.js dev server) and an Electron process.",
+      "You are running INSIDE the CodeCollab desktop application.",
+      "CodeCollab itself runs on port 3000 (Next.js dev server) and an Electron process.",
       "If you kill, stop, or interfere with port 3000 or any Electron process, YOU WILL CRASH THE APP the user is using right now.",
       "",
       "ABSOLUTELY FORBIDDEN COMMANDS (will destroy the user's session):",
@@ -3596,7 +3596,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       "- code, code ., code <file> — NEVER open VS Code or any external editor",
       "- explorer, open, start, xdg-open — NEVER open external applications",
       "- Any command that opens a GUI window, browser, or external terminal",
-      "- npm start, npx react-scripts start, or dev servers on port 3000 — this port is TAKEN by CodeBuddy",
+      "- npm start, npx react-scripts start, or dev servers on port 3000 — this port is TAKEN by CodeCollab",
       "- shutdown, restart, logoff, exit commands",
       "",
       "If a port is in use, DO NOT try to kill the process. Instead, tell the user and suggest using a different port (e.g. PORT=3001 npm start).",
@@ -3617,7 +3617,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       "If you need to run a dev server, use a port OTHER than 3000 (e.g. PORT=3001 or --port 3001).",
       "IMPORTANT: Do NOT start long-running dev servers (npm start, npm run dev, npx react-scripts start, etc.) as they will block forever.",
       "Only run commands that complete and exit (install, build, test, file operations, git commands).",
-      "If the user needs to run a dev server, tell them to use CodeBuddy's Terminal tab instead of running it yourself.",
+      "If the user needs to run a dev server, tell them to use CodeCollab's Terminal tab instead of running it yourself.",
       "=== END SAFETY RULES ===",
       "",
       latestThread.contextMarkdown ? `Shared task context markdown:\n${latestThread.contextMarkdown}` : null,
@@ -3656,8 +3656,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
 
     const userMessage = {
       id: `thread-user-${taskId}-${timestamp}`,
-      from: "Cameron",
-      initials: "CM",
+      from: "You",
+      initials: "YO",
       text: prompt.trim(),
       time: formatTimeShort(timestamp),
       isMine: true,
@@ -3723,7 +3723,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
             description: taskStatusReason
               ? `${freshStatusUpdate.taskTitle || taskContext.task.title}: ${taskStatusReason}`
               : `${freshStatusUpdate.taskTitle || taskContext.task.title} is now ${freshStatusUpdate.nextStatus || taskContext.task.status}.`,
-            actor: "CodeBuddy",
+            actor: "CodeCollab",
             actorInitials: "CB",
             time: formatRelativeTime(timestamp),
           }] : []),
@@ -3732,7 +3732,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
             type: "comment",
             title: "Task session updated",
             description: `Continued ${taskContext.task.title} with ${latestThread.agentName || "the task agent"}.`,
-            actor: "CodeBuddy",
+            actor: "CodeCollab",
             actorInitials: "CB",
             time: formatRelativeTime(timestamp),
           },
@@ -3857,24 +3857,24 @@ function createProjectService({ app, settingsService, toolingService, p2pService
       : settings.projectDefaults?.copilotModel?.trim?.() || "";
 
     const generationPrompt = [
-      "You generate the next best user prompt for a CodeBuddy task.",
+      "You generate the next best user prompt for a CodeCollab task.",
       "Return valid JSON only with this exact shape:",
       '{"prompt":"string","taskStatus":"planned|building|review|done","reason":"string"}',
       "",
       "Rules:",
-      "- The prompt should be ready to paste into the task agent chat inside CodeBuddy.",
+      "- The prompt should be ready to paste into the task agent chat inside CodeCollab.",
       "- Make it concrete, project-aware, and specific to the current task.",
       "- If the task already appears complete, set taskStatus to done and explain why in reason.",
       "- If done, still provide a useful prompt for verification, polish, or handoff.",
       "- Do not include markdown fences or any extra text.",
       "",
-      "CRITICAL — CodeBuddy Platform Context:",
-      "- CodeBuddy is a self-contained desktop workspace with a built-in Terminal, Live Preview, file editor, and Git.",
+      "CRITICAL — CodeCollab Platform Context:",
+      "- CodeCollab is a self-contained desktop workspace with a built-in Terminal, Live Preview, file editor, and Git.",
       "- The generated prompt must NEVER instruct the agent to open VS Code, external terminals, browsers, or any external app.",
-      "- If verification or testing is needed, the prompt should tell the agent to guide the user to use CodeBuddy's Terminal tab or Preview tab.",
-      "- All file operations, script execution, and previewing happen natively inside CodeBuddy.",
+      "- If verification or testing is needed, the prompt should tell the agent to guide the user to use CodeCollab's Terminal tab or Preview tab.",
+      "- All file operations, script execution, and previewing happen natively inside CodeCollab.",
       "- Never generate prompts that say 'open localhost in your browser' — use 'check the Preview tab' instead.",
-      "- Never generate prompts that say 'run this in your terminal' without specifying 'in CodeBuddy's Terminal tab'.",
+      "- Never generate prompts that say 'run this in your terminal' without specifying 'in CodeCollab's Terminal tab'.",
       "",
       `Project name: ${project.name}`,
       `Project description: ${project.description}`,
@@ -3930,7 +3930,7 @@ function createProjectService({ app, settingsService, toolingService, p2pService
               type: taskStatus === "done" ? "status" : "build",
               title: taskStatus === "done" ? "Task marked done" : "Task status updated",
               description: reason,
-              actor: "CodeBuddy",
+              actor: "CodeCollab",
               actorInitials: "CB",
               time: formatRelativeTime(timestamp),
             },
@@ -4025,8 +4025,8 @@ function createProjectService({ app, settingsService, toolingService, p2pService
             id: `activity-checkpoint-${checkpointId}-${timestamp}`,
             type: "status",
             title: "Checkpoint restored",
-            description: manifest.label || "Restored a previous CodeBuddy checkpoint.",
-            actor: "CodeBuddy",
+            description: manifest.label || "Restored a previous CodeCollab checkpoint.",
+            actor: "CodeCollab",
             actorInitials: "CB",
             time: formatRelativeTime(timestamp),
           },

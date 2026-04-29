@@ -148,7 +148,7 @@ function mapDesktopProject(project: {
     lastUpdate: project.githubRepoUrl
       ? "Local folder and GitHub repo are ready."
       : "Local folder is ready. GitHub repo was skipped.",
-    friends: [{ name: "Cameron", initials: "CM", online: true }],
+    friends: [{ name: "You", initials: "YO", online: true }],
     repoPath: project.repoPath,
     githubRepoUrl: project.githubRepoUrl,
     isDesktopProject: true,
@@ -379,8 +379,8 @@ function HomePageContent() {
         ].filter(Boolean);
 
         const baseNotice = deleteTargets.length > 0
-          ? `${projectPendingDelete.name} was removed from CodeBuddy and deleted from ${deleteTargets.join(" and ")}.`
-          : `${projectPendingDelete.name} was removed from CodeBuddy.`;
+          ? `${projectPendingDelete.name} was removed from CodeCollab and deleted from ${deleteTargets.join(" and ")}.`
+          : `${projectPendingDelete.name} was removed from CodeCollab.`;
 
         if (result.githubWarning && deleteGithubRepo && !result.deletedGithubRepo) {
           setPendingGithubAuth({ projectId: projectPendingDelete.id, deleteLocalFiles });
@@ -390,7 +390,7 @@ function HomePageContent() {
         }
       } else {
         setProjects((current) => current.filter((project) => project.id !== projectPendingDelete.id));
-        setProjectNotice(`${projectPendingDelete.name} was removed from CodeBuddy.`);
+        setProjectNotice(`${projectPendingDelete.name} was removed from CodeCollab.`);
       }
       setProjectPendingDelete(null);
       setDeleteMode("local-only");
@@ -409,7 +409,7 @@ function HomePageContent() {
       setProjectError(null);
       await window.electronAPI.project.grantDeleteScope();
       setPendingGithubAuth(null);
-      setProjectNotice("GitHub delete permission granted. You can now delete GitHub repos from CodeBuddy.");
+      setProjectNotice("GitHub delete permission granted. You can now delete GitHub repos from CodeCollab.");
     } catch {
       setProjectError("Unable to complete GitHub authentication. Try again or run the command manually in a terminal.");
     } finally {
@@ -476,7 +476,7 @@ function HomePageContent() {
       stage: "Planning",
       updatedAgo: "Just now",
       lastUpdate: "Project created. Ready to build.",
-      friends: [{ name: "Cameron", initials: "CM", online: true }],
+      friends: [{ name: "You", initials: "YO", online: true }],
     };
     setProjects((cur) => [p, ...cur]);
     setDraftName("");
@@ -886,7 +886,7 @@ function HomePageContent() {
                         <div>
                           <p className="text-body-sm font-semibold text-text">Project location</p>
                           <p className="mt-1 text-label text-text-dim">
-                            {draftBaseDirectory || defaultProjectRoot || "Click to choose where CodeBuddy should create the project folder."}
+                            {draftBaseDirectory || defaultProjectRoot || "Click to choose where CodeCollab should create the project folder."}
                           </p>
                         </div>
                         <span className="rounded-lg bg-stage-up2 px-3 py-1.5 text-label text-text-mid">
@@ -920,7 +920,7 @@ function HomePageContent() {
                   className="app-input rounded-xl px-4 py-3 text-body outline-none"
                 />
                 <p className="text-label text-text-dim">
-                  CodeBuddy creates a subfolder using the project name inside this location.
+                  CodeCollab creates a subfolder using the project name inside this location.
                 </p>
                   </>
                 )}
@@ -1205,7 +1205,7 @@ function HomePageContent() {
                 {[
                   {
                     id: "codebuddy-only",
-                    label: "Remove from CodeBuddy only",
+                    label: "Remove from CodeCollab only",
                     description: "Keeps the local folder and GitHub repo exactly as they are.",
                     disabled: false,
                   },

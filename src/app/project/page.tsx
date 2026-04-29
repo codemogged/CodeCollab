@@ -1888,7 +1888,7 @@ export default function ProjectPage() {
               })()}
               <div className="mt-2 rounded-lg border border-violet/15 bg-violet/5 px-2.5 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-violet/60">Step 2 — Send them this code</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-text-dim">Paste it in their CodeBuddy &ldquo;Accept invite&rdquo; screen.</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-dim">Paste it in their CodeCollab &ldquo;Accept invite&rdquo; screen.</p>
                 <div className="mt-1.5 flex flex-col gap-1.5">
                   <p className="w-full truncate rounded-lg bg-void/30 px-2.5 py-1.5 font-mono text-[11px] text-violet select-all" title={inviteCode}>{inviteCode}</p>
                   <button onClick={() => { navigator.clipboard.writeText(inviteCode); setInviteCopied(true); setTimeout(() => setInviteCopied(false), 2000); }} className="w-full rounded-lg bg-violet/20 px-3 py-1.5 text-[11px] font-semibold text-violet transition hover:bg-violet/30">

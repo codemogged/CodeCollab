@@ -34,9 +34,11 @@ export default function RootRedirect() {
   // Brief loading state while checking
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950">
-      <div className="flex h-14 w-14 animate-pulse items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-lg">
-        CB
-      </div>
+      <img
+        src="/codecollab-logo.png"
+        alt="CodeCollab"
+        className="h-16 w-16 animate-pulse rounded-2xl shadow-lg"
+      />
     </div>
   );
 }

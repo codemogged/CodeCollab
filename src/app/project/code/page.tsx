@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -850,8 +850,8 @@ export default function SoloChatPage() {
 
     const userMsg = {
       id: `solo-user-${Date.now()}`,
-      from: "Cameron",
-      initials: "CM",
+      from: "You",
+      initials: "YO",
       text: prompt,
       time: nowTimestamp(),
       isMine: true as const,

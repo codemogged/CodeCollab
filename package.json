@@ -1,8 +1,9 @@
 {
-  "name": "codebuddy",
+  "name": "codecollab",
   "version": "0.2.0",
-  "description": "Local-first desktop workspace for collaborative vibe coding.",
-  "author": "Cameron",
+  "description": "CodeCollab — local-first desktop workspace for collaborative vibe coding.",
+  "author": "CodeCollab Contributors",
+  "license": "MIT",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -17,9 +18,9 @@
     "lint": "eslint ."
   },
   "build": {
-    "appId": "com.codebuddy.app",
-    "productName": "CodeBuddy",
-    "copyright": "Copyright © 2026 CodeBuddy Contributors",
+    "appId": "com.codecollab.app",
+    "productName": "CodeCollab",
+    "copyright": "Copyright © 2026 CodeCollab Contributors",
     "files": [
       "electron/**/*",
       "out/**/*"
@@ -28,8 +29,12 @@
       "output": "dist-electron",
       "buildResources": "build"
     },
+    "afterPack": "scripts/after-pack.js",
     "extraResources": [
-      { "from": "build/icon.png", "to": "icon.png" }
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "win": {
       "target": "nsis",
@@ -42,7 +47,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CodeBuddy",
+      "shortcutName": "CodeCollab",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
@@ -83,6 +88,7 @@
     "eslint": "^9.21.0",
     "eslint-config-next": "15.2.4",
     "postcss": "^8.5.3",
+    "rcedit": "^5.0.2",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2",
     "wait-on": "^9.0.4"

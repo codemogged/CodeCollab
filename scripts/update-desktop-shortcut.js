@@ -11,9 +11,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const exePath = path.resolve(__dirname, "..", "dist-electron", "win-unpacked", "CodeBuddy.exe");
+const exePath = path.resolve(__dirname, "..", "dist-electron", "win-unpacked", "CodeCollab.exe");
 const workingDir = path.dirname(exePath);
-const shortcutPath = path.join(os.homedir(), "Desktop", "CodeBuddy.lnk");
+const shortcutPath = path.join(os.homedir(), "Desktop", "CodeCollab.lnk");
 
 if (!fs.existsSync(exePath)) {
   console.error(`Build output not found: ${exePath}`);
@@ -28,7 +28,7 @@ $ws = New-Object -ComObject WScript.Shell
 $sc = $ws.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
 $sc.TargetPath = '${exePath.replace(/'/g, "''")}'
 $sc.WorkingDirectory = '${workingDir.replace(/'/g, "''")}'
-$sc.Description = 'CodeBuddy – collaborative vibe coding'
+$sc.Description = 'CodeCollab – collaborative vibe coding'
 $sc.Save()
 `;
 

@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title CodeBuddy Debug Console
+title CodeCollab Debug Console
 echo ============================================================
-echo  CodeBuddy Debug Console
+echo  CodeCollab Debug Console
 echo  Started: %date% %time%
 echo  Focus:   Multi-machine sync testing (P2P + git)
 echo ============================================================
@@ -41,7 +41,7 @@ echo ---- Application Logs Start Below ----
 echo.
 
 :: Auto-deploy: ONLY when this bat is run from inside the source project repo.
-:: When run from Desktop\CodeBuddy Install, skip deploy and launch directly.
+:: When run from Desktop\CodeCollab Install, skip deploy and launch directly.
 :: This prevents the install folder from being wiped on every debug launch.
 if not defined CODEBUDDY_LOG_ALLOW set "CODEBUDDY_LOG_ALLOW=startup,sync,p2p,file-watcher,shared-context,deploy,launcher,shutdown,repo,git-queue"
 if not defined CODEBUDDY_LOG_LEVEL set "CODEBUDDY_LOG_LEVEL=info"
@@ -50,8 +50,8 @@ set "ELECTRON_ENABLE_LOGGING="
 :: Only deploy when the scripts\ folder is sitting next to this bat
 :: (meaning we're running from the source repo, not the install folder).
 if exist "%~dp0scripts\deploy-install.ps1" (
-    if exist "%~dp0dist-electron\win-unpacked\CodeBuddy.exe" (
-        echo [deploy] Build v109-repo-secret found -- deploying to Desktop\CodeBuddy Install...
+    if exist "%~dp0dist-electron\win-unpacked\CodeCollab.exe" (
+        echo [deploy] Build v110-codecollab found -- deploying to Desktop\CodeCollab Install...
         powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\deploy-install.ps1"
         if "%ERRORLEVEL%" NEQ "0" (
             echo [deploy] Deploy script failed with exit code %ERRORLEVEL%. Continuing.
@@ -60,17 +60,17 @@ if exist "%~dp0scripts\deploy-install.ps1" (
         )
     )
 )
-echo [build] Version: v109-repo-secret
+echo [build] Version: v110-codecollab
 
-if exist "%~dp0CodeBuddy.exe" (
-    echo [launcher] Starting from: %~dp0CodeBuddy.exe
-    "%~dp0CodeBuddy.exe" --disable-gpu 2>&1
-) else if exist "%~dp0dist-electron\win-unpacked\CodeBuddy.exe" (
-    echo [launcher] Starting from: dist-electron\win-unpacked\CodeBuddy.exe
-    "%~dp0dist-electron\win-unpacked\CodeBuddy.exe" --disable-gpu 2>&1
-) else if exist "%LOCALAPPDATA%\Programs\codebuddy\CodeBuddy.exe" (
-    echo [launcher] Starting from: %LOCALAPPDATA%\Programs\codebuddy\CodeBuddy.exe
-    "%LOCALAPPDATA%\Programs\codebuddy\CodeBuddy.exe" 2>&1
+if exist "%~dp0CodeCollab.exe" (
+    echo [launcher] Starting from: %~dp0CodeCollab.exe
+    "%~dp0CodeCollab.exe" --disable-gpu 2>&1
+) else if exist "%~dp0dist-electron\win-unpacked\CodeCollab.exe" (
+    echo [launcher] Starting from: dist-electron\win-unpacked\CodeCollab.exe
+    "%~dp0dist-electron\win-unpacked\CodeCollab.exe" --disable-gpu 2>&1
+) else if exist "%LOCALAPPDATA%\Programs\codecollab\CodeCollab.exe" (
+    echo [launcher] Starting from: %LOCALAPPDATA%\Programs\codecollab\CodeCollab.exe
+    "%LOCALAPPDATA%\Programs\codecollab\CodeCollab.exe" 2>&1
 ) else (
     echo [launcher] No built exe found. Starting in dev mode...
     cd /d "%~dp0"

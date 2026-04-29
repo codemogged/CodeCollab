@@ -22,7 +22,7 @@ const codeFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CodeBuddy",
+  title: "CodeCollab",
   description: "Build software with your friends. Radically simple collaborative vibe coding.",
 };
 

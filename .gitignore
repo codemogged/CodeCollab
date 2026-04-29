@@ -5,8 +5,12 @@
 /.next
 /out
 
-# production
-/build
+# production (Next.js build output is in .next; keep /build for icons/packaging assets)
+# Allow icons + source logo so installers can be built from a clean clone.
+/build/*
+!/build/icon.ico
+!/build/icon.png
+!/build/source-logo.png
 
 # electron
 /dist-electron

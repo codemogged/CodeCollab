@@ -75,7 +75,7 @@ function createFileWatcherService({ repoService, processService, p2pService, git
       let gitignoreContent = "";
       try { gitignoreContent = require("fs").readFileSync(gitignorePath, "utf8"); } catch { /* file might not exist */ }
       if (!gitignoreContent.includes(".codebuddy/checkpoints")) {
-        const entry = "\n# CodeBuddy checkpoint snapshots (large, local-only)\n.codebuddy/checkpoints/\n";
+        const entry = "\n# CodeCollab checkpoint snapshots (large, local-only)\n.codebuddy/checkpoints/\n";
         require("fs").appendFileSync(gitignorePath, entry, "utf8");
         log("Added .codebuddy/checkpoints/ to .gitignore.");
       }
@@ -218,7 +218,7 @@ function createFileWatcherService({ repoService, processService, p2pService, git
   /**
    * Ensure git user.name and user.email are configured for the repo.
    * Without these, `git commit` fails with "Author identity unknown".
-   * Tries: local repo config → global config → `gh api user` → fallback "CodeBuddy".
+   * Tries: local repo config → global config → `gh api user` → fallback "CodeCollab".
    */
   function ensureGitIdentitySync(cwd) {
     const { execSync: exec, execFileSync: execFile } = require("child_process");
@@ -236,8 +236,8 @@ function createFileWatcherService({ repoService, processService, p2pService, git
     log("Git identity not configured — setting up...");
 
     // Try to get GitHub username via gh CLI
-    let name = "CodeBuddy";
-    let email = "codebuddy@local.invalid";
+    let name = "CodeCollab";
+    let email = "codecollab@local.invalid";
     try {
       const login = exec("gh api user --jq .login", opts).trim();
       if (login) {

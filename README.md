@@ -1,16 +1,16 @@
-# CodeBuddy
+# CodeCollab
 
 A self-contained desktop workspace for building software with friends — powered by AI agents, real-time P2P collaboration, and GitHub integration.
 
-## What is CodeBuddy?
+## What is CodeCollab?
 
-CodeBuddy is a native desktop app that lets anyone — technical or not — create software projects, break them into tasks, and have AI agents do the coding. You invite friends to collaborate in real time over peer-to-peer connections, and everything syncs through GitHub automatically.
+CodeCollab is a native desktop app that lets anyone — technical or not — create software projects, break them into tasks, and have AI agents do the coding. You invite friends to collaborate in real time over peer-to-peer connections, and everything syncs through GitHub automatically.
 
 No VS Code. No terminal knowledge. No browser tabs. Everything happens inside one window.
 
 ## Key Features
 
-- **AI-Powered Project Planning** — Describe what you want to build in plain English. CodeBuddy generates a structured plan with subprojects, tasks, and implementation-ready starting prompts.
+- **AI-Powered Project Planning** — Describe what you want to build in plain English. CodeCollab generates a structured plan with subprojects, tasks, and implementation-ready starting prompts.
 - **Dual AI Agents** — Tasks are executed by Claude Code or GitHub Copilot CLI (your choice per task). Agents write real code in your repo with full tool access.
 - **Real-Time P2P Collaboration** — Connect with friends over Hyperswarm. See live agent output, sync task status, and chat — all without a server.
 - **Multi-Project Support** — Work on multiple projects simultaneously, each with isolated P2P rooms and independent state.
@@ -146,16 +146,16 @@ npx electron-builder --win portable
 npm run deploy
 ```
 
-The deploy target is `C:\Users\<you>\Desktop\CodeBuddy Install\`.
+The deploy target is `C:\Users\<you>\Desktop\CodeCollab Install\`.
 
 ### Running the Built App
 
-Use `debug-start.bat` for diagnostics output, or launch `CodeBuddy.exe` directly.
+Use `debug-start.bat` for diagnostics output, or launch `CodeCollab.exe` directly.
 
 ## Project Structure
 
 ```
-CodeBuddy/
+CodeCollab/
 ├── electron/
 │   ├── main.js              # Electron entry point
 │   ├── preload.js            # IPC bridge (sandboxed)
