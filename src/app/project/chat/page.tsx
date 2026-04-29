@@ -29,6 +29,7 @@ import { buildArtifacts, conversation, ideas, projectBuildPlans, taskConversatio
 import { useActiveDesktopProject } from "@/hooks/use-active-desktop-project";
 import { useStreamEvents } from "@/hooks/use-stream-events";
 import { nowTimestamp } from "@/lib/format-time";
+import { buildPickerRows, effortLabel } from "@/lib/model-picker";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -397,6 +398,9 @@ type ModelCatalogEntry = {
   usage: string;
   group: "featured" | "other";
   warning?: string;
+  baseId?: string;
+  baseLabel?: string;
+  reasoningEffort?: "low" | "medium" | "high";
 };
 
 const quickPromptMeta: Record<QuickPromptType, { label: string; shortLabel: string }> = {
@@ -1381,6 +1385,7 @@ function ProjectChatPageContent() {
   });
   const [providerTab, setProviderTab] = useState<"claude" | "copilot" | "codex">("copilot");
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [reasoningView, setReasoningView] = useState<{ baseId: string; baseLabel: string } | null>(null);
   const modelCatalog = getActiveModelCatalog(featureFlags, catalogSources);
   const enabledProviderCount = [!!featureFlags?.githubCopilotCli, !!featureFlags?.claudeCode, !!featureFlags?.codexCli].filter(Boolean).length;
   const hasMultipleProviders = enabledProviderCount > 1;
@@ -1461,6 +1466,7 @@ function ProjectChatPageContent() {
       const target = e.target as Node;
       if (modelMenuRef.current?.contains(target) || modelMenuBtnRef.current?.contains(target)) return;
       setShowModelMenu(false);
+      setReasoningView(null);
     };
     window.addEventListener("mousedown", handleClick);
     return () => window.removeEventListener("mousedown", handleClick);
@@ -2024,25 +2030,55 @@ function ProjectChatPageContent() {
                                   {(() => {
                                     const cs = catalogSources;
                                     const tabModels = providerTab === "claude" ? cs.claude : providerTab === "codex" ? cs.codex : cs.copilot;
-                                    const featured = tabModels.filter((m) => m.group === "featured");
-                                    const other = tabModels.filter((m) => m.group !== "featured");
+                                    if (reasoningView) {
+                                      const variants = tabModels.filter((m) => m.baseId === reasoningView.baseId).slice().sort((a, b) => ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[a.reasoningEffort ?? ""] - ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[b.reasoningEffort ?? ""]);
+                                      return (
+                                        <>
+                                          <button type="button" onClick={() => setReasoningView(null)} className="flex w-full items-center gap-2 rounded-[0.7rem] px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider theme-muted hover:bg-black/[0.04] dark:hover:bg-white/[0.06]">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3"><path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                            <span className="truncate normal-case theme-fg text-[11px]">{reasoningView.baseLabel}</span>
+                                          </button>
+                                          <div className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider theme-muted">Reasoning effort</div>
+                                          {variants.map((m) => (
+                                            <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); setReasoningView(null); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
+                                              <span>{effortLabel(m.reasoningEffort)}</span>
+                                              {m.usage && <span className={`text-[9px] ${m.id === selectedModel ? "text-cream/60 dark:text-[#141414]/60" : "theme-muted"}`}>{m.usage}</span>}
+                                            </button>
+                                          ))}
+                                        </>
+                                      );
+                                    }
+                                    const featuredRows = buildPickerRows(tabModels.filter((m) => m.group === "featured"));
+                                    const otherRows = buildPickerRows(tabModels.filter((m) => m.group !== "featured"));
+                                    const renderRow = (row: ReturnType<typeof buildPickerRows>[number]) => {
+                                      if (row.kind === "group") {
+                                        const selectedVariant = row.variants.find((v) => v.id === selectedModel);
+                                        const isSelected = !!selectedVariant;
+                                        return (
+                                          <button key={`g:${row.baseId}`} type="button" onClick={() => setReasoningView({ baseId: row.baseId, baseLabel: row.baseLabel })} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${isSelected ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
+                                            <span className="flex items-center gap-1.5">
+                                              <span>{row.baseLabel}</span>
+                                              {selectedVariant ? <span className={`text-[9px] font-medium ${isSelected ? "text-cream/70 dark:text-[#141414]/70" : "theme-muted"}`}>· {effortLabel(selectedVariant.reasoningEffort)}</span> : null}
+                                            </span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3 opacity-60"><path d="M7.5 4.5 13 10l-5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                          </button>
+                                        );
+                                      }
+                                      const m = row.entry;
+                                      return (
+                                        <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
+                                          <span>{m.label}</span>
+                                          {m.contextWindow && <span className={`text-[9px] ${m.id === selectedModel ? "text-cream/60 dark:text-[#141414]/60" : "theme-muted"}`}>{m.contextWindow}</span>}
+                                        </button>
+                                      );
+                                    };
                                     return (
                                       <>
-                                        {featured.map((m) => (
-                                          <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
-                                            <span>{m.label}</span>
-                                            {m.contextWindow && <span className={`text-[9px] ${m.id === selectedModel ? "text-cream/60 dark:text-[#141414]/60" : "theme-muted"}`}>{m.contextWindow}</span>}
-                                          </button>
-                                        ))}
-                                        {other.length > 0 && (
+                                        {featuredRows.map(renderRow)}
+                                        {otherRows.length > 0 && (
                                           <>
                                             <div className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider theme-muted">Other</div>
-                                            {other.map((m) => (
-                                              <button key={m.id} type="button" onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} className={`flex w-full items-center justify-between rounded-[0.7rem] px-3 py-2 text-left text-[11px] font-semibold transition ${m.id === selectedModel ? "bg-ink text-cream dark:bg-white dark:text-[#141414]" : "theme-fg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"}`}>
-                                                <span>{m.label}</span>
-                                                {(m as Record<string, unknown>).warning ? <span className="text-[9px] text-amber-500">{String((m as Record<string, unknown>).warning)}</span> : null}
-                                              </button>
-                                            ))}
+                                            {otherRows.map(renderRow)}
                                           </>
                                         )}
                                       </>
@@ -5886,6 +5922,7 @@ function RealProjectComposer({
   const [showApprovalMenu, setShowApprovalMenu] = useState(false);
   const [approvalMenuPos, setApprovalMenuPos] = useState<{ left: number; bottom: number } | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [reasoningView, setReasoningView] = useState<{ baseId: string; baseLabel: string } | null>(null);
   const [showContextPanel, setShowContextPanel] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [modelMenuPos, setModelMenuPos] = useState<{ left: number; bottom: number } | null>(null);
@@ -6002,6 +6039,7 @@ function RealProjectComposer({
       }
 
       setShowModelMenu(false);
+      setReasoningView(null);
       setShowContextPanel(false);
       setShowApprovalMenu(false);
     };
@@ -6386,15 +6424,79 @@ function RealProjectComposer({
                     </div>
                   ) : null}
                   <div className={`custom-scroll overflow-y-auto pb-3 pt-1 ${hasMultipleProviders ? "max-h-[min(330px,calc(70vh-90px))]" : "max-h-[min(370px,calc(70vh-50px))]"}`}>
-                    {(["featured", "other"] as const).map((group) => {
-                      const groupModels = filteredModels.filter((entry) => entry.group === group);
-                      if (groupModels.length === 0) return null;
+                    {reasoningView ? (
+                      <div className="py-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setReasoningView(null)}
+                          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.12em] transition"
+                          style={{ color: isDark ? 'rgba(240,236,228,0.6)' : 'rgba(2,2,2,0.6)' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3"><path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          <span>{reasoningView.baseLabel}</span>
+                        </button>
+                        <p className="px-2.5 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>Reasoning effort</p>
+                        {filteredModels.filter((e) => e.baseId === reasoningView.baseId).slice().sort((a, b) => ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[a.reasoningEffort ?? ""] - ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[b.reasoningEffort ?? ""]).map((variant) => {
+                          const isSelected = variant.id === selectedModel;
+                          return (
+                            <button
+                              key={variant.id}
+                              type="button"
+                              onClick={() => { onModelChange(variant.id); setShowModelMenu(false); setModelSearch(""); setReasoningView(null); }}
+                              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition"
+                              style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                              onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                              onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                            >
+                              <span className="text-[11.5px] font-medium">{effortLabel(variant.reasoningEffort)}</span>
+                              {variant.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{variant.usage}</span> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (["featured", "other"] as const).map((group) => {
+                      const groupRows = buildPickerRows(filteredModels.filter((entry) => entry.group === group));
+                      if (groupRows.length === 0) return null;
                       return (
                         <div key={group} className="mb-0.5 last:mb-0">
                           <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>
                             {group === "featured" ? "Recommended" : "Other models"}
                           </p>
-                          {groupModels.map((entry) => {
+                          {groupRows.map((row) => {
+                            if (row.kind === "group") {
+                              const selectedVariant = row.variants.find((v) => v.id === selectedModel);
+                              const isSelected = !!selectedVariant;
+                              return (
+                                <button
+                                  key={`g:${row.baseId}`}
+                                  type="button"
+                                  onClick={() => setReasoningView({ baseId: row.baseId, baseLabel: row.baseLabel })}
+                                  className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition"
+                                  style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                                  onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                                  onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[11.5px] font-medium">{row.baseLabel}</span>
+                                      {row.warning ? <span className="text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{row.warning}</span> : null}
+                                    </div>
+                                    <div className="mt-0.5 flex items-center gap-2 text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.72)' : isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}>
+                                      <span>{row.provider}</span>
+                                      <span>{row.contextWindow}</span>
+                                      {selectedVariant ? <span>· {effortLabel(selectedVariant.reasoningEffort)}</span> : null}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    {row.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{row.usage}</span> : null}
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.45)' : 'rgba(2,2,2,0.45)' }}><path d="M7.5 4.5 13 10l-5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                  </div>
+                                </button>
+                              );
+                            }
+                            const entry = row.entry;
                             const isSelected = entry.id === selectedModel;
                             return (
                               <button

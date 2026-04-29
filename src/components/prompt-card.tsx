@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { buildPickerRows, effortLabel } from "@/lib/model-picker";
 
 /* ────────────────────────────────────────────────────────
    PromptCard — first-class prompt artifact component
@@ -19,6 +20,9 @@ export interface ModelCatalogEntry {
   usage: string;
   group: "featured" | "other";
   warning?: string;
+  baseId?: string;
+  baseLabel?: string;
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export type ProviderKey = "claude" | "copilot" | "codex";
@@ -71,6 +75,7 @@ export default function PromptCard({
   const [editModel, setEditModel] = useState(currentModel ?? "");
   const [editMode, setEditMode] = useState<ChatMode>(currentMode ?? "agent");
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [reasoningView, setReasoningView] = useState<{ baseId: string; baseLabel: string } | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [providerTab, setProviderTab] = useState<ProviderKey>("copilot");
   // Attachment image data URLs (avoids CSP file:// block)
@@ -151,6 +156,7 @@ export default function PromptCard({
           modelBtnRef.current && !modelBtnRef.current.contains(e.target as Node)) {
         setShowModelPicker(false);
         setModelSearch("");
+        setReasoningView(null);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -502,15 +508,79 @@ export default function PromptCard({
           ) : null}
           {/* Grouped model list */}
           <div className={`overflow-y-auto pb-3 pt-1 ${hasMultipleProviders ? "max-h-[min(330px,calc(70vh-90px))]" : "max-h-[min(370px,calc(70vh-50px))]"}`}>
-            {(["featured", "other"] as const).map((group) => {
-              const groupModels = filteredModels.filter((entry) => entry.group === group);
-              if (groupModels.length === 0) return null;
+            {reasoningView ? (
+              <div className="py-0.5">
+                <button
+                  type="button"
+                  onClick={() => setReasoningView(null)}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.06em] transition"
+                  style={{ color: isDark ? 'rgba(240,236,228,0.6)' : 'rgba(2,2,2,0.6)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3"><path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <span>{reasoningView.baseLabel}</span>
+                </button>
+                <p className="px-2.5 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.06em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>Reasoning effort</p>
+                {filteredModels.filter((e) => e.baseId === reasoningView.baseId).slice().sort((a, b) => ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[a.reasoningEffort ?? ""] - ({ low: 0, medium: 1, high: 2 } as Record<string, number>)[b.reasoningEffort ?? ""]).map((variant) => {
+                  const isSelected = variant.id === editModel;
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      onClick={() => { setEditModel(variant.id); setShowModelPicker(false); setModelSearch(""); setReasoningView(null); }}
+                      className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition"
+                      style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <span className="text-[11.5px] font-medium tracking-[-0.006em]">{effortLabel(variant.reasoningEffort)}</span>
+                      {variant.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{variant.usage}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (["featured", "other"] as const).map((group) => {
+              const groupRows = buildPickerRows(filteredModels.filter((entry) => entry.group === group));
+              if (groupRows.length === 0) return null;
               return (
                 <div key={group} className="mb-0.5 last:mb-0">
                   <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.06em]" style={{ color: isDark ? 'rgba(240,236,228,0.28)' : 'rgba(2,2,2,0.28)' }}>
                     {group === "featured" ? "Recommended" : "Other models"}
                   </p>
-                  {groupModels.map((entry) => {
+                  {groupRows.map((row) => {
+                    if (row.kind === "group") {
+                      const selectedVariant = row.variants.find((v) => v.id === editModel);
+                      const isSelected = !!selectedVariant;
+                      return (
+                        <button
+                          key={`g:${row.baseId}`}
+                          type="button"
+                          onClick={() => setReasoningView({ baseId: row.baseId, baseLabel: row.baseLabel })}
+                          className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition"
+                          style={isSelected ? { background: '#0078d4', color: 'white' } : { color: isDark ? '#f0ece4' : '#020202' }}
+                          onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                          onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11.5px] font-medium tracking-[-0.006em]">{row.baseLabel}</span>
+                              {row.warning ? <span className="text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{row.warning}</span> : null}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-2 text-[10px]" style={{ color: isSelected ? 'rgba(255,255,255,0.72)' : isDark ? 'rgba(240,236,228,0.52)' : 'rgba(2,2,2,0.52)' }}>
+                              <span>{row.provider}</span>
+                              <span>{row.contextWindow}</span>
+                              {selectedVariant ? <span>· {effortLabel(selectedVariant.reasoningEffort)}</span> : null}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {row.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{row.usage}</span> : null}
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" className="h-3 w-3" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.45)' : 'rgba(2,2,2,0.45)' }}><path d="M7.5 4.5 13 10l-5.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          </div>
+                        </button>
+                      );
+                    }
+                    const entry = row.entry;
                     const isSelected = entry.id === editModel;
                     return (
                       <button

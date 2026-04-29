@@ -10,6 +10,12 @@ export interface ModelCatalogEntry {
   usage: string;
   group: "featured" | "other";
   warning?: string;
+  /** When set, this entry is one of several reasoning-effort variants of a base model. The picker collapses variants under a single row. */
+  baseId?: string;
+  /** Display label of the parent model when this is a reasoning variant (e.g. "Claude Sonnet 4.7"). */
+  baseLabel?: string;
+  /** Reasoning effort level for this variant. */
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export interface ModelCatalogs {
