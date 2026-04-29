@@ -753,7 +753,15 @@ function IdePageInner() {
 
             {/* Sidebar header */}
             <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Explorer</span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">Explorer</span>
+                <span
+                  className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500"
+                  title="IDE is in beta — expect rough edges while we refine it"
+                >
+                  Beta
+                </span>
+              </span>
               <button type="button" onClick={() => setSidebarVisible(false)} className="text-text-ghost hover:text-text-dim p-0.5" title="Hide sidebar (Ctrl+B)">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3"><path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/></svg>
               </button>

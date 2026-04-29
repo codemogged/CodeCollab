@@ -249,7 +249,7 @@ function RailContent() {
                 {expanded && (
                   <span className="flex items-center gap-1.5 text-[13px]">
                     {item.label}
-                    {item.label === "Preview" && (
+                    {(item.label === "Preview" || item.label === "PM Chat" || item.label === "IDE") && (
                       <span className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500">
                         Beta
                       </span>

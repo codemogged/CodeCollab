@@ -1792,6 +1792,14 @@ function ProjectChatPageContent() {
                 {!hasConversation && !taskContext && (
                   <div className="flex flex-1 items-center justify-center pb-24">
                     <div className="text-center">
+                      <div className="mb-3 flex justify-center">
+                        <span
+                          className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500"
+                          title="PM Chat is in beta — expect rough edges while we refine it"
+                        >
+                          Beta
+                        </span>
+                      </div>
                       <h1 className="display-font text-[2.2rem] font-semibold tracking-tight theme-fg">What can I help with?</h1>
                     </div>
                   </div>

@@ -525,8 +525,8 @@ code, pre, .font-code, [class*="font-mono"] {
   }
 
   .app-input:focus {
-    border-color: var(--sun);
-    box-shadow: 0 0 0 3px rgba(255, 159, 28, 0.08);
+    border-color: var(--violet);
+    box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.18);
   }
 
   .app-input::placeholder {
