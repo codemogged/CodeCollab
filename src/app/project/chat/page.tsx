@@ -1792,14 +1792,6 @@ function ProjectChatPageContent() {
                 {!hasConversation && !taskContext && (
                   <div className="flex flex-1 items-center justify-center pb-24">
                     <div className="text-center">
-                      <div className="mb-3 flex justify-center">
-                        <span
-                          className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500"
-                          title="PM Chat is in beta — expect rough edges while we refine it"
-                        >
-                          Beta
-                        </span>
-                      </div>
                       <h1 className="display-font text-[2.2rem] font-semibold tracking-tight theme-fg">What can I help with?</h1>
                     </div>
                   </div>
@@ -5251,14 +5243,6 @@ function RealProjectChatPage({ activeProject }: RealProjectChatProps) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] theme-muted">{rightPaneMode === "preview" ? (previewMode === "terminal" ? "Terminal preview" : "Live preview") : rightPaneMode === "task-details" ? "Task details" : "Response details"}</p>
-                  {rightPaneMode === "preview" && (
-                    <span
-                      className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[8.5px] font-semibold uppercase leading-none tracking-wider text-amber-500"
-                      title="Preview is in beta — expect rough edges while we refine it"
-                    >
-                      Beta
-                    </span>
-                  )}
                 </div>
                 <p className="mt-1 truncate text-[14px] font-semibold theme-fg">{taskContext ? taskContext.task.title : activeProject.name}</p>
               </div>

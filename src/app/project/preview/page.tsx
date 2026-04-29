@@ -363,12 +363,6 @@ export default function PreviewPage() {
         <div className="surface flex flex-shrink-0 items-center justify-between border-b border-edge px-5 py-3 sm:px-6">
           <div className="flex items-center gap-4">
             <h1 className="font-display text-body-lg font-semibold tracking-tight text-text">{activeProject?.name ?? "Preview"}</h1>
-            <span
-              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500"
-              title="Preview is in beta — expect rough edges while we refine it"
-            >
-              Beta
-            </span>
             {showWebview ? (
               <span className="rounded-full bg-mint/12 px-2.5 py-1 text-label font-semibold text-mint">Live</span>
             ) : showTerminalPreview ? (
