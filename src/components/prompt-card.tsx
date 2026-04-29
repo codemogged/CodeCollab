@@ -533,7 +533,7 @@ export default function PromptCard({
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.usage}</span>
+                          {entry.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(240,236,228,0.4)' : 'rgba(2,2,2,0.4)' }}>{entry.usage}</span> : null}
                         </div>
                       </button>
                     );

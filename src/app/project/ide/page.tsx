@@ -114,17 +114,18 @@ type CatalogSources = { copilot: ModelCatalogEntry[]; claude: ModelCatalogEntry[
 
 const DEFAULT_copilotModels: ModelCatalogEntry[] = [
   { id: "auto", label: "Auto", provider: "Best available", contextWindow: "Auto", maxTokens: 200000, usage: "10% discount", group: "featured" },
-  { id: "claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
-  { id: "claude-sonnet-4.6", label: "Claude Sonnet 4.6", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
-  { id: "gpt-5.4", label: "GPT-5.4", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+  { id: "claude-sonnet-4.7", label: "Claude Sonnet 4.7", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "1x", group: "featured" },
+  { id: "claude-opus-4.7", label: "Claude Opus 4.7", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "3x", group: "featured" },
+  { id: "gpt-5.5", label: "GPT-5.5", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
+  { id: "gpt-5.5-codex-medium", label: "GPT-5.5 Codex (Reasoning: Medium)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "1x", group: "featured" },
 ];
 const DEFAULT_claudeModels: ModelCatalogEntry[] = [
-  { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
-  { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
+  { id: "sonnet", label: "Claude Sonnet (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+  { id: "opus", label: "Claude Opus (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
+  { id: "haiku", label: "Claude Haiku (Latest)", provider: "Anthropic", contextWindow: "200K", maxTokens: 200000, usage: "", group: "featured" },
 ];
 const DEFAULT_codexModels: ModelCatalogEntry[] = [
-  { id: "default", label: "Default (ChatGPT)", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "featured" },
-  { id: "o4-mini", label: "o4-mini", provider: "OpenAI", contextWindow: "200K", maxTokens: 200000, usage: "Included", group: "other" },
+  { id: "default", label: "GPT-5.5 Codex (Latest)", provider: "OpenAI", contextWindow: "256K", maxTokens: 256000, usage: "", group: "featured" },
 ];
 
 function getActiveModelCatalog(flags: FeatureFlags, catalogs: CatalogSources): ModelCatalogEntry[] {
@@ -1325,7 +1326,7 @@ function IdePageInner() {
                                       </div>
                                     </div>
                                     <div className="flex shrink-0 items-center gap-2">
-                                      <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : 'var(--rail-text-tertiary)' }}>{entry.usage}</span>
+                                      {entry.usage ? <span className="text-[10px] font-medium" style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : 'var(--rail-text-tertiary)' }}>{entry.usage}</span> : null}
                                     </div>
                                   </button>
                                 );

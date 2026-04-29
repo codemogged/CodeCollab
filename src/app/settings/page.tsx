@@ -15,38 +15,43 @@ const defaultToolState: AiToolSetupState = { checking: false, installing: false,
 
 const copilotModelOptions = [
   { id: "auto", label: "Auto", usage: "10% discount", provider: "Best available" },
-  { id: "claude-opus-4.6", label: "Claude Opus 4.6", usage: "3x", provider: "Anthropic" },
+  { id: "claude-sonnet-4.7", label: "Claude Sonnet 4.7", usage: "1x", provider: "Anthropic" },
+  { id: "claude-opus-4.7", label: "Claude Opus 4.7", usage: "3x", provider: "Anthropic" },
+  { id: "gpt-5.5", label: "GPT-5.5", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.5-codex-low", label: "GPT-5.5 Codex (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.5-codex-medium", label: "GPT-5.5 Codex (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.5-codex-high", label: "GPT-5.5 Codex (Reasoning: High)", usage: "1x", provider: "OpenAI" },
+  { id: "claude-haiku-4.6", label: "Claude Haiku 4.6", usage: "0.33x", provider: "Anthropic" },
   { id: "claude-sonnet-4.6", label: "Claude Sonnet 4.6", usage: "1x", provider: "Anthropic" },
+  { id: "claude-opus-4.6", label: "Claude Opus 4.6", usage: "3x", provider: "Anthropic" },
   { id: "gpt-5.4", label: "GPT-5.4", usage: "1x", provider: "OpenAI" },
-  { id: "claude-haiku-4.5", label: "Claude Haiku 4.5", usage: "0.33x", provider: "Anthropic" },
-  { id: "claude-opus-4.5", label: "Claude Opus 4.5", usage: "3x", provider: "Anthropic" },
-  { id: "claude-sonnet-4", label: "Claude Sonnet 4", usage: "1x", provider: "Anthropic" },
-  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", usage: "1x", provider: "Anthropic" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", usage: "1x", provider: "Google" },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash (Preview)", usage: "0.33x", provider: "Google" },
-  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro (Preview)", usage: "1x", provider: "Google" },
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Preview)", usage: "1x", provider: "Google" },
-  { id: "gpt-5.2", label: "GPT-5.2", usage: "1x", provider: "OpenAI" },
-  { id: "gpt-5.1", label: "GPT-5.1", usage: "1x", provider: "OpenAI" },
-  { id: "o3", label: "o3", usage: "1x", provider: "OpenAI" },
+  { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", usage: "0.33x", provider: "OpenAI" },
+  { id: "o4-low", label: "o4 (Reasoning: Low)", usage: "1x", provider: "OpenAI" },
+  { id: "o4-medium", label: "o4 (Reasoning: Medium)", usage: "1x", provider: "OpenAI" },
+  { id: "o4-high", label: "o4 (Reasoning: High)", usage: "1x", provider: "OpenAI" },
+  { id: "o4-mini-low", label: "o4-mini (Reasoning: Low)", usage: "0.33x", provider: "OpenAI" },
+  { id: "o4-mini-medium", label: "o4-mini (Reasoning: Medium)", usage: "0.33x", provider: "OpenAI" },
+  { id: "o4-mini-high", label: "o4-mini (Reasoning: High)", usage: "0.33x", provider: "OpenAI" },
+  { id: "gemini-3.5-pro", label: "Gemini 3.5 Pro", usage: "1x", provider: "Google" },
+  { id: "gemini-3-pro", label: "Gemini 3 Pro", usage: "1x", provider: "Google" },
+  { id: "gemini-3-flash", label: "Gemini 3 Flash", usage: "0.33x", provider: "Google" },
+  { id: "grok-code-fast-2", label: "Grok Code Fast 2", usage: "0.5x", provider: "xAI" },
 ];
 
 const claudeCodeModelOptions = [
-  { id: "sonnet", label: "Claude Sonnet (Latest)", usage: "Included", provider: "Claude Code" },
-  { id: "opus", label: "Claude Opus (Latest)", usage: "Included", provider: "Claude Code" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", usage: "Included", provider: "Claude Code" },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6", usage: "Included", provider: "Claude Code" },
-  { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", usage: "Included", provider: "Claude Code" },
-  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", usage: "Included", provider: "Claude Code" },
+  { id: "sonnet", label: "Claude Sonnet (Latest)", usage: "", provider: "Claude Code" },
+  { id: "opus", label: "Claude Opus (Latest)", usage: "", provider: "Claude Code" },
+  { id: "haiku", label: "Claude Haiku (Latest)", usage: "", provider: "Claude Code" },
+  { id: "claude-sonnet-4-7", label: "Claude Sonnet 4.7", usage: "", provider: "Claude Code" },
+  { id: "claude-opus-4-7", label: "Claude Opus 4.7", usage: "", provider: "Claude Code" },
+  { id: "claude-haiku-4-6", label: "Claude Haiku 4.6", usage: "", provider: "Claude Code" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", usage: "", provider: "Claude Code" },
+  { id: "claude-opus-4-6", label: "Claude Opus 4.6", usage: "", provider: "Claude Code" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", usage: "", provider: "Claude Code" },
 ];
 
 const codexModelOptions = [
-  { id: "auto", label: "Auto", usage: "Default", provider: "OpenAI" },
-  { id: "codex-mini", label: "Codex Mini", usage: "Included", provider: "OpenAI" },
-  { id: "o4-mini", label: "o4-mini", usage: "Included", provider: "OpenAI" },
-  { id: "o3", label: "o3", usage: "Included", provider: "OpenAI" },
-  { id: "gpt-4.1", label: "GPT-4.1", usage: "Included", provider: "OpenAI" },
-  { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", usage: "Included", provider: "OpenAI" },
+  { id: "default", label: "GPT-5.5 Codex (Latest)", usage: "", provider: "OpenAI" },
 ];
 
 interface GithubAccount {
@@ -94,7 +99,7 @@ export default function SettingsPage() {
   const [projectRoot, setProjectRoot] = useState("");
   const [createGithubRepoByDefault, setCreateGithubRepoByDefault] = useState(true);
   const [projectGithubVisibility, setProjectGithubVisibility] = useState<"private" | "public">("private");
-  const [copilotModel, setCopilotModel] = useState("gpt-5.2");
+  const [copilotModel, setCopilotModel] = useState("gpt-5.5");
 
   /* AI Tools setup state */
   const [claudeCodeSetup, setClaudeCodeSetup] = useState<AiToolSetupState>(defaultToolState);
@@ -185,7 +190,7 @@ export default function SettingsPage() {
     setProjectRoot(s.projectDefaults?.rootDirectory ?? "");
     setCreateGithubRepoByDefault(s.projectDefaults?.createGithubRepo ?? true);
     setProjectGithubVisibility(s.projectDefaults?.githubVisibility ?? "private");
-    setCopilotModel(s.projectDefaults?.copilotModel ?? "gpt-5.2");
+    setCopilotModel(s.projectDefaults?.copilotModel ?? "gpt-5.5");
   };
 
   const loadDesktopIntegrations = async () => {
@@ -342,7 +347,7 @@ export default function SettingsPage() {
           rootDirectory: projectRoot.trim(),
           createGithubRepo: createGithubRepoByDefault,
           githubVisibility: projectGithubVisibility,
-          copilotModel: copilotModel.trim() || "gpt-5.2",
+          copilotModel: copilotModel.trim() || "gpt-5.5",
         },
       });
       applyDesktopSettings(nextSettings);
@@ -892,20 +897,20 @@ export default function SettingsPage() {
                       {desktopSettings?.featureFlags?.githubCopilotCli && (
                         <optgroup label="GitHub Copilot">
                           {copilotModelOptions.map((model) => (
-                            <option key={model.id} value={model.id}>{`${model.label} — ${model.usage} — ${model.provider}`}</option>
+                            <option key={model.id} value={model.id}>{[model.label, model.usage, model.provider].filter(Boolean).join(" — ")}</option>
                           ))}
                         </optgroup>
                       )}
                       {desktopSettings?.featureFlags?.claudeCode && (
                         <optgroup label="Claude Code">
                           {claudeCodeModelOptions.map((model) => (
-                            <option key={model.id} value={model.id}>{`${model.label} — ${model.usage}`}</option>
+                            <option key={model.id} value={model.id}>{[model.label, model.usage].filter(Boolean).join(" — ")}</option>
                           ))}
                         </optgroup>
                       )}
                       {!desktopSettings?.featureFlags?.githubCopilotCli && !desktopSettings?.featureFlags?.claudeCode && (
                         copilotModelOptions.map((model) => (
-                          <option key={model.id} value={model.id}>{`${model.label} — ${model.usage} — ${model.provider}`}</option>
+                          <option key={model.id} value={model.id}>{[model.label, model.usage, model.provider].filter(Boolean).join(" — ")}</option>
                         ))
                       )}
                     </select>
