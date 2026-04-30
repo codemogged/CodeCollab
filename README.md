@@ -50,18 +50,18 @@ There is no CodeCollab server. There is no CodeCollab account. There is no CodeC
 
 ## Why CodeCollab Exists
 
-Building software with another person, in real time, using AI, should be a solved problem. It is not.
+Building anything that involves code with another person, in real time, using AI, should be a solved problem. It is not.
 
 Today if you and a friend want to build an app together with the help of an AI agent, you have two options, both bad:
 
-1. **One of you remotes into the other's machine.** Now exactly one person is productive at a time. The agent sees one person's context. The other person watches.
+1. **One of you remotes into the other's machine.** Now exactly one person is productive at a time. The agent sees one person's context, which is locked on that persons computer, and the other person watches.
 2. **Each of you runs your own agent on your own machine.** Now you have two agents that don't know about each other, two parallel sets of edits, two divergent understandings of "what the project is," and a merge problem the moment one of you commits.
 
-The thing both options miss is that **the conversation with the AI is the work.** The prompts you've sent, the files the agent has read, the dead ends you've already ruled out, the architectural decisions you made on the third iteration — that context is the most valuable artifact in the entire session, and on every existing tool it lives trapped on a single laptop.
+The thing both options miss is that **the conversation with the AI is the work.** The prompts you've sent, the files the agent has read, the dead ends you've already ruled out, the architectural decisions you made on the third iteration — that context is the most valuable artifact in the entire session, and on every existing tool it lives trapped on a single computer.
 
 CodeCollab treats that context as a first-class shared object. When you and your friend join the same project, you join the same conversation. You see each other's prompts in real time. You see each other's agent output streaming token-by-token. You move tasks across a shared board. You watch each other's files change. The AI agents themselves still run locally — your Claude runs on your machine, your friend's Copilot runs on theirs — but the **work product** they produce, the **state** of the project, and the **code itself** stay in lockstep through CRDT-based state sync and automatic Git push/pull.
 
-This is what we mean by "vibe coding with friends." It is the Figma moment for software, except the canvas is a real Git repository and the cursors are autonomous coding agents.
+This is what we mean by "vibe coding with friends." It is the Figma moment for code, except the canvas is a real Git repository and the cursors are autonomous coding agents.
 
 ---
 
@@ -239,8 +239,8 @@ The first time you launch CodeCollab, a 6-step wizard runs:
 
 3. **GitHub authentication.** Click **Sign in with GitHub** and a browser tab opens with a one-time device code displayed in the app. Paste the code, authorize, come back. The token is stored by the GitHub CLI's normal token store (`gh auth status`) — CodeCollab never reads or writes raw tokens.
 
-4. **AI providers.** Pick which agents you want to enable. Each one has its own auth flow:
-   - **GitHub Copilot CLI** — uses your GitHub account (no separate signup).
+4. **AI providers.** Pick which agents you want to enable. Each one runs its own OAuth flow in-app immediately after install — a one-time device code appears in the wizard, the verification URL opens automatically in your browser, and the token lands in your OS credential store (Credential Manager / Keychain / libsecret). No terminal required.
+   - **GitHub Copilot CLI** — separate `copilot login` device flow (uses your GitHub account but stores its own token, distinct from `gh auth`).
    - **Claude Code** — sign in via OAuth in browser, or paste an Anthropic API key.
    - **Codex CLI** — sign in via OpenAI OAuth, or paste an OpenAI API key.
 
@@ -319,7 +319,7 @@ CodeCollab does not run its own model. It is a thin orchestrator that drives one
 
 | Provider | CLI | Auth options | What we do with it |
 |---|---|---|---|
-| **GitHub Copilot** | `gh copilot` / `copilot` CLI | OAuth via `gh auth` (your existing GitHub account) | Spawn, pipe stdin, parse stdout, relay events to UI and peers |
+| **GitHub Copilot** | `copilot` CLI | `copilot login` OAuth device flow (own token in OS credential store) | Spawn, pipe stdin, parse stdout, relay events to UI and peers |
 | **Claude Code** | `claude` CLI from Anthropic | OAuth via browser, or `ANTHROPIC_API_KEY` | Same |
 | **Codex CLI** | `codex` CLI from OpenAI | OAuth via browser, or `OPENAI_API_KEY` | Same |
 
@@ -327,7 +327,13 @@ All three CLIs are external tools maintained by their respective vendors. CodeCo
 
 ### Model selection
 
-Each provider exposes a different list of models, defined in [`electron/config/model-catalogs.json`](electron/config/model-catalogs.json). The model picker in chat groups them by provider and shows usage class (Included / Premium / Requires API key). When a model is marked **"Requires API key,"** that means it's not covered by your OAuth subscription and you'll need to have configured an API key for that provider.
+The model picker in chat shows the **discovered** model list, refreshed in the background after every Copilot CLI auth event. Discovery has three tiers:
+
+1. The Copilot CLI's OAuth token is read from the OS credential store and used to call the live `/models` API for authoritative reasoning levels (`low` / `medium` / `high` / `xhigh`) per model.
+2. Real billing multipliers are scraped from the local Copilot CLI debug logs (`~/.copilot/logs/*.log`) once a model has been used.
+3. Default multipliers seeded from the official VS Code Copilot picker fill in any model that hasn't been exercised yet, marked with a `usageIsDefault: true` flag.
+
+The static fallback at [`electron/config/model-catalogs.json`](electron/config/model-catalogs.json) is only used if discovery fails (e.g. Copilot CLI not signed in). Models marked **"Requires API key"** are not covered by your OAuth subscription and need a configured API key.
 
 ### Why CLIs and not direct API calls?
 
