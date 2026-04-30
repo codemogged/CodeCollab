@@ -237,8 +237,69 @@ function scrapeMultipliersFromLogs() {
 
 // ─── Catalog assembly ────────────────────────────────────────
 
+// Default multipliers seeded from the VS Code Copilot model picker
+// (https://github.com/features/copilot — "Premium request multipliers" table).
+// These are used as a pre-prompt placeholder for any model whose
+// `billing.multiplier` we haven't yet observed in the CLI debug logs.
+// As soon as the user actually runs a model, the real value scraped from
+// `~/.copilot/logs/*.log` overrides the default for that id.
+//
+// Match order: exact id → family/prefix.
+const DEFAULT_MULTIPLIERS_BY_ID = {
+  "claude-opus-4.7": 7.5,
+  "claude-opus-4.5": 7.5,
+  "claude-sonnet-4.6": 1,
+  "claude-sonnet-4.5": 1,
+  "claude-sonnet-4": 1,
+  "claude-haiku-4.5": 0.33,
+  "gemini-2.5-pro": 1,
+  "gemini-3.1-pro": 1,
+  "gemini-3-flash": 0.33,
+  "gpt-4.1": 0,
+  "gpt-4.1-2025-04-14": 0,
+  "gpt-41-copilot": 0,
+  "gpt-4o": 0,
+  "gpt-4o-mini": 0,
+  "gpt-4o-mini-2024-07-18": 0,
+  "gpt-5-mini": 0,
+  "gpt-5.2": 1,
+  "gpt-5.2-codex": 1,
+  "gpt-5.3-codex": 1,
+  "gpt-5.4": 1,
+  "gpt-5.4-mini": 0.33,
+  "gpt-5.4-nano": 0.33,
+  "gpt-5.5": 7.5,
+  "gpt-5.5-codex": 7.5,
+  "grok-code-fast-1": 0.25,
+  "raptor-mini": 0,
+};
+
+function defaultMultiplierFor(id) {
+  if (!id) return undefined;
+  if (id in DEFAULT_MULTIPLIERS_BY_ID) return DEFAULT_MULTIPLIERS_BY_ID[id];
+  // Family fallbacks for unseen variants (e.g. future "gpt-5.6" / "claude-opus-5").
+  if (/^claude-opus-/i.test(id)) return 7.5;
+  if (/^claude-sonnet-/i.test(id)) return 1;
+  if (/^claude-haiku-/i.test(id)) return 0.33;
+  if (/^gemini-.*flash/i.test(id)) return 0.33;
+  if (/^gemini-/i.test(id)) return 1;
+  if (/^grok-/i.test(id)) return 0.25;
+  if (/^gpt-4/i.test(id)) return 0;
+  if (/^gpt-5(?:[._-]|$).*(?:mini|nano)/i.test(id)) return 0.33;
+  if (/^gpt-5\.5/i.test(id)) return 7.5;
+  if (/^gpt-5(?:[._-]|$)/i.test(id)) return 1;
+  return undefined;
+}
+
+function resolveMultiplier(id, scraped) {
+  if (typeof scraped === "number" && isFinite(scraped)) return { value: scraped, isDefault: false };
+  const def = defaultMultiplierFor(id);
+  if (typeof def === "number") return { value: def, isDefault: true };
+  return null;
+}
+
 function formatMultiplier(n) {
-  if (typeof n !== "number" || !isFinite(n) || n <= 0) return "";
+  if (typeof n !== "number" || !isFinite(n) || n < 0) return "";
   return `${+n.toFixed(2)}x`;
 }
 
@@ -283,7 +344,9 @@ function buildEntriesFromApi(models, multipliers) {
     const maxTokens = typeof limits.max_output_tokens === "number"
       ? limits.max_output_tokens
       : (typeof ctxN === "number" ? ctxN : 200000);
-    const usage = formatMultiplier(multipliers[id]);
+    const resolved = resolveMultiplier(id, multipliers[id]);
+    const usage = resolved ? formatMultiplier(resolved.value) : "";
+    const usageIsDefault = resolved ? resolved.isDefault : false;
     const group = classifyGroup(id);
 
     const supportedRaw = m.capabilities && m.capabilities.supports && m.capabilities.supports.reasoning_effort;
@@ -301,6 +364,7 @@ function buildEntriesFromApi(models, multipliers) {
           contextWindow: ctx,
           maxTokens,
           usage,
+          usageIsDefault,
           group,
         });
       }
@@ -316,6 +380,7 @@ function buildEntriesFromApi(models, multipliers) {
         contextWindow: ctx,
         maxTokens,
         usage,
+        usageIsDefault,
         group,
       });
     } else {
@@ -326,6 +391,7 @@ function buildEntriesFromApi(models, multipliers) {
         contextWindow: ctx,
         maxTokens,
         usage,
+        usageIsDefault,
         group,
       });
     }
