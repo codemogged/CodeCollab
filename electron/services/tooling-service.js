@@ -2,6 +2,7 @@ const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
 const fs = require("fs");
 const path = require("path");
+const copilotCatalogService = require("./copilot-catalog-service");
 
 const execFileAsync = promisify(execFile);
 
@@ -9,10 +10,11 @@ const execFileAsync = promisify(execFile);
 const BUNDLED_CATALOGS_PATH = path.join(__dirname, "..", "config", "model-catalogs.json");
 
 function loadModelCatalogs() {
+  let staticData = { copilot: [], claude: [], codex: [], _version: 0, _updated: null };
   try {
     const raw = fs.readFileSync(BUNDLED_CATALOGS_PATH, "utf-8");
     const data = JSON.parse(raw);
-    return {
+    staticData = {
       copilot: Array.isArray(data.copilot) ? data.copilot : [],
       claude: Array.isArray(data.claude) ? data.claude : [],
       codex: Array.isArray(data.codex) ? data.codex : [],
@@ -21,8 +23,32 @@ function loadModelCatalogs() {
     };
   } catch (err) {
     console.warn("[tooling-service] Failed to load model-catalogs.json, returning empty catalogs:", err.message);
-    return { copilot: [], claude: [], codex: [], _version: 0, _updated: null };
   }
+
+  // Prefer the dynamically discovered Copilot catalog (parsed from CLI debug logs).
+  // This captures every model the user's account actually has access to, including
+  // ones that exist on the back end but were never hand-listed in the static JSON.
+  let discoveredCopilot = null;
+  let discoveredAt = null;
+  try {
+    const discovered = copilotCatalogService.getDiscoveredCopilotCatalog();
+    if (discovered && Array.isArray(discovered.copilot) && discovered.copilot.length > 0) {
+      discoveredCopilot = discovered.copilot;
+      discoveredAt = discovered.fetchedAt || null;
+    }
+  } catch (err) {
+    console.warn("[tooling-service] Copilot catalog discovery failed:", err.message);
+  }
+
+  return {
+    copilot: discoveredCopilot || staticData.copilot,
+    claude: staticData.claude,
+    codex: staticData.codex,
+    _version: staticData._version,
+    _updated: staticData._updated,
+    _copilotSource: discoveredCopilot ? "discovered" : "static",
+    _copilotDiscoveredAt: discoveredAt,
+  };
 }
 
 function createToolingService({ processService, settingsService }) {

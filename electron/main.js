@@ -256,6 +256,7 @@ const { createProcessService } = require("./services/process-service");
 const { createRepoService } = require("./services/repo-service");
 const { createSettingsService } = require("./services/settings-service");
 const { createToolingService } = require("./services/tooling-service");
+const copilotCatalogService = require("./services/copilot-catalog-service");
 const { createActivityService } = require("./services/activity-service");
 const { createProjectService } = require("./services/project-service");
 const { createSharedStateService } = require("./services/shared-state-service");
@@ -277,6 +278,7 @@ if (!isDev) {
 const processService = createProcessService({ sendEvent: () => undefined });
 const settingsService = createSettingsService({ app });
 const toolingService = createToolingService({ processService, settingsService });
+copilotCatalogService.setCachePath(path.join(app.getPath("userData"), "copilot-catalog-cache.json"));
 const activityService = createActivityService();
 const sharedStateService = createSharedStateService();
 const p2pService = createP2PService({ sharedStateService, sendEvent: () => undefined });
