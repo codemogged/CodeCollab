@@ -91,6 +91,12 @@ export default function OnboardingPage() {
   const [codexAuthStatus, setCodexAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
   const [codexAuthError, setCodexAuthError] = useState<string | null>(null);
 
+  /* Copilot CLI auth state — separate OAuth from `gh auth`; needed so the
+     discovered model catalog (live /models reasoning levels + multipliers)
+     can populate from the Copilot CLI's own keychain entry. */
+  const [copilotAuthStatus, setCopilotAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
+  const [copilotAuthError, setCopilotAuthError] = useState<string | null>(null);
+
   /* Install progress animation */
   const installPhasesMap: Record<string, string[]> = {
     git: ["Downloading Git…", "Running installer…", "Configuring Git…", "Almost there…"],
@@ -176,9 +182,28 @@ export default function OnboardingPage() {
       if (result.success) {
         setCopilot({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Copilot CLI installed") });
         setInstallLog("");
-        // gh auth + copilot CLI now both present — kick a catalog refresh so
-        // the live /models response (correct reasoning levels + multipliers)
-        // populates without an app restart.
+        // Now that the CLI is installed, immediately walk the user through
+        // its OAuth device flow (separate from gh auth login) so the live
+        // /models pipeline can read its keychain token. Mirrors the
+        // Claude/Codex post-install auth pattern.
+        try {
+          const authResult = await window.electronAPI!.tools.copilotAuthStatus();
+          if (authResult.authenticated) {
+            setCopilotAuthStatus("authenticated");
+          } else {
+            setCopilotAuthStatus("authenticating");
+            try {
+              const loginResult = await window.electronAPI!.tools.copilotAuthLogin();
+              setCopilotAuthStatus(loginResult.success ? "authenticated" : "not-authenticated");
+              if (!loginResult.success) setCopilotAuthError(loginResult.timedOut ? "Timed out. Try again." : "Not completed. Try again.");
+            } catch {
+              setCopilotAuthStatus("not-authenticated");
+              setCopilotAuthError("Something went wrong. Try again.");
+            }
+          }
+        } catch { setCopilotAuthStatus("not-authenticated"); }
+        // Catalog refresh — the IPC handler also kicks one on auth success,
+        // but firing here covers the already-authenticated path.
         try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
       } else {
         setCopilot({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
@@ -368,6 +393,36 @@ export default function OnboardingPage() {
     if (codex.status === "ready" && selectedProviders.has("codex")) checkCodexAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, codex.status, selectedProviders]);
+
+  /* ── Copilot CLI auth ── */
+  async function checkCopilotAuth() {
+    if (!canUseElectron()) return;
+    setCopilotAuthStatus("checking");
+    setCopilotAuthError(null);
+    try {
+      const result = await window.electronAPI!.tools.copilotAuthStatus();
+      setCopilotAuthStatus(result.authenticated ? "authenticated" : "not-authenticated");
+    } catch { setCopilotAuthStatus("not-authenticated"); }
+  }
+
+  async function startCopilotAuth() {
+    if (!canUseElectron()) return;
+    setCopilotAuthStatus("authenticating");
+    setCopilotAuthError(null);
+    try {
+      const result = await window.electronAPI!.tools.copilotAuthLogin();
+      if (result.success) {
+        setCopilotAuthStatus("authenticated");
+        try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
+      } else { setCopilotAuthStatus("not-authenticated"); setCopilotAuthError(result.timedOut ? "Timed out. Try again." : "Not completed. Try again."); }
+    } catch { setCopilotAuthStatus("error"); setCopilotAuthError("Something went wrong."); }
+  }
+
+  useEffect(() => {
+    if (step !== "provider" || !canUseElectron()) return;
+    if (copilot.status === "ready" && selectedProviders.has("copilot")) checkCopilotAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, copilot.status, selectedProviders]);
 
   /* ── GitHub auth ── */
   useEffect(() => {
@@ -688,9 +743,11 @@ export default function OnboardingPage() {
                     <ProviderStatusRow
                       provider="copilot"
                       toolState={copilot}
-                      authStatus={ghAuthStatus === "authenticated" ? "authenticated" : copilot.status === "ready" ? "ready" : undefined}
+                      authStatus={copilot.status === "ready" ? copilotAuthStatus : undefined}
                       authLabel={ghAuthUsername || undefined}
                       onInstall={gh.status === "ready" ? installCopilotExtension : undefined}
+                      onSignIn={startCopilotAuth}
+                      authError={copilotAuthError}
                       phaseText={installPhases.copilot[activeInstallPhases.copilot || 0]}
                     />
                   )}

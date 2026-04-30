@@ -1726,6 +1726,29 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
     return result;
   });
 
+  safeHandle("tools:copilotAuthStatus", async () => {
+    return toolingService.getCopilotAuthStatus();
+  });
+
+  safeHandle("tools:copilotAuthLogin", async () => {
+    const result = await toolingService.startCopilotAuth(sendEvent);
+    console.log(`[tools] copilotAuth: success=${result.success}${result.timedOut ? " (timed out)" : ""}`);
+    if (result.success) {
+      logActivity({
+        type: "status",
+        title: "Copilot CLI connected",
+        description: "Successfully authenticated with GitHub Copilot.",
+        actor: "CodeCollab",
+        actorInitials: "CB",
+      });
+      // Token now in OS keychain — refresh the discovered model catalog so
+      // the live /models response (correct reasoning levels + multipliers)
+      // populates without an app restart.
+      kickCopilotCatalogRefresh("copilotAuthLogin");
+    }
+    return result;
+  });
+
   safeHandle("tools:claudeAuthStatus", async () => {
     return toolingService.getClaudeAuthStatus();
   });

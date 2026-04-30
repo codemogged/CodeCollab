@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     codexAuthStatus: () => ipcRenderer.invoke("tools:codexAuthStatus"),
     codexAuthLogin: () => ipcRenderer.invoke("tools:codexAuthLogin"),
     onCodexAuthProgress: (callback) => subscribe("tools:codexAuthProgress", callback),
+    copilotAuthStatus: () => ipcRenderer.invoke("tools:copilotAuthStatus"),
+    copilotAuthLogin: () => ipcRenderer.invoke("tools:copilotAuthLogin"),
+    onCopilotAuthProgress: (callback) => subscribe("tools:copilotAuthProgress", callback),
   },
 
   sharedState: {

@@ -907,6 +907,8 @@ function createToolingService({ processService, settingsService }) {
     installCodex,
     getCodexAuthStatus,
     startCodexAuth,
+    getCopilotAuthStatus,
+    startCopilotAuth,
     setupGitCredentialHelper,
   };
 
@@ -1685,6 +1687,98 @@ function createToolingService({ processService, settingsService }) {
         console.log("[codexAuth] Timed out after 5 minutes");
         try { child.kill(); } catch {}
         resolve({ success: false, stdout, stderr, exitCode: null, timedOut: true });
+      }, 300000);
+    });
+  }
+
+  /* ─── GitHub Copilot CLI auth ─── */
+  // The Copilot CLI (npm `@github/copilot`) writes its OAuth token to the OS
+  // credential store under the key `copilot-cli/https://github.com:<login>`
+  // (Credential Manager on Windows, Keychain on macOS, libsecret on Linux),
+  // and also records the active login in ~/.copilot/config.json. Detecting
+  // sign-in via the config file avoids platform-specific keychain reads here
+  // (the catalog discovery service does that read separately) and is enough
+  // to gate the onboarding UI.
+
+  function readCopilotLoginFromConfig() {
+    const fs = require("fs");
+    const path = require("path");
+    const os = require("os");
+    try {
+      const raw = fs.readFileSync(path.join(os.homedir(), ".copilot", "config.json"), "utf-8");
+      // Strip leading // line comments before JSON.parse.
+      const json = raw.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join("\n");
+      const obj = JSON.parse(json);
+      return (obj && obj.lastLoggedInUser && obj.lastLoggedInUser.login)
+        || (obj && Array.isArray(obj.loggedInUsers) && obj.loggedInUsers[0] && obj.loggedInUsers[0].login)
+        || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function getCopilotAuthStatus() {
+    const login = readCopilotLoginFromConfig();
+    if (login) return { authenticated: true, detail: `Signed in as ${login}` };
+    return { authenticated: false, detail: "Not signed in \u2014 click to authenticate" };
+  }
+
+  async function startCopilotAuth(sendEvent) {
+    await refreshSystemPath();
+    const configuredCommands = await getConfiguredCommands();
+    const copilotCmd = configuredCommands.copilot || getCommandName("copilot");
+
+    return new Promise((resolve, reject) => {
+      const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(copilotCmd);
+      const child = spawn(copilotCmd, ["login"], {
+        cwd: process.cwd(),
+        windowsHide: true,
+        shell: needsShell || undefined,
+        env: { ...process.env, NO_COLOR: "1" },
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let deviceCode = null;
+      let verificationUrl = null;
+
+      const processOutput = (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        // Match the GitHub OAuth device flow code (e.g., "code: ABCD-EFGH")
+        const codeMatch = text.match(/code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i);
+        if (codeMatch) deviceCode = codeMatch[1];
+        const urlMatch = text.match(/(https:\/\/github\.com\/login\/device)/i);
+        if (urlMatch) verificationUrl = urlMatch[1];
+        sendEvent("tools:copilotAuthProgress", { output: text, deviceCode, verificationUrl });
+      };
+
+      child.stdout.on("data", processOutput);
+      child.stderr.on("data", (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        processOutput(chunk);
+      });
+
+      child.on("close", (code) => {
+        // Belt-and-suspenders: even if the child exits 0, verify config.json
+        // actually shows a logged-in user before reporting success.
+        const login = readCopilotLoginFromConfig();
+        if (code === 0 || login) {
+          resolve({ success: !!login || code === 0, stdout, stderr, deviceCode, verificationUrl });
+        } else {
+          resolve({ success: false, stdout, stderr, exitCode: code, deviceCode, verificationUrl });
+        }
+      });
+
+      child.on("error", (err) => {
+        reject(err);
+      });
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        try { child.kill(); } catch {}
+        resolve({ success: false, stdout, stderr, exitCode: null, timedOut: true, deviceCode, verificationUrl });
       }, 300000);
     });
   }

@@ -793,6 +793,9 @@ export interface ElectronAPI {
     codexAuthStatus: () => Promise<{ authenticated: boolean; detail: string }>;
     codexAuthLogin: () => Promise<{ success: boolean; stdout?: string; stderr?: string; timedOut?: boolean }>;
     onCodexAuthProgress: (callback: (event: { output: string }) => void) => () => void;
+    copilotAuthStatus: () => Promise<{ authenticated: boolean; detail: string }>;
+    copilotAuthLogin: () => Promise<{ success: boolean; stdout?: string; stderr?: string; deviceCode?: string | null; verificationUrl?: string | null; timedOut?: boolean }>;
+    onCopilotAuthProgress: (callback: (event: { output: string; deviceCode: string | null; verificationUrl: string | null }) => void) => () => void;
   };
   sharedState: {
     init: (repoPath: string) => Promise<SharedStateInitResult>;
