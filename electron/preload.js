@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     listStatus: () => ipcRenderer.invoke("tools:listStatus"),
     getModelCatalogs: () => ipcRenderer.invoke("tools:getModelCatalogs"),
     installCopilot: () => ipcRenderer.invoke("tools:installCopilot"),
+    refreshCopilotCatalog: () => ipcRenderer.invoke("tools:refreshCopilotCatalog"),
     installClaude: () => ipcRenderer.invoke("tools:installClaude"),
     installNode: () => ipcRenderer.invoke("tools:installNode"),
     installGit: () => ipcRenderer.invoke("tools:installGit"),

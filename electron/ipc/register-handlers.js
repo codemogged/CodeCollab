@@ -1,4 +1,23 @@
 const { dialog, shell, ipcMain, clipboard } = require("electron");
+const copilotCatalogService = require("../services/copilot-catalog-service");
+
+// Background refresh of the discovered Copilot model catalog. Fires after any
+// auth/install event that could newly enable the live /models API + log
+// scraping pipeline (gh login writes the OAuth token; copilot install adds
+// the CLI). Non-blocking so the UI flow finishes immediately even if the
+// keychain isn't readable yet.
+function kickCopilotCatalogRefresh(reason) {
+  setImmediate(() => {
+    copilotCatalogService.refreshCatalog()
+      .then((cat) => {
+        const n = Array.isArray(cat?.entries) ? cat.entries.length : 0;
+        console.log(`[copilot-catalog] refresh after ${reason}: ${n} entries`);
+      })
+      .catch((err) => {
+        console.warn(`[copilot-catalog] refresh after ${reason} failed:`, err && err.message);
+      });
+  });
+}
 
 // Promisified child_process.execFile. Using execFile (not exec) avoids a shell
 // and is safe to call in async handlers — unlike execSync, it does NOT block
@@ -1639,7 +1658,23 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
   });
 
   safeHandle("tools:installCopilot", async () => {
-    return toolingService.installCopilot();
+    const result = await toolingService.installCopilot();
+    if (result && result.success) kickCopilotCatalogRefresh("installCopilot");
+    return result;
+  });
+
+  // Manual catalog refresh — invoked by the renderer after onboarding flows
+  // that may have just unlocked the live /models API (gh auth login,
+  // copilot extension install). Non-blocking from the renderer's POV: kicks
+  // a background refresh and returns the current cached snapshot.
+  safeHandle("tools:refreshCopilotCatalog", async () => {
+    try {
+      const cat = await copilotCatalogService.refreshCatalog();
+      const entries = Array.isArray(cat?.entries) ? cat.entries.length : 0;
+      return { success: !!cat, entries, source: cat?.source || null };
+    } catch (err) {
+      return { success: false, entries: 0, error: err && err.message };
+    }
   });
 
   safeHandle("tools:installClaude", async () => {
@@ -1723,6 +1758,9 @@ function registerIpcHandlers({ app, mainWindow, processService, repoService, set
         actor: "CodeCollab",
         actorInitials: "CB",
       });
+      // gh auth writes the Copilot CLI OAuth token to the OS keychain;
+      // refresh now so the catalog populates without an app restart.
+      kickCopilotCatalogRefresh("githubAuthLogin");
     }
     return result;
   });

@@ -176,6 +176,10 @@ export default function OnboardingPage() {
       if (result.success) {
         setCopilot({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Copilot CLI installed") });
         setInstallLog("");
+        // gh auth + copilot CLI now both present — kick a catalog refresh so
+        // the live /models response (correct reasoning levels + multipliers)
+        // populates without an app restart.
+        try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
       } else {
         setCopilot({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
         setInstallLog("Install failed. Try manually:\n• winget install GitHub.Copilot\n• npm install -g @githubnext/github-copilot-cli");
@@ -401,6 +405,9 @@ export default function OnboardingPage() {
         const status = await window.electronAPI!.tools.githubAuthStatus();
         setGhAuthUsername(status.username);
         try { await window.electronAPI!.tools.setupGit(); } catch { /* non-critical */ }
+        // GitHub OAuth token is now in the OS keychain — trigger a Copilot
+        // catalog refresh so the live /models pipeline runs immediately.
+        try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
       } else if (result.timedOut) { setGhAuthStatus("not-authenticated"); setGhAuthError("Timed out. Try again."); }
       else { setGhAuthStatus("not-authenticated"); setGhAuthError("Not completed. Try again."); }
     } catch { unsub(); setGhAuthStatus("error"); setGhAuthError("Something went wrong."); }

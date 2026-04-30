@@ -771,6 +771,7 @@ export interface ElectronAPI {
     listStatus: () => Promise<ToolStatus[]>;
     getModelCatalogs: () => Promise<ModelCatalogs>;
     installCopilot: () => Promise<{ success: boolean; detail: string; log: string[] }>;
+    refreshCopilotCatalog: () => Promise<{ success: boolean; entries: number; source?: string | null; error?: string }>;
     installClaude: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installNode: () => Promise<{ success: boolean; detail: string; log: string[] }>;
     installGit: () => Promise<{ success: boolean; detail: string; log: string[] }>;
