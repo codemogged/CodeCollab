@@ -96,6 +96,8 @@ export default function OnboardingPage() {
      can populate from the Copilot CLI's own keychain entry. */
   const [copilotAuthStatus, setCopilotAuthStatus] = useState<"unknown" | "checking" | "authenticated" | "not-authenticated" | "authenticating" | "error">("unknown");
   const [copilotAuthError, setCopilotAuthError] = useState<string | null>(null);
+  const [copilotAuthDeviceCode, setCopilotAuthDeviceCode] = useState<string | null>(null);
+  const [copilotAuthUrl, setCopilotAuthUrl] = useState<string | null>(null);
 
   /* Install progress animation */
   const installPhasesMap: Record<string, string[]> = {
@@ -192,11 +194,24 @@ export default function OnboardingPage() {
             setCopilotAuthStatus("authenticated");
           } else {
             setCopilotAuthStatus("authenticating");
+            setCopilotAuthDeviceCode(null);
+            setCopilotAuthUrl(null);
+            setCopilotAuthError(null);
+            const unsub = window.electronAPI!.tools.onCopilotAuthProgress((event) => {
+              if (event.deviceCode) setCopilotAuthDeviceCode(event.deviceCode);
+              if (event.verificationUrl) {
+                setCopilotAuthUrl(event.verificationUrl);
+                // Auto-open browser the first time we see the URL.
+                try { window.electronAPI?.system?.openExternal(event.verificationUrl); } catch { /* non-critical */ }
+              }
+            });
             try {
               const loginResult = await window.electronAPI!.tools.copilotAuthLogin();
+              unsub();
               setCopilotAuthStatus(loginResult.success ? "authenticated" : "not-authenticated");
               if (!loginResult.success) setCopilotAuthError(loginResult.timedOut ? "Timed out. Try again." : "Not completed. Try again.");
             } catch {
+              unsub();
               setCopilotAuthStatus("not-authenticated");
               setCopilotAuthError("Something went wrong. Try again.");
             }
@@ -409,13 +424,23 @@ export default function OnboardingPage() {
     if (!canUseElectron()) return;
     setCopilotAuthStatus("authenticating");
     setCopilotAuthError(null);
+    setCopilotAuthDeviceCode(null);
+    setCopilotAuthUrl(null);
+    const unsub = window.electronAPI!.tools.onCopilotAuthProgress((event) => {
+      if (event.deviceCode) setCopilotAuthDeviceCode(event.deviceCode);
+      if (event.verificationUrl) {
+        setCopilotAuthUrl(event.verificationUrl);
+        try { window.electronAPI?.system?.openExternal(event.verificationUrl); } catch { /* non-critical */ }
+      }
+    });
     try {
       const result = await window.electronAPI!.tools.copilotAuthLogin();
+      unsub();
       if (result.success) {
         setCopilotAuthStatus("authenticated");
         try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
       } else { setCopilotAuthStatus("not-authenticated"); setCopilotAuthError(result.timedOut ? "Timed out. Try again." : "Not completed. Try again."); }
-    } catch { setCopilotAuthStatus("error"); setCopilotAuthError("Something went wrong."); }
+    } catch { unsub(); setCopilotAuthStatus("error"); setCopilotAuthError("Something went wrong."); }
   }
 
   useEffect(() => {
@@ -748,6 +773,8 @@ export default function OnboardingPage() {
                       onInstall={gh.status === "ready" ? installCopilotExtension : undefined}
                       onSignIn={startCopilotAuth}
                       authError={copilotAuthError}
+                      deviceCode={copilotAuthDeviceCode}
+                      verificationUrl={copilotAuthUrl}
                       phaseText={installPhases.copilot[activeInstallPhases.copilot || 0]}
                     />
                   )}
@@ -1040,6 +1067,8 @@ function ProviderStatusRow({
   onInstall,
   onSignIn,
   authError,
+  deviceCode,
+  verificationUrl,
   phaseText,
 }: {
   provider: ProviderKey;
@@ -1049,6 +1078,8 @@ function ProviderStatusRow({
   onInstall?: () => void;
   onSignIn?: () => void;
   authError?: string | null;
+  deviceCode?: string | null;
+  verificationUrl?: string | null;
   phaseText?: string;
 }) {
   const names: Record<ProviderKey, string> = { copilot: "GitHub Copilot", claude: "Claude Code", codex: "Codex CLI" };
@@ -1104,6 +1135,42 @@ function ProviderStatusRow({
   const isAuthed = authStatus === "authenticated";
   const isAuthing = authStatus === "authenticating";
   const isChecking = authStatus === "checking";
+
+  // Device-code panel for OAuth flows that surface a one-time code (Copilot
+  // CLI, gh auth). Rendered as a full-width block under the row when present.
+  if (isAuthing && deviceCode) {
+    return (
+      <div className="px-5 py-4">
+        <div className="flex items-center gap-3">
+          <ProviderIcon provider={provider} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-text">{label}</p>
+            <p className="text-xs text-violet mt-0.5">Signing in… enter the code in your browser</p>
+          </div>
+          <Spinner className="text-violet" size={16} />
+        </div>
+        <div className="mt-3 rounded-2xl border border-violet/20 bg-violet/8 px-5 py-4 space-y-3 text-center">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-violet">Copy this code</p>
+            <p className="mt-1.5 select-all font-mono text-2xl font-bold tracking-[0.15em] text-violet">{deviceCode}</p>
+          </div>
+          {verificationUrl && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-violet">Then open</p>
+              <button
+                onClick={() => { if (verificationUrl) window.electronAPI?.system?.openExternal(verificationUrl); }}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-violet/20 px-4 py-2 text-sm font-semibold text-violet transition hover:bg-violet/30"
+              >
+                {verificationUrl.replace(/^https?:\/\//, "")} ↗
+              </button>
+            </div>
+          )}
+          <p className="text-[11px] text-text-dim">Authorize in the browser, then come back.</p>
+        </div>
+        {authError && <p className="mt-2 text-xs text-coral text-center">{authError}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-3 px-5 py-4">
