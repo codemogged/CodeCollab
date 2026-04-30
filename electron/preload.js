@@ -62,6 +62,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onChanged: (callback) => subscribe("settings:changed", callback),
   },
 
+  updater: {
+    check: () => ipcRenderer.invoke("updater:check"),
+    installNow: () => ipcRenderer.invoke("updater:installNow"),
+    getStatus: () => ipcRenderer.invoke("updater:getStatus"),
+    onStatus: (callback) => subscribe("updater:status", callback),
+  },
+
   project: {
     list: () => ipcRenderer.invoke("project:list"),
     create: (payload) => ipcRenderer.invoke("project:create", payload),

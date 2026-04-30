@@ -1,6 +1,6 @@
 {
   "name": "codecollab",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodeCollab — local-first desktop workspace for collaborative vibe coding.",
   "author": "CodeCollab Contributors",
   "license": "MIT",
@@ -49,6 +49,14 @@
       "icon": "build/icon.ico",
       "signAndEditExecutable": false
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "codemogged",
+        "repo": "CodeCollab",
+        "releaseType": "release"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -77,6 +85,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "electron-updater": "^6.8.3",
     "hyperswarm": "^4.17.0",
     "monaco-editor": "^0.55.1",
     "next": "^16.2.1",

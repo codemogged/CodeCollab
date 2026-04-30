@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import ThemeProvider from "@/components/theme-provider";
+import UpdateToast from "@/components/update-toast";
 import "./globals.css";
 
 const bodyFont = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({
       <body className={`${bodyFont.variable} ${displayFont.variable} ${codeFont.variable} bg-void text-text antialiased`}>
         <ThemeProvider>
           {children}
+          <UpdateToast />
         </ThemeProvider>
       </body>
     </html>

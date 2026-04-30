@@ -558,6 +558,14 @@ app.whenReady().then(async () => {
   await bootstrapDesktopServices();
   buildApplicationMenu();
   await createWindow();
+
+  // Auto-updates (Windows only — macOS requires codesigning, Linux has no NSIS).
+  try {
+    const { initAutoUpdater } = require("./services/updater-service");
+    initAutoUpdater({ getMainWindow: () => mainWindow });
+  } catch (err) {
+    console.warn("[updater] init failed:", err?.message ?? err);
+  }
 });
 
 // Track whether cleanup has already run to prevent double-cleanup

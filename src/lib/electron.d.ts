@@ -1,6 +1,16 @@
 // Type declarations for the Electron API exposed via preload.js
 // This makes window.electronAPI fully typed in your React components.
 
+export type UpdaterStatus =
+  | { state: "idle"; info: null }
+  | { state: "checking"; info: null }
+  | { state: "available"; info: { version: string | null; releaseDate: string | null } }
+  | { state: "up-to-date"; info: null }
+  | { state: "downloading"; info: { percent: number; transferred: number; total: number } }
+  | { state: "downloaded"; info: { version: string | null; releaseDate: string | null; releaseNotes: string | null } }
+  | { state: "error"; info: { message: string } }
+  | { state: "unsupported"; info: null };
+
 export interface ModelCatalogEntry {
   id: string;
   label: string;
@@ -734,6 +744,12 @@ export interface ElectronAPI {
     isFirstRun: () => Promise<boolean>;
     completeOnboarding: () => Promise<DesktopSettings>;
     onChanged: (callback: (settings: DesktopSettings) => void) => () => void;
+  };
+  updater: {
+    check: () => Promise<{ ok: boolean; version?: string | null; reason?: string }>;
+    installNow: () => Promise<{ ok: boolean; reason?: string }>;
+    getStatus: () => Promise<UpdaterStatus>;
+    onStatus: (callback: (status: UpdaterStatus) => void) => () => void;
   };
   project: {
     list: () => Promise<DesktopProject[]>;
