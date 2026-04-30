@@ -279,6 +279,12 @@ const processService = createProcessService({ sendEvent: () => undefined });
 const settingsService = createSettingsService({ app });
 const toolingService = createToolingService({ processService, settingsService });
 copilotCatalogService.setCachePath(path.join(app.getPath("userData"), "copilot-catalog-cache.json"));
+// Kick off a background refresh so the next launch (and the running session,
+// once cache is rewritten) sees the live /models response with correct
+// reasoning levels and billing multipliers.
+copilotCatalogService.refreshCatalog().catch((err) => {
+  console.warn("[main] copilot catalog refresh failed:", err && err.message);
+});
 const activityService = createActivityService();
 const sharedStateService = createSharedStateService();
 const p2pService = createP2PService({ sharedStateService, sendEvent: () => undefined });
