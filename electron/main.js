@@ -152,8 +152,7 @@ function buildApplicationMenu() {
     submenu: [
       {
         label: "Learn More",
-        // TODO(maintainer): update this URL to the public CodeCollab repository when published.
-        click: () => { try { shell.openExternal("https://github.com/codecollab-app/codecollab"); } catch { /* ignore */ } },
+        click: () => { try { shell.openExternal("https://github.com/codemogged/codecollab"); } catch { /* ignore */ } },
       },
     ],
   });

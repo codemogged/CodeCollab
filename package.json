@@ -6,6 +6,14 @@
   "license": "MIT",
   "private": true,
   "main": "electron/main.js",
+  "homepage": "https://github.com/codemogged/codecollab",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codemogged/codecollab.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codemogged/codecollab/issues"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "dev:electron": "concurrently --kill-others \"next dev --turbopack --port 3000\" \"wait-on http://localhost:3000 && electron .\"",
