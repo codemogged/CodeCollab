@@ -100,7 +100,6 @@ function createToolingService({ processService, settingsService }) {
         npm: "npm.cmd",
         npx: "npx.cmd",
         codex: "codex.cmd",
-        copilot: "copilot.cmd",
         claude: "claude.cmd",
       };
       if (cmdMap[command]) return cmdMap[command];
@@ -1726,16 +1725,22 @@ function createToolingService({ processService, settingsService }) {
   async function startCopilotAuth(sendEvent) {
     await refreshSystemPath();
     const configuredCommands = await getConfiguredCommands();
-    const copilotCmd = configuredCommands.copilot || getCommandName("copilot");
+    const copilotCmd = configuredCommands.copilot || "copilot";
 
     return new Promise((resolve, reject) => {
       const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(copilotCmd);
-      const child = spawn(copilotCmd, ["login"], {
-        cwd: process.cwd(),
-        windowsHide: true,
-        shell: needsShell || undefined,
-        env: { ...process.env, NO_COLOR: "1" },
-      });
+      let child;
+      try {
+        child = spawn(copilotCmd, ["login"], {
+          cwd: process.cwd(),
+          windowsHide: true,
+          shell: needsShell || undefined,
+          env: { ...process.env, NO_COLOR: "1" },
+        });
+      } catch (err) {
+        resolve({ success: false, stdout: "", stderr: err.message, exitCode: null, deviceCode: null, verificationUrl: null });
+        return;
+      }
 
       let stdout = "";
       let stderr = "";
@@ -1745,11 +1750,12 @@ function createToolingService({ processService, settingsService }) {
       const processOutput = (chunk) => {
         const text = chunk.toString();
         stdout += text;
-        // Match the GitHub OAuth device flow code (e.g., "code: ABCD-EFGH")
-        const codeMatch = text.match(/code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i);
+        // Match current Copilot output ("enter code ABCD-EFGH") and older
+        // device-flow output ("code: ABCD-EFGH").
+        const codeMatch = text.match(/(?:enter\s+code|code:)\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i);
         if (codeMatch) deviceCode = codeMatch[1];
-        const urlMatch = text.match(/(https:\/\/github\.com\/login\/device)/i);
-        if (urlMatch) verificationUrl = urlMatch[1];
+        const urlMatch = text.match(/(https:\/\/github\.com\/login\/device[^\s,.]*)/i);
+        if (urlMatch) verificationUrl = urlMatch[1].replace(/[).,;]+$/, "");
         sendEvent("tools:copilotAuthProgress", { output: text, deviceCode, verificationUrl });
       };
 
