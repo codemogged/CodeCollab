@@ -184,41 +184,18 @@ export default function OnboardingPage() {
       if (result.success) {
         setCopilot({ checking: false, installing: false, status: "ready", detail: truncateDetail(result.detail || "Copilot CLI installed") });
         setInstallLog("");
-        // Now that the CLI is installed, immediately walk the user through
-        // its OAuth device flow (separate from gh auth login) so the live
-        // /models pipeline can read its keychain token. Mirrors the
-        // Claude/Codex post-install auth pattern.
+        // Do NOT auto-trigger the OAuth device flow here. The Copilot CLI
+        // buffers its "enter code XXXX-XXXX" output when stdout isn't a TTY,
+        // so the code never reaches the UI on the auto-run. Instead we just
+        // surface the current auth state and let the user click "Sign in",
+        // which runs `startCopilotAuth` — that path reliably emits both the
+        // browser popup and the device code together.
         try {
           const authResult = await window.electronAPI!.tools.copilotAuthStatus();
-          if (authResult.authenticated) {
-            setCopilotAuthStatus("authenticated");
-          } else {
-            setCopilotAuthStatus("authenticating");
-            setCopilotAuthDeviceCode(null);
-            setCopilotAuthUrl(null);
-            setCopilotAuthError(null);
-            const unsub = window.electronAPI!.tools.onCopilotAuthProgress((event) => {
-              if (event.deviceCode) setCopilotAuthDeviceCode(event.deviceCode);
-              if (event.verificationUrl) {
-                setCopilotAuthUrl(event.verificationUrl);
-                // Auto-open browser the first time we see the URL.
-                try { window.electronAPI?.system?.openExternal(event.verificationUrl); } catch { /* non-critical */ }
-              }
-            });
-            try {
-              const loginResult = await window.electronAPI!.tools.copilotAuthLogin();
-              unsub();
-              setCopilotAuthStatus(loginResult.success ? "authenticated" : "not-authenticated");
-              if (!loginResult.success) setCopilotAuthError(loginResult.timedOut ? "Timed out. Try again." : "Not completed. Try again.");
-            } catch {
-              unsub();
-              setCopilotAuthStatus("not-authenticated");
-              setCopilotAuthError("Something went wrong. Try again.");
-            }
-          }
+          setCopilotAuthStatus(authResult.authenticated ? "authenticated" : "not-authenticated");
         } catch { setCopilotAuthStatus("not-authenticated"); }
-        // Catalog refresh — the IPC handler also kicks one on auth success,
-        // but firing here covers the already-authenticated path.
+        // Catalog refresh — covers the already-authenticated path. The auth
+        // IPC handler also kicks one on a fresh sign-in success.
         try { await window.electronAPI!.tools.refreshCopilotCatalog(); } catch { /* non-critical */ }
       } else {
         setCopilot({ checking: false, installing: false, status: "error", detail: truncateDetail(result.detail || "Install failed") });
